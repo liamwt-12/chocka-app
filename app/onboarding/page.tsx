@@ -60,8 +60,28 @@ export default function OnboardingPage() {
   const [counter, setCounter] = useState(0);
   const [finalCounter, setFinalCounter] = useState(0);
 
-  // Run audit on mount
-  useEffect(() => { runAudit(); }, []);
+  // Run audit on mount OR resume fixing if returning from Stripe
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('paid') === 'true') {
+      // Returning from Stripe checkout - resume fixing
+      const stored = sessionStorage.getItem('chocka_fix_data');
+      if (stored) {
+        try {
+          const fixData = JSON.parse(stored);
+          setDesc(fixData.desc || '');
+          setSvcs(fixData.svcs || []);
+          setPost(fixData.post || '');
+          setHrs(fixData.hrs || null);
+          sessionStorage.removeItem('chocka_fix_data');
+          setPhase('fixing');
+          setTimeout(() => runFixes(fixData), 100);
+          return;
+        } catch {}
+      }
+    }
+    runAudit();
+  }, []);
 
   // Analysis step animation
   useEffect(() => {
@@ -126,24 +146,33 @@ export default function OnboardingPage() {
     if (res.ok) {
       const data = await res.json();
       if (data.url) {
-        // Redirect to Stripe - they'll come back to /dashboard after payment
-        // For now, skip straight to fixing (Stripe webhook will handle subscription)
-        // window.location.href = data.url;
+        // Store fix data in sessionStorage so we can apply after payment
+        sessionStorage.setItem('chocka_fix_data', JSON.stringify({ desc, svcs, cats: previews?.categories, hrs, post, reviewPreview: previews?.reviewPreview }));
+        window.location.href = data.url;
+        return;
       }
     }
+    // If checkout fails, proceed anyway (for testing)
     setPhase('fixing');
     await runFixes();
   }
 
-  async function runFixes() {
+  async function runFixes(overrides?: any) {
+    const _desc = overrides?.desc ?? desc;
+    const _svcs = overrides?.svcs ?? svcs;
+    const _post = overrides?.post ?? post;
+    const _hrs = overrides?.hrs ?? hrs;
+    const _cats = overrides?.cats ?? previews?.categories;
+    const _reviewPreview = overrides?.reviewPreview ?? previews?.reviewPreview;
+
     const body: any = {};
     const lines: string[] = [];
-    if (desc) { body.description = desc; lines.push('Updating your business description'); }
-    if (svcs.length) { body.services = svcs; lines.push(`Adding ${svcs.length} services`); }
-    if (previews?.categories?.length) { body.categories = previews.categories; lines.push(`Adding ${previews.categories.length} categories`); }
-    if (hrs) { body.hours = hrs; lines.push('Setting your opening hours'); }
-    if (previews?.reviewPreview) { body.replyToReviews = true; lines.push(`Replying to ${previews.reviewPreview.totalUnreplied} reviews`); }
-    if (post) { body.firstPost = post; lines.push('Scheduling your first post for tomorrow 10am'); }
+    if (_desc) { body.description = _desc; lines.push('Updating your business description'); }
+    if (_svcs?.length) { body.services = _svcs; lines.push(`Adding ${_svcs.length} services`); }
+    if (_cats?.length) { body.categories = _cats; lines.push(`Adding ${_cats.length} categories`); }
+    if (_hrs) { body.hours = _hrs; lines.push('Setting your opening hours'); }
+    if (_reviewPreview) { body.replyToReviews = true; lines.push(`Replying to ${_reviewPreview.totalUnreplied} reviews`); }
+    if (_post) { body.firstPost = _post; lines.push('Scheduling your first post for tomorrow 10am'); }
     lines.push('Setting up weekly stats');
     for (let i = 0; i < lines.length; i++) {
       setFixLines(p => [...p, lines[i]]);

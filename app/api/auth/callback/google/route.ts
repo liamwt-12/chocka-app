@@ -52,10 +52,20 @@ export async function GET(request: NextRequest) {
       return NextResponse.redirect(new URL('/settings', process.env.NEXT_PUBLIC_APP_URL!));
     }
 
-    if (existingUser && existingUser.subscription_status === 'active') {
-      // Existing active user — go to dashboard
-      // Set session cookie (simplified — use Supabase Auth in production)
-      const response = NextResponse.redirect(new URL('/dashboard', process.env.NEXT_PUBLIC_APP_URL!));
+    if (existingUser) {
+      // Existing user — update token and go to dashboard
+      await supabaseAdmin
+        .from('users')
+        .update({
+          google_refresh_token: tokens.refresh_token || existingUser.google_refresh_token,
+          token_status: 'valid',
+          token_invalid_at: null,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', existingUser.id);
+
+      const dest = existingUser.onboarding_step === 'complete' ? '/dashboard' : '/onboarding';
+      const response = NextResponse.redirect(new URL(dest, process.env.NEXT_PUBLIC_APP_URL!));
       response.cookies.set('chocka_user_id', existingUser.id, {
         httpOnly: true,
         secure: true,

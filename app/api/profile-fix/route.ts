@@ -19,6 +19,8 @@ export async function POST(request: NextRequest) {
 
     const accessToken = await refreshAccessToken(userData.google_refresh_token);
     const locName = profile.google_location_name;
+    console.log('[profile-fix] Token refreshed OK, location:', locName);
+    console.log('[profile-fix] Fix request body:', JSON.stringify(body).slice(0, 300));
     const results: Array<{ step: string; success: boolean; detail?: string }> = [];
 
     // 1. Description
@@ -90,6 +92,7 @@ export async function POST(request: NextRequest) {
     }
 
     await supaAdmin.from('users').update({ onboarding_step: 'complete' }).eq('id', userId);
+    console.log('[profile-fix] Results:', JSON.stringify(results));
     return NextResponse.json({ results, totalFixes: results.length, successfulFixes: results.filter(r => r.success).length });
   } catch (error: any) {
     console.error('Fix error:', error);

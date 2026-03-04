@@ -43,7 +43,7 @@ export async function POST(request: NextRequest) {
     const session = await createCheckoutSession({
       customerId,
       priceId: getPriceId(plan === 'yearly' ? 'yearly' : 'monthly'),
-      successUrl: `${appUrl}/dashboard?welcome=true`,
+      successUrl: `${appUrl}/onboarding?paid=true`,
       cancelUrl: `${appUrl}/onboarding`,
       metadata: {
         user_id: userId,

@@ -32,7 +32,7 @@ export async function GET(request: NextRequest) {
           getReviews(accessToken, locName).catch(() => ({ reviews: [] })),
           getLocalPosts(accessToken, locName).catch(() => ({ localPosts: [] })),
           getMedia(accessToken, locName).catch(() => ({ mediaItems: [] })),
-          getPerformanceMetrics(accessToken, locName).catch(() => null),
+          getPerformanceMetrics(accessToken, locName).catch((e) => { console.error('[dashboard] Metrics failed:', e.message); return null; }),
         ]);
 
         const revList = gReviews?.reviews || [];

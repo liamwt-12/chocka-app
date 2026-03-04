@@ -125,15 +125,18 @@ export async function updateLocation(
   accessToken: string, locationName: string,
   updateMask: string, locationData: Record<string, unknown>
 ) {
-  const res = await fetch(
-    `${GBP_API_BASE}/${locationName}?updateMask=${updateMask}`,
-    {
-      method: 'PATCH',
-      headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify(locationData),
-    }
-  );
-  if (!res.ok) throw new Error(`Update failed (${updateMask}): ${await res.text()}`);
+  const url = `${GBP_API_BASE}/${locationName}?updateMask=${updateMask}`;
+  console.log('[GBP PATCH]', url, JSON.stringify(locationData).slice(0, 200));
+  const res = await fetch(url, {
+    method: 'PATCH',
+    headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify(locationData),
+  });
+  if (!res.ok) {
+    const errText = await res.text();
+    console.error('[GBP PATCH ERROR]', res.status, errText.slice(0, 300));
+    throw new Error(`Update failed (${updateMask}): ${errText}`);
+  }
   return res.json();
 }
 
@@ -185,9 +188,45 @@ export async function replyToReview(accessToken: string, reviewName: string, com
 }
 
 export async function getPerformanceMetrics(accessToken: string, locationName: string) {
+  // Try the new Performance API first
   const now = new Date();
   const weekAgo = new Date(now.getTime() - 7 * 86400000);
-  const res = await fetch(`${GBP_POSTS_BASE}/${locationName}:reportInsights`, {
+  const startDate = `${weekAgo.getFullYear()}-${String(weekAgo.getMonth()+1).padStart(2,'0')}-${String(weekAgo.getDate()).padStart(2,'0')}`;
+  const endDate = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`;
+
+  // New API: businessprofileperformance
+  const newUrl = `https://businessprofileperformance.googleapis.com/v1/${locationName}:getDailyMetricsTimeSeries?dailyMetric=BUSINESS_IMPRESSIONS_DESKTOP_MAPS&dailyMetric=BUSINESS_IMPRESSIONS_MOBILE_MAPS&dailyMetric=CALL_CLICKS&dailyMetric=WEBSITE_CLICKS&dailyMetric=BUSINESS_DIRECTION_REQUESTS&dailyRange.start_date.year=${weekAgo.getFullYear()}&dailyRange.start_date.month=${weekAgo.getMonth()+1}&dailyRange.start_date.day=${weekAgo.getDate()}&dailyRange.end_date.year=${now.getFullYear()}&dailyRange.end_date.month=${now.getMonth()+1}&dailyRange.end_date.day=${now.getDate()}`;
+
+  const res = await fetch(newUrl, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+
+  if (res.ok) {
+    const data = await res.json();
+    // Parse the new format into a simpler structure
+    const metrics: Record<string, number> = { views: 0, searches: 0, calls: 0, directions: 0, websiteClicks: 0 };
+    for (const series of data.timeSeries || []) {
+      const metric = series.dailyMetric;
+      const total = (series.dailyMetricTimeSeries?.dailySubEntityMetrics || []).reduce((sum: number, day: any) => {
+        return sum + (parseInt(day.dayMetrics?.metric_value || '0') || 0);
+      }, 0);
+      if (metric === 'BUSINESS_IMPRESSIONS_DESKTOP_MAPS' || metric === 'BUSINESS_IMPRESSIONS_MOBILE_MAPS') metrics.views += total;
+      if (metric === 'CALL_CLICKS') metrics.calls = total;
+      if (metric === 'WEBSITE_CLICKS') metrics.websiteClicks = total;
+      if (metric === 'BUSINESS_DIRECTION_REQUESTS') metrics.directions = total;
+    }
+    return { locationMetrics: [{ metricValues: [
+      { metric: 'QUERIES_DIRECT', dimensionalValues: [{ value: String(metrics.views) }] },
+      { metric: 'QUERIES_INDIRECT', dimensionalValues: [{ value: '0' }] },
+      { metric: 'ACTIONS_PHONE', dimensionalValues: [{ value: String(metrics.calls) }] },
+      { metric: 'ACTIONS_DRIVING_DIRECTIONS', dimensionalValues: [{ value: String(metrics.directions) }] },
+      { metric: 'ACTIONS_WEBSITE', dimensionalValues: [{ value: String(metrics.websiteClicks) }] },
+    ] }] };
+  }
+
+  // Fallback: try old v4 API
+  console.log('[GBP] New metrics API failed, trying v4 fallback');
+  const fallbackRes = await fetch(`${GBP_POSTS_BASE}/${locationName}:reportInsights`, {
     method: 'POST',
     headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -202,8 +241,11 @@ export async function getPerformanceMetrics(accessToken: string, locationName: s
       },
     }),
   });
-  if (!res.ok) throw new Error(`Failed to get metrics: ${await res.text()}`);
-  return res.json();
+  if (!fallbackRes.ok) {
+    console.error('[GBP] Both metrics APIs failed:', await fallbackRes.text().catch(() => 'unknown'));
+    return null;
+  }
+  return fallbackRes.json();
 }
 
 export function parseStarRating(rating: string): number {
