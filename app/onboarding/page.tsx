@@ -69,7 +69,7 @@ export default function OnboardingPage() {
     const iv = setInterval(() => {
       setAIdx(p => {
         if (p < STEPS_TEXT.length - 1) {
-          setDone(d => new Set([...d, p]));
+          setDone(d => { const n = new Set(Array.from(d)); n.add(p); return n; });
           return p + 1;
         }
         return p;
@@ -107,7 +107,7 @@ export default function OnboardingPage() {
       // Wait for animation then transition
       const delay = STEPS_TEXT.length * 1300 + 400;
       setTimeout(() => {
-        setDone(x => new Set([...x, STEPS_TEXT.length - 1]));
+        setDone(x => { const n = new Set(Array.from(x)); n.add(STEPS_TEXT.length - 1); return n; });
         setTimeout(() => setPhase('score'), 600);
       }, delay);
     } catch (e) { console.error(e); }
