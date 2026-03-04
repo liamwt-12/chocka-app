@@ -30,7 +30,7 @@ const STEPS_TEXT = [
   'Building your report',
 ];
 
-type Phase = 'analysing' | 'score' | 'preview' | 'phone' | 'fixing' | 'done';
+type Phase = 'analysing' | 'score' | 'preview' | 'confirm' | 'phone' | 'fixing' | 'done';
 
 export default function OnboardingPage() {
   const router = useRouter();
@@ -167,11 +167,15 @@ export default function OnboardingPage() {
 
   /* ── ANALYSING ── */
   if (phase === 'analysing') {
+    const progress = Math.min(((aIdx + 1) / STEPS_TEXT.length) * 100, 100);
     return (
       <div style={{ ...wrap, background: T.slate, color: T.cream, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
         <div style={box}>
           <h1 style={{ ...logo, color: T.orange, fontSize: '1.7rem', textAlign: 'center' }}>Chocka</h1>
           <p style={{ ...sub, color: 'rgba(248,246,243,0.45)', textAlign: 'center' }}>Analysing your Google profile</p>
+          <div style={{ width: '100%', height: 3, background: 'rgba(248,246,243,0.08)', borderRadius: 2, marginBottom: '1.5rem', overflow: 'hidden' }}>
+            <div style={{ width: `${progress}%`, height: '100%', background: T.orange, borderRadius: 2, transition: 'width 1.2s ease' }} />
+          </div>
           {STEPS_TEXT.map((t, i) => (
             <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '0.7rem', padding: '0.5rem 0', opacity: i <= aIdx ? 1 : 0.12, transition: 'opacity 0.5s' }}>
               <span style={{ width: 18, textAlign: 'center', fontSize: '0.8rem', color: done.has(i) ? T.green : T.gold }}>
@@ -309,7 +313,44 @@ export default function OnboardingPage() {
             <p style={{ color: T.muted, fontSize: '0.78rem', marginTop: '0.2rem' }}>Up from {audit.score}</p>
           </div>
 
-          <button onClick={() => setPhase('phone')} style={btn}>Continue</button>
+          <button onClick={() => setPhase('confirm')} style={btn}>Continue</button>
+        </div>
+      </div>
+    );
+  }
+
+  /* ── CONFIRM ── */
+  if (phase === 'confirm' && audit && previews) {
+    const fixCount = [previews.description, previews.services, previews.firstPost, previews.reviewPreview, previews.categories?.length, previews.defaultHours].filter(Boolean).length;
+    return (
+      <div style={wrap}>
+        <div style={box}>
+          <h1 style={logo}>Chocka</h1>
+          <p style={sub}>Ready to go?</p>
+
+          <div style={card}>
+            <p style={{ fontSize: '0.92rem', fontWeight: 600, color: T.slate, margin: '0 0 0.75rem' }}>
+              We are about to make {fixCount} changes to your live Google Business Profile
+            </p>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem', marginBottom: '1rem' }}>
+              {previews.description && <p style={{ fontSize: '0.83rem', color: T.muted, margin: 0, paddingLeft: '0.75rem', borderLeft: `2px solid ${T.orange}` }}>Update your business description</p>}
+              {previews.services && <p style={{ fontSize: '0.83rem', color: T.muted, margin: 0, paddingLeft: '0.75rem', borderLeft: `2px solid ${T.orange}` }}>Add {svcs.length} services</p>}
+              {previews.categories?.length > 0 && <p style={{ fontSize: '0.83rem', color: T.muted, margin: 0, paddingLeft: '0.75rem', borderLeft: `2px solid ${T.orange}` }}>Add {previews.categories.length} categories</p>}
+              {previews.defaultHours && <p style={{ fontSize: '0.83rem', color: T.muted, margin: 0, paddingLeft: '0.75rem', borderLeft: `2px solid ${T.orange}` }}>Set your opening hours</p>}
+              {previews.reviewPreview && <p style={{ fontSize: '0.83rem', color: T.muted, margin: 0, paddingLeft: '0.75rem', borderLeft: `2px solid ${T.orange}` }}>Reply to {previews.reviewPreview.totalUnreplied} reviews</p>}
+              {previews.firstPost && <p style={{ fontSize: '0.83rem', color: T.muted, margin: 0, paddingLeft: '0.75rem', borderLeft: `2px solid ${T.orange}` }}>Schedule your first post</p>}
+            </div>
+            <p style={{ fontSize: '0.8rem', color: T.muted, margin: 0 }}>
+              These changes go live on your Google profile. You can undo them from your Google Business dashboard if needed.
+            </p>
+          </div>
+
+          <button onClick={() => setPhase('phone')} style={{ ...btn, marginTop: '0.5rem' }}>
+            Apply these changes
+          </button>
+          <button onClick={() => setPhase('preview')} style={{ background: 'none', border: 'none', color: T.muted, fontSize: '0.83rem', cursor: 'pointer', fontFamily: 'inherit', width: '100%', padding: '0.75rem', marginTop: '0.25rem' }}>
+            Go back and edit
+          </button>
         </div>
       </div>
     );
@@ -338,11 +379,16 @@ export default function OnboardingPage() {
 
   /* ── FIXING ── */
   if (phase === 'fixing') {
+    const fixTotal = [desc, svcs.length, previews?.categories?.length, hrs, previews?.reviewPreview, post].filter(Boolean).length + 1;
+    const fixProg = Math.min((fixLines.length / fixTotal) * 100, 100);
     return (
       <div style={{ ...wrap, background: T.slate, color: T.cream, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
         <div style={box}>
           <h1 style={{ ...logo, color: T.orange, fontSize: '1.7rem', textAlign: 'center' }}>Chocka</h1>
           <p style={{ ...sub, color: 'rgba(248,246,243,0.45)', textAlign: 'center' }}>Fixing your profile</p>
+          <div style={{ width: '100%', height: 3, background: 'rgba(248,246,243,0.08)', borderRadius: 2, marginBottom: '1.5rem', overflow: 'hidden' }}>
+            <div style={{ width: `${fixProg}%`, height: '100%', background: T.green, borderRadius: 2, transition: 'width 1s ease' }} />
+          </div>
           {fixLines.map((t, i) => (
             <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '0.7rem', padding: '0.5rem 0' }}>
               <span style={{ color: i < fixLines.length - 1 ? T.green : T.gold, fontSize: '0.85rem', width: 18, textAlign: 'center' }}>

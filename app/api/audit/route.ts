@@ -82,6 +82,9 @@ export async function POST(request: NextRequest) {
       ],
     };
 
+    // Save scores to profile
+    await supaAdmin.from('profiles').update({ audit_score: audit.score, audit_score_after: pred }).eq('id', profile.id);
+
     return NextResponse.json({
       audit, predicted: pred,
       previews: { description, services: servicesList, firstPost, categories: catSuggestions, reviewPreview, defaultHours: audit.fixes.some(f => f.key === 'hours') ? defaultHours : null },
