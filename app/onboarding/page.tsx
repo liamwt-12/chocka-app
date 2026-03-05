@@ -186,13 +186,13 @@ export default function OnboardingPage() {
   }
 
   /* ── Shared styles ── */
-  const wrap: React.CSSProperties = { minHeight: '100vh', background: T.cream, color: T.slate, fontFamily: "'Inter', system-ui, sans-serif" };
-  const box: React.CSSProperties = { maxWidth: 480, margin: '0 auto', padding: '2rem 1.5rem' };
+  const wrap: React.CSSProperties = { minHeight: '100vh', background: T.cream, color: T.slate, fontFamily: "'Inter', system-ui, sans-serif", display: 'flex', justifyContent: 'center' };
+  const box: React.CSSProperties = { width: '100%', maxWidth: 480, padding: '2.5rem 1.5rem' };
   const logo: React.CSSProperties = { fontFamily: "'Cabinet Grotesk', sans-serif", fontWeight: 800, fontSize: '1rem', letterSpacing: '3px', color: T.orange, margin: 0, textTransform: 'uppercase' as const };
-  const sub: React.CSSProperties = { color: T.muted, fontSize: '0.88rem', margin: '0.15rem 0 2rem' };
-  const btn: React.CSSProperties = { background: T.slate, color: T.cream, border: 'none', padding: '0.9rem 2rem', borderRadius: 100, fontSize: '0.9rem', fontWeight: 700, cursor: 'pointer', width: '100%', fontFamily: "'Inter', system-ui", boxShadow: '0 4px 24px rgba(42,37,32,.15)' };
+  const sub: React.CSSProperties = { fontFamily: "'Inter', system-ui", color: T.muted, fontSize: '0.88rem', margin: '0.15rem 0 2rem' };
+  const btn: React.CSSProperties = { background: T.orange, color: '#FFFFFF', border: 'none', padding: '0.95rem 2rem', borderRadius: 100, fontSize: '0.9rem', fontWeight: 700, cursor: 'pointer', width: '100%', fontFamily: "'Inter', system-ui", boxShadow: '0 4px 24px rgba(212,98,43,.25)' };
   const card: React.CSSProperties = { background: T.white, borderRadius: 24, padding: '1.25rem', marginBottom: '0.75rem', boxShadow: '0 2px 16px rgba(42,37,32,.04)' };
-  const ta: React.CSSProperties = { width: '100%', background: T.cream, color: T.slate, border: 'none', borderRadius: 16, padding: '0.75rem', fontSize: '0.85rem', lineHeight: '1.6', resize: 'vertical', fontFamily: "'Inter', system-ui", boxShadow: 'inset 0 1px 4px rgba(42,37,32,.06)' };
+  const ta: React.CSSProperties = { width: '100%', background: T.white, color: T.slate, border: '1.5px solid rgba(42,37,32,0.06)', borderRadius: 16, padding: '0.75rem', fontSize: '0.85rem', lineHeight: '1.6', resize: 'vertical', fontFamily: "'Inter', system-ui", outline: 'none' };
   const hint: React.CSSProperties = { color: T.muted, fontSize: '0.73rem', marginTop: '0.35rem' };
   const dot = (c: string): React.CSSProperties => ({ width: 8, height: 8, borderRadius: '50%', background: c, flexShrink: 0 });
 
@@ -200,7 +200,7 @@ export default function OnboardingPage() {
   if (phase === 'analysing') {
     const progress = Math.min(((aIdx + 1) / STEPS_TEXT.length) * 100, 100);
     return (
-      <div style={{ ...wrap, background: T.slate, color: T.cream, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+      <div style={{ ...wrap, background: T.slate, color: T.cream, alignItems: 'center' }}>
         <div style={box}>
           <h1 style={{ ...logo, color: T.orange, fontSize: '1.7rem', textAlign: 'center' }}>Chocka</h1>
           <p style={{ ...sub, color: 'rgba(248,246,243,0.45)', textAlign: 'center' }}>Analysing your Google profile</p>
@@ -230,7 +230,7 @@ export default function OnboardingPage() {
           <p style={sub}>Your Google profile report</p>
           <div style={{ textAlign: 'center', marginBottom: '1.8rem' }}>
             <p style={{ color: T.muted, fontSize: '0.78rem', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '0.4rem' }}>Profile score</p>
-            <div style={{ fontSize: '4.2rem', fontWeight: 800, color: bc, lineHeight: 1, letterSpacing: '-0.03em' }}>
+            <div style={{ fontFamily: "'Cabinet Grotesk', sans-serif", fontSize: '4.2rem', fontWeight: 800, color: bc, lineHeight: 1, letterSpacing: '-3px' }}>
               {counter}<span style={{ fontSize: '1.6rem', color: T.muted, fontWeight: 500 }}>/100</span>
             </div>
             <p style={{ color: bc, fontSize: '0.88rem', fontWeight: 500, marginTop: '0.4rem' }}>{audit.band}</p>
@@ -268,7 +268,7 @@ export default function OnboardingPage() {
           {previews.description && (
             <div style={card}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
-                <h3 style={{ fontSize: '0.92rem', fontWeight: 600, margin: 0 }}>Business description</h3>
+                <h3 style={{ fontFamily: "'Cabinet Grotesk', sans-serif", fontSize: '0.95rem', fontWeight: 700, margin: 0, letterSpacing: '-0.3px' }}>Business description</h3>
                 {pts(audit.fixes.find((f: any) => f.key === 'description')?.pointsGain || 15)}
               </div>
               <textarea value={desc} onChange={e => setDesc(e.target.value)} rows={5} style={ta} />
@@ -279,12 +279,12 @@ export default function OnboardingPage() {
           {previews.services && (
             <div style={card}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
-                <h3 style={{ fontSize: '0.92rem', fontWeight: 600, margin: 0 }}>Services ({svcs.length})</h3>
+                <h3 style={{ fontFamily: "'Cabinet Grotesk', sans-serif", fontSize: '0.95rem', fontWeight: 700, margin: 0, letterSpacing: '-0.3px' }}>Services ({svcs.length})</h3>
                 {pts(audit.fixes.find((f: any) => f.key === 'services')?.pointsGain || 12)}
               </div>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.35rem' }}>
                 {svcs.map((s, i) => (
-                  <span key={i} style={{ background: T.cream, border: `1px solid ${T.border}`, borderRadius: 6, padding: '0.3rem 0.6rem', fontSize: '0.8rem' }}>{s}</span>
+                  <span key={i} style={{ background: T.white, boxShadow: '0 1px 4px rgba(42,37,32,.06)', borderRadius: 100, padding: '0.35rem 0.75rem', fontSize: '0.8rem' }}>{s}</span>
                 ))}
               </div>
               <p style={hint}>Services customers will find when searching for your trade.</p>
@@ -294,7 +294,7 @@ export default function OnboardingPage() {
           {previews.firstPost && (
             <div style={card}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
-                <h3 style={{ fontSize: '0.92rem', fontWeight: 600, margin: 0 }}>Your first post</h3>
+                <h3 style={{ fontFamily: "'Cabinet Grotesk', sans-serif", fontSize: '0.95rem', fontWeight: 700, margin: 0, letterSpacing: '-0.3px' }}>Your first post</h3>
                 {pts(5)}
               </div>
               <textarea value={post} onChange={e => setPost(e.target.value)} rows={3} style={ta} />
@@ -305,7 +305,7 @@ export default function OnboardingPage() {
           {previews.reviewPreview && (
             <div style={card}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
-                <h3 style={{ fontSize: '0.92rem', fontWeight: 600, margin: 0 }}>Review replies ({previews.reviewPreview.totalUnreplied} unanswered)</h3>
+                <h3 style={{ fontFamily: "'Cabinet Grotesk', sans-serif", fontSize: '0.95rem', fontWeight: 700, margin: 0, letterSpacing: '-0.3px' }}>Review replies ({previews.reviewPreview.totalUnreplied} unanswered)</h3>
                 {pts(audit.fixes.find((f: any) => f.key === 'reviews')?.pointsGain || 8)}
               </div>
               <div style={{ background: T.cream, borderRadius: 8, padding: '0.7rem', marginBottom: '0.5rem' }}>
@@ -326,12 +326,12 @@ export default function OnboardingPage() {
           {previews.categories && previews.categories.length > 0 && (
             <div style={card}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
-                <h3 style={{ fontSize: '0.92rem', fontWeight: 600, margin: 0 }}>Additional categories</h3>
+                <h3 style={{ fontFamily: "'Cabinet Grotesk', sans-serif", fontSize: '0.95rem', fontWeight: 700, margin: 0, letterSpacing: '-0.3px' }}>Additional categories</h3>
                 {pts(audit.fixes.find((f: any) => f.key === 'categories')?.pointsGain || 8)}
               </div>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.35rem' }}>
                 {previews.categories.map((c: string, i: number) => (
-                  <span key={i} style={{ background: T.cream, border: `1px solid ${T.border}`, borderRadius: 6, padding: '0.3rem 0.6rem', fontSize: '0.8rem' }}>{c}</span>
+                  <span key={i} style={{ background: T.white, boxShadow: '0 1px 4px rgba(42,37,32,.06)', borderRadius: 100, padding: '0.35rem 0.75rem', fontSize: '0.8rem' }}>{c}</span>
                 ))}
               </div>
             </div>
@@ -398,7 +398,7 @@ export default function OnboardingPage() {
             <h3 style={{ fontSize: '0.95rem', fontWeight: 600, margin: '0 0 0.25rem' }}>Your mobile number</h3>
             <p style={{ color: T.muted, fontSize: '0.83rem', marginBottom: '0.8rem' }}>We'll text you stats every Monday and alert you about new reviews. Nothing else.</p>
             <input type="tel" value={phone} onChange={e => { setPhone(e.target.value); setPhoneErr(''); }} placeholder="07712 345 678"
-              style={{ width: '100%', padding: '0.8rem', border: `1px solid ${phoneErr ? T.red : T.border}`, borderRadius: 8, fontSize: '1rem', fontFamily: 'inherit', background: T.cream, color: T.slate, boxSizing: 'border-box' }} />
+              style={{ width: '100%', padding: '0.85rem 1rem', border: phoneErr ? `2px solid ${T.red}` : '1.5px solid rgba(42,37,32,0.06)', borderRadius: 16, fontSize: '1.05rem', fontFamily: "'Inter', system-ui", background: T.white, color: T.slate, boxSizing: 'border-box', outline: 'none' }} />
             {phoneErr && <p style={{ color: T.red, fontSize: '0.78rem', marginTop: '0.3rem' }}>{phoneErr}</p>}
           </div>
           <p style={{ textAlign: 'center', color: T.muted, fontSize: '0.83rem', padding: '1rem 0' }}>&pound;29/month &middot; Cancel anytime</p>
@@ -413,7 +413,7 @@ export default function OnboardingPage() {
     const fixTotal = [desc, svcs.length, previews?.categories?.length, hrs, previews?.reviewPreview, post].filter(Boolean).length + 1;
     const fixProg = Math.min((fixLines.length / fixTotal) * 100, 100);
     return (
-      <div style={{ ...wrap, background: T.slate, color: T.cream, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+      <div style={{ ...wrap, background: T.slate, color: T.cream, alignItems: 'center' }}>
         <div style={box}>
           <h1 style={{ ...logo, color: T.orange, fontSize: '1.7rem', textAlign: 'center' }}>Chocka</h1>
           <p style={{ ...sub, color: 'rgba(248,246,243,0.45)', textAlign: 'center' }}>Fixing your profile</p>
@@ -442,7 +442,7 @@ export default function OnboardingPage() {
           <h1 style={logo}>Chocka</h1>
           <p style={sub}>Your profile is sorted</p>
           <div style={{ textAlign: 'center', marginBottom: '1.8rem' }}>
-            <div style={{ fontSize: '4.2rem', fontWeight: 800, color: bc, lineHeight: 1, letterSpacing: '-0.03em' }}>
+            <div style={{ fontFamily: "'Cabinet Grotesk', sans-serif", fontSize: '4.2rem', fontWeight: 800, color: bc, lineHeight: 1, letterSpacing: '-3px' }}>
               {finalCounter}<span style={{ fontSize: '1.6rem', color: T.muted, fontWeight: 500 }}>/100</span>
             </div>
             <p style={{ color: T.muted, fontSize: '0.88rem', marginTop: '0.6rem' }}>Up from {audit.score}. We've made {fixLines.length} improvements to your Google profile.</p>
