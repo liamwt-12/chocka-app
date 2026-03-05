@@ -203,17 +203,24 @@ export async function getPerformanceMetrics(accessToken: string, locationName: s
 
   if (res.ok) {
     const data = await res.json();
-    // Parse the new format into a simpler structure
+    console.log('[GBP Metrics] Response keys:', Object.keys(data));
+    console.log('[GBP Metrics] Raw:', JSON.stringify(data).slice(0, 500));
     const metrics: Record<string, number> = { views: 0, searches: 0, calls: 0, directions: 0, websiteClicks: 0 };
-    for (const series of data.timeSeries || []) {
-      const metric = series.dailyMetric;
-      const total = (series.dailyMetricTimeSeries?.dailySubEntityMetrics || []).reduce((sum: number, day: any) => {
-        return sum + (parseInt(day.dayMetrics?.metric_value || '0') || 0);
-      }, 0);
-      if (metric === 'BUSINESS_IMPRESSIONS_DESKTOP_MAPS' || metric === 'BUSINESS_IMPRESSIONS_MOBILE_MAPS') metrics.views += total;
-      if (metric === 'CALL_CLICKS') metrics.calls = total;
-      if (metric === 'WEBSITE_CLICKS') metrics.websiteClicks = total;
-      if (metric === 'BUSINESS_DIRECTION_REQUESTS') metrics.directions = total;
+    const timeSeries = data.timeSeries || data.dailyMetricTimeSeries || [];
+    if (Array.isArray(timeSeries)) {
+      for (const series of timeSeries) {
+        const metric = series.dailyMetric;
+        const subMetrics = series.dailyMetricTimeSeries?.dailySubEntityMetrics || series.dailySubEntityMetrics || [];
+        const items = Array.isArray(subMetrics) ? subMetrics : [];
+        const total = items.reduce((sum: number, day: any) => {
+          const val = day.dayMetrics?.metric_value || day.metric_value || '0';
+          return sum + (parseInt(val) || 0);
+        }, 0);
+        if (metric === 'BUSINESS_IMPRESSIONS_DESKTOP_MAPS' || metric === 'BUSINESS_IMPRESSIONS_MOBILE_MAPS') metrics.views += total;
+        if (metric === 'CALL_CLICKS') metrics.calls = total;
+        if (metric === 'WEBSITE_CLICKS') metrics.websiteClicks = total;
+        if (metric === 'BUSINESS_DIRECTION_REQUESTS') metrics.directions = total;
+      }
     }
     return { locationMetrics: [{ metricValues: [
       { metric: 'QUERIES_DIRECT', dimensionalValues: [{ value: String(metrics.views) }] },

@@ -26,12 +26,18 @@ export async function GET(request: NextRequest) {
         const locName = profile.google_location_name;
 
         const [location, gReviews, gPosts, gMedia, gMetrics] = await Promise.all([
-          getLocationFull(accessToken, locName).catch(() => null),
-          getReviews(accessToken, locName).catch(() => ({ reviews: [] })),
-          getLocalPosts(accessToken, locName).catch(() => ({ localPosts: [] })),
-          getMedia(accessToken, locName).catch(() => ({ mediaItems: [] })),
+          getLocationFull(accessToken, locName).catch((e) => { console.error('[dashboard] Location failed:', e.message); return null; }),
+          getReviews(accessToken, locName).catch((e) => { console.error('[dashboard] Reviews failed:', e.message); return { reviews: [] }; }),
+          getLocalPosts(accessToken, locName).catch((e) => { console.error('[dashboard] Posts failed:', e.message); return { localPosts: [] }; }),
+          getMedia(accessToken, locName).catch((e) => { console.error('[dashboard] Media failed:', e.message); return { mediaItems: [] }; }),
           getPerformanceMetrics(accessToken, locName).catch((e) => { console.error('[dashboard] Metrics failed:', e.message); return null; }),
         ]);
+
+        console.log('[dashboard] Location:', location ? 'OK' : 'null');
+        console.log('[dashboard] Reviews:', JSON.stringify(gReviews).slice(0, 200));
+        console.log('[dashboard] Posts:', JSON.stringify(gPosts).slice(0, 200));
+        console.log('[dashboard] Media:', JSON.stringify(gMedia).slice(0, 200));
+        console.log('[dashboard] Metrics:', gMetrics ? 'OK' : 'null');
 
         const revList = gReviews?.reviews || [];
         const totalReviews = revList.length;
