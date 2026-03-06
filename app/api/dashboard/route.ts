@@ -24,20 +24,21 @@ export async function GET(request: NextRequest) {
       try {
         const accessToken = await refreshAccessToken(user.google_refresh_token);
         const locName = profile.google_location_name;
+        const acctId = profile.google_account_id;
 
         const [location, gReviews, gPosts, gMedia, gMetrics] = await Promise.all([
           getLocationFull(accessToken, locName).catch((e) => { console.error('[dashboard] Location failed:', e.message); return null; }),
-          getReviews(accessToken, locName).catch((e) => { console.error('[dashboard] Reviews failed:', e.message); return { reviews: [] }; }),
-          getLocalPosts(accessToken, locName).catch((e) => { console.error('[dashboard] Posts failed:', e.message); return { localPosts: [] }; }),
-          getMedia(accessToken, locName).catch((e) => { console.error('[dashboard] Media failed:', e.message); return { mediaItems: [] }; }),
+          getReviews(accessToken, locName, acctId).catch((e) => { console.error('[dashboard] Reviews failed:', e.message); return { reviews: [] }; }),
+          getLocalPosts(accessToken, locName, acctId).catch((e) => { console.error('[dashboard] Posts failed:', e.message); return { localPosts: [] }; }),
+          getMedia(accessToken, locName, acctId).catch((e) => { console.error('[dashboard] Media failed:', e.message); return { mediaItems: [] }; }),
           getPerformanceMetrics(accessToken, locName).catch((e) => { console.error('[dashboard] Metrics failed:', e.message); return null; }),
         ]);
 
         console.log('[dashboard] Location:', location ? 'OK' : 'null');
-        console.log('[dashboard] Reviews:', JSON.stringify(gReviews).slice(0, 200));
-        console.log('[dashboard] Posts:', JSON.stringify(gPosts).slice(0, 200));
-        console.log('[dashboard] Media:', JSON.stringify(gMedia).slice(0, 200));
-        console.log('[dashboard] Metrics:', gMetrics ? 'OK' : 'null');
+        console.log('[dashboard] Reviews count:', (gReviews?.reviews || []).length);
+        console.log('[dashboard] Posts count:', (gPosts?.localPosts || []).length);
+        console.log('[dashboard] Media count:', (gMedia?.mediaItems || []).length);
+        console.log('[dashboard] Metrics:', gMetrics ? JSON.stringify(gMetrics) : 'null');
 
         const revList = gReviews?.reviews || [];
         const totalReviews = revList.length;
@@ -75,18 +76,11 @@ export async function GET(request: NextRequest) {
         // Services list for display
         const serviceNames = svcs.map((s: any) => s.freeFormServiceItem?.label?.displayName || s.structuredServiceItem?.description || '').filter(Boolean);
 
-        // Parse metrics
-        let views = 0, searches = 0, calls = 0, directions = 0, websiteClicks = 0;
-        if (gMetrics?.locationMetrics?.[0]?.metricValues) {
-          for (const mv of gMetrics.locationMetrics[0].metricValues) {
-            const total = mv.dimensionalValues?.reduce((s: number, d: any) => s + (parseInt(d.value) || 0), 0) || 0;
-            if (mv.metric === 'QUERIES_DIRECT') views += total;
-            if (mv.metric === 'QUERIES_INDIRECT') searches += total;
-            if (mv.metric === 'ACTIONS_PHONE') calls += total;
-            if (mv.metric === 'ACTIONS_DRIVING_DIRECTIONS') directions += total;
-            if (mv.metric === 'ACTIONS_WEBSITE') websiteClicks += total;
-          }
-        }
+        // Parse metrics — now returned as {views, calls, directions, websiteClicks} directly
+        const views = gMetrics?.views || 0;
+        const calls = gMetrics?.calls || 0;
+        const directions = gMetrics?.directions || 0;
+        const websiteClicks = gMetrics?.websiteClicks || 0;
 
         // Google posts for display
         const googlePosts = postList.slice(0, 3).map((p: any) => ({
@@ -112,7 +106,7 @@ export async function GET(request: NextRequest) {
             hasWebsite: !!website,
             mapsUri,
           },
-          metrics: { views, searches, calls, directions, websiteClicks, totalActions: calls + directions + websiteClicks },
+          metrics: { views, calls, directions, websiteClicks, totalActions: calls + directions + websiteClicks },
         };
       } catch (e: any) {
         console.error('Google fetch failed (non-blocking):', e.message);

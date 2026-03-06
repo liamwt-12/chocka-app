@@ -25,15 +25,16 @@ export async function POST(request: NextRequest) {
 
     const accessToken = await refreshAccessToken(userData.google_refresh_token);
     const locName = profile.google_location_name;
+    const acctId = profile.google_account_id;
 
     // Fetch all GBP data in parallel
     const [location, googleUpdated, attributes, media, reviews, posts] = await Promise.all([
       getLocationFull(accessToken, locName),
       getGoogleUpdated(accessToken, locName).catch(() => null),
       getAttributes(accessToken, locName).catch(() => ({ attributes: [] })),
-      getMedia(accessToken, locName).catch(() => ({ mediaItems: [] })),
-      getReviews(accessToken, locName).catch(() => ({ reviews: [] })),
-      getLocalPosts(accessToken, locName).catch(() => ({ localPosts: [] })),
+      getMedia(accessToken, locName, acctId).catch(() => ({ mediaItems: [] })),
+      getReviews(accessToken, locName, acctId).catch(() => ({ reviews: [] })),
+      getLocalPosts(accessToken, locName, acctId).catch(() => ({ localPosts: [] })),
     ]);
 
     const audit = scoreProfile({ location, attributes, media, reviews, posts, googleUpdated });

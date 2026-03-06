@@ -19,7 +19,8 @@ export async function POST(request: NextRequest) {
 
     const accessToken = await refreshAccessToken(userData.google_refresh_token);
     const locName = profile.google_location_name;
-    console.log('[profile-fix] Token refreshed OK, location:', locName);
+    const acctId = profile.google_account_id;
+    console.log('[profile-fix] Token refreshed OK, location:', locName, 'account:', acctId);
     console.log('[profile-fix] Fix request body:', JSON.stringify(body).slice(0, 300));
     const results: Array<{ step: string; success: boolean; detail?: string }> = [];
 
@@ -63,7 +64,7 @@ export async function POST(request: NextRequest) {
     // 5. Review replies
     if (replyToReviews) {
       try {
-        const revData = await getReviews(accessToken, locName);
+        const revData = await getReviews(accessToken, locName, acctId);
         const unrep = (revData.reviews || []).filter((r: any) => !r.reviewReply);
         let count = 0;
         for (const rev of unrep) {

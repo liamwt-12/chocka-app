@@ -77,19 +77,18 @@ export default function DashboardPage() {
       )}
 
       {/* Google metrics */}
-      {g?.metrics && (g.metrics.views + g.metrics.searches + g.metrics.calls + g.metrics.directions + g.metrics.websiteClicks > 0) ? (
+      {g?.metrics && (g.metrics.views + g.metrics.calls + g.metrics.directions + g.metrics.websiteClicks > 0) ? (
         <div style={{ ...card, ...anim('0.15s') }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.55rem' }}>
             <p style={{ ...eye, margin: 0 }}>This week on Google</p>
             <span style={pill('rgba(45,139,78,0.08)', C.green)}>Live</span>
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '0.4rem' }}>
-            <MC label="Views" value={g.metrics.views + g.metrics.searches} />
+            <MC label="Views" value={g.metrics.views} />
             <MC label="Calls" value={g.metrics.calls} hl />
             <MC label="Directions" value={g.metrics.directions} />
             <MC label="Website" value={g.metrics.websiteClicks} />
-            <MC label="Actions" value={g.metrics.totalActions} hl />
-            <MC label="Searches" value={g.metrics.searches} />
+            <MC label="Total actions" value={g.metrics.totalActions} hl />
           </div>
         </div>
       ) : g?.metrics ? (
