@@ -240,3 +240,49 @@ export function parseStarRating(rating: string): number {
   const map: Record<string, number> = { ONE: 1, TWO: 2, THREE: 3, FOUR: 4, FIVE: 5 };
   return map[rating] || 0;
 }
+
+// ── Places API (New) — for reviews without v4 approval ──
+
+export async function getPlaceReviews(placeId: string) {
+  const apiKey = process.env.GOOGLE_PLACES_API_KEY;
+  if (!apiKey) throw new Error('GOOGLE_PLACES_API_KEY not set');
+
+  const res = await fetch(
+    `https://places.googleapis.com/v1/places/${placeId}?languageCode=en`,
+    {
+      headers: {
+        'X-Goog-Api-Key': apiKey,
+        'X-Goog-FieldMask': 'displayName,rating,userRatingCount,reviews,websiteUri',
+      },
+    }
+  );
+  if (!res.ok) {
+    const errText = await res.text();
+    console.error('[Places API] Error:', res.status, errText.slice(0, 300));
+    throw new Error(`Places API failed: ${errText}`);
+  }
+  return res.json();
+}
+
+// Look up Place ID from business name + address
+export async function findPlaceId(businessName: string, address?: string) {
+  const apiKey = process.env.GOOGLE_PLACES_API_KEY;
+  if (!apiKey) throw new Error('GOOGLE_PLACES_API_KEY not set');
+
+  const query = address ? `${businessName} ${address}` : businessName;
+  const res = await fetch(
+    `https://places.googleapis.com/v1/places:searchText`,
+    {
+      method: 'POST',
+      headers: {
+        'X-Goog-Api-Key': apiKey,
+        'X-Goog-FieldMask': 'places.id,places.displayName,places.formattedAddress',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ textQuery: query, languageCode: 'en' }),
+    }
+  );
+  if (!res.ok) throw new Error(`Place search failed: ${await res.text()}`);
+  const data = await res.json();
+  return data.places?.[0]?.id || null;
+}

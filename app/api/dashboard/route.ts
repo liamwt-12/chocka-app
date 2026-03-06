@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
-import { refreshAccessToken, getLocationFull, getReviews, getLocalPosts, getMedia, getPerformanceMetrics, parseStarRating } from '@/lib/google';
+import { refreshAccessToken, getLocationFull, getReviews, getLocalPosts, getMedia, getPerformanceMetrics, parseStarRating, getPlaceReviews, findPlaceId } from '@/lib/google';
 
 export async function GET(request: NextRequest) {
   try {
@@ -40,21 +40,68 @@ export async function GET(request: NextRequest) {
         console.log('[dashboard] Media count:', (gMedia?.mediaItems || []).length);
         console.log('[dashboard] Metrics:', gMetrics ? JSON.stringify(gMetrics) : 'null');
 
-        const revList = gReviews?.reviews || [];
-        const totalReviews = revList.length;
-        const avgRating = totalReviews > 0 ? revList.reduce((s: number, r: any) => s + parseStarRating(r.starRating), 0) / totalReviews : 0;
-        const repliedCount = revList.filter((r: any) => r.reviewReply).length;
-        const unrepliedCount = totalReviews - repliedCount;
+        let revList = gReviews?.reviews || [];
+        let reviewsFull: Array<{ name: string; rating: number; comment: string; date: string; hasReply: boolean; replyText: string | null }> = [];
+        let totalReviews = 0;
+        let avgRating = 0;
+        let repliedCount = 0;
+        let unrepliedCount = 0;
+        let userRatingCount = 0;
+        let overallRating = 0;
 
-        // Full review data for display
-        const reviewsFull = revList.slice(0, 8).map((r: any) => ({
-          name: r.reviewer?.displayName || 'Customer',
-          rating: parseStarRating(r.starRating),
-          comment: r.comment || '',
-          date: r.createTime,
-          hasReply: !!r.reviewReply,
-          replyText: r.reviewReply?.comment || null,
-        }));
+        // If v4 reviews failed (empty), try Places API as fallback
+        if (revList.length === 0) {
+          try {
+            // Try to find Place ID from location metadata or search
+            let placeId = profile.google_place_id;
+            if (!placeId && location?.metadata?.mapsUri) {
+              // Extract from maps URI if available
+              const match = location.metadata.mapsUri.match(/place_id[=:]([^&]+)/);
+              if (match) placeId = match[1];
+            }
+            if (!placeId) {
+              placeId = await findPlaceId(profile.business_name, location?.storefrontAddress?.addressLines?.[0]);
+            }
+            if (placeId) {
+              console.log('[dashboard] Using Places API fallback, placeId:', placeId);
+              // Save placeId for future use
+              if (!profile.google_place_id) {
+                await supabaseAdmin.from('profiles').update({ google_place_id: placeId }).eq('id', profile.id);
+              }
+              const placeData = await getPlaceReviews(placeId);
+              userRatingCount = placeData.userRatingCount || 0;
+              overallRating = placeData.rating || 0;
+              const placeReviews = placeData.reviews || [];
+              reviewsFull = placeReviews.map((r: any) => ({
+                name: r.authorAttribution?.displayName || 'Customer',
+                rating: r.rating || 0,
+                comment: r.text?.text || r.originalText?.text || '',
+                date: r.publishTime || '',
+                hasReply: false,
+                replyText: null,
+              }));
+              totalReviews = userRatingCount;
+              avgRating = overallRating;
+              console.log('[dashboard] Places API reviews:', reviewsFull.length, 'total rating count:', userRatingCount);
+            }
+          } catch (e: any) {
+            console.error('[dashboard] Places API fallback failed:', e.message);
+          }
+        } else {
+          // v4 reviews worked
+          totalReviews = revList.length;
+          avgRating = totalReviews > 0 ? revList.reduce((s: number, r: any) => s + parseStarRating(r.starRating), 0) / totalReviews : 0;
+          repliedCount = revList.filter((r: any) => r.reviewReply).length;
+          unrepliedCount = totalReviews - repliedCount;
+          reviewsFull = revList.slice(0, 8).map((r: any) => ({
+            name: r.reviewer?.displayName || 'Customer',
+            rating: parseStarRating(r.starRating),
+            comment: r.comment || '',
+            date: r.createTime,
+            hasReply: !!r.reviewReply,
+            replyText: r.reviewReply?.comment || null,
+          }));
+        }
 
         const postList = gPosts?.localPosts || [];
         const photoCount = gMedia?.mediaItems?.length || 0;
