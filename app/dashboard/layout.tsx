@@ -6,44 +6,32 @@ import Link from 'next/link';
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
 
-  const navItems = [
-    { label: 'Dashboard', href: '/dashboard' },
-    { label: 'Settings', href: '/settings' },
-  ];
-
   return (
-    <div style={{ minHeight: '100vh', background: 'var(--cream)' }}>
+    <div style={{ minHeight: '100vh', background: '#F0EDE8' }}>
       <nav style={{
         position: 'sticky', top: 0, zIndex: 100,
-        background: 'rgba(248,246,243,0.92)',
-        backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)',
-        padding: '0.85rem 1.5rem',
+        background: '#FAFAF8',
+        borderBottom: '1px solid rgba(0,0,0,0.07)',
+        padding: '14px 20px',
       }}>
-        <div style={{ maxWidth: 600, margin: '0 auto', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <div style={{ maxWidth: 420, margin: '0 auto', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <Link href="/dashboard" style={{
-            fontFamily: 'var(--hd)', fontWeight: 800, fontSize: '0.95rem',
-            letterSpacing: '3px', color: 'var(--orange)', textDecoration: 'none',
-            textTransform: 'uppercase' as const,
+            fontFamily: "'Cabinet Grotesk', sans-serif", fontWeight: 800, fontSize: 14,
+            letterSpacing: '0.12em', color: '#D4622B', textDecoration: 'none',
           }}>
             CHOCKA
           </Link>
-          <div style={{ display: 'flex', gap: '0.15rem' }}>
-            {navItems.map((item) => {
+          <div style={{ display: 'flex', background: '#F0EDE8', borderRadius: 20, padding: 3, gap: 2 }}>
+            {[{ label: 'Dashboard', href: '/dashboard' }, { label: 'Settings', href: '/settings' }].map((item) => {
               const active = pathname === item.href;
               return (
-                <Link
-                  key={item.href}
-                  href={item.href}
-                  style={{
-                    padding: '0.4rem 0.85rem',
-                    borderRadius: 100,
-                    fontSize: '0.8rem',
-                    fontWeight: active ? 600 : 500,
-                    textDecoration: 'none',
-                    color: active ? 'var(--charcoal)' : 'var(--grey)',
-                    background: active ? 'rgba(42,37,32,0.05)' : 'transparent',
-                  }}
-                >
+                <Link key={item.href} href={item.href} style={{
+                  padding: '6px 16px', borderRadius: 16, fontSize: 13, fontWeight: 500,
+                  fontFamily: "'Inter', system-ui", textDecoration: 'none',
+                  color: active ? '#2A2520' : '#A09A93',
+                  background: active ? '#FAFAF8' : 'transparent',
+                  boxShadow: active ? '0 1px 4px rgba(0,0,0,0.1)' : 'none',
+                }}>
                   {item.label}
                 </Link>
               );
@@ -51,7 +39,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           </div>
         </div>
       </nav>
-      <main style={{ maxWidth: 600, margin: '0 auto', padding: '1.25rem 1.5rem 3rem' }}>
+      <main style={{ maxWidth: 420, margin: '0 auto', padding: '16px 16px 40px' }}>
         {children}
       </main>
     </div>
