@@ -124,7 +124,7 @@ export async function GET(request: NextRequest) {
         }
 
         // Calculate own competitor score
-        const ownScore = p?.audit_score_after || p?.audit_score || Math.min(100, Math.round((avgRating / 5) * 50 + Math.min(totalReviews, 50)));
+        const ownScore = profile?.audit_score_after || profile?.audit_score || Math.min(100, Math.round((avgRating / 5) * 50 + Math.min(totalReviews, 50)));
 
         google = {
           reviews: { total: totalReviews, avgRating: Math.round(avgRating * 10) / 10, replied: repliedCount, unreplied: unrepliedCount, list: reviewsFull },
