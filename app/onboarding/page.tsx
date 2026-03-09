@@ -121,6 +121,7 @@ export default function OnboardingPage() {
       const res = await fetch('/api/audit', { method: 'POST' });
       if (!res.ok) throw new Error('Audit failed');
       const d = await res.json();
+      if (d.error) throw new Error(d.error);
       setAudit(d.audit); setPredicted(d.predicted); setPreviews(d.previews); setLocData(d.locationData);
       if (d.previews.description) setDesc(d.previews.description);
       if (d.previews.services) setSvcs(d.previews.services);
@@ -132,7 +133,13 @@ export default function OnboardingPage() {
         setDone(x => { const n = new Set(Array.from(x)); n.add(STEPS_TEXT.length - 1); return n; });
         setTimeout(() => setPhase('score'), 600);
       }, delay);
-    } catch (e) { console.error(e); }
+    } catch (e: any) {
+      console.error('Audit failed:', e);
+      // Show error state instead of hanging
+      setPhase('score');
+      setAudit({ score: 0, maxScore: 100, band: 'Could not analyse', bandColour: '#D93025', items: [], fixes: [] });
+      setPredicted(0);
+    }
   }
 
   async function submitPhone() {
@@ -450,7 +457,7 @@ export default function OnboardingPage() {
           <div style={card}>
             <h3 style={{ fontSize: '0.92rem', fontWeight: 600, marginBottom: '0.6rem' }}>What happens next</h3>
             <p style={{ fontSize: '0.83rem', color: T.muted, margin: '0 0 0.4rem' }}><strong style={{ color: T.slate }}>Tomorrow 10am</strong> &mdash; your first post goes live</p>
-            <p style={{ fontSize: '0.83rem', color: T.muted, margin: '0 0 0.4rem' }}><strong style={{ color: T.slate }}>Monday 7am</strong> &mdash; your first stats text arrives</p>
+            <p style={{ fontSize: '0.83rem', color: T.muted, margin: '0 0 0.4rem' }}><strong style={{ color: T.slate }}>Monday 9am</strong> &mdash; your first stats text arrives</p>
             <p style={{ fontSize: '0.83rem', color: T.muted, margin: 0 }}><strong style={{ color: T.slate }}>Every week</strong> &mdash; we post, reply to reviews, keep your profile active</p>
           </div>
           <p style={{ textAlign: 'center', color: T.muted, fontSize: '0.83rem', marginBottom: '1.2rem' }}>You don't need to do anything. Your profile is managed.</p>

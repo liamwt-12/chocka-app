@@ -2,8 +2,8 @@
 
 import { useEffect } from 'react';
 
-const hd = "'Cabinet Grotesk', sans-serif";
-const bd = "'Inter', system-ui, sans-serif";
+const hd = "'DM Mono', monospace";
+const bd = "'DM Sans', sans-serif";
 
 export default function LoginPage() {
   useEffect(() => {
