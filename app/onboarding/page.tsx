@@ -121,23 +121,26 @@ export default function OnboardingPage() {
   if (phase === 'analysing') {
     const progress = Math.min(((aIdx+1)/STEPS.length)*100,100);
     return (
-      <div style={{...wrap,background:V.text,color:'#fff',alignItems:'center'}}>
-        <div style={box}>
-          <div style={{textAlign:'center',marginBottom:32}}>
+      <div style={{minHeight:'100vh',fontFamily:sans,background:V.bg,color:V.text,display:'flex',justifyContent:'center'}}>
+        <div style={{width:'100%',maxWidth:460,padding:'80px 1.25rem 2rem'}}>
+          <div style={{marginBottom:32}}>
             <div style={logoStyle}>CHOCKA</div>
-            <p style={{fontSize:13,color:'rgba(255,255,255,.4)',marginTop:4}}>Analysing your Google profile</p>
+            <h2 style={{fontFamily:barlow,fontSize:28,fontWeight:800,textTransform:'uppercase',lineHeight:1,margin:'12px 0 4px',color:V.text}}>Analysing your<br/>Google profile</h2>
+            <p style={{fontSize:13,color:V.textSoft,marginTop:4}}>This takes about 15 seconds.</p>
           </div>
-          <div style={{width:'100%',height:3,background:'rgba(255,255,255,.08)',borderRadius:2,marginBottom:24,overflow:'hidden'}}>
+          <div style={{width:'100%',height:4,background:V.border,borderRadius:2,marginBottom:32,overflow:'hidden'}}>
             <div style={{width:`${progress}%`,height:'100%',background:V.orange,borderRadius:2,transition:'width 1.2s ease'}}/>
           </div>
+          <div style={{...card,padding:20}}>
           {STEPS.map((t,i) => (
-            <div key={i} style={{display:'flex',alignItems:'center',gap:12,padding:'8px 0',opacity:i<=aIdx?1:0.12,transition:'opacity .5s'}}>
-              <span style={{width:20,textAlign:'center',fontSize:13,color:doneSt.has(i)?V.green:'rgba(255,255,255,.3)'}}>
-                {doneSt.has(i)?'✓':i===aIdx?'•':''}
+            <div key={i} style={{display:'flex',alignItems:'center',gap:12,padding:'9px 0',opacity:i<=aIdx?1:0.15,transition:'opacity .5s',borderBottom:i<STEPS.length-1?`1px solid ${V.border}`:'none'}}>
+              <span style={{width:20,textAlign:'center',fontSize:14,fontWeight:600,color:doneSt.has(i)?V.green:i===aIdx?V.orange:V.textSoft}}>
+                {doneSt.has(i)?'✓':i===aIdx?'→':''}
               </span>
-              <span style={{fontSize:14,color:doneSt.has(i)?'rgba(255,255,255,.35)':'#fff',transition:'color .3s'}}>{t}</span>
+              <span style={{fontSize:14,fontWeight:i===aIdx?500:400,color:doneSt.has(i)?V.textSoft:V.text,transition:'color .3s'}}>{t}</span>
             </div>
           ))}
+          </div>
         </div>
       </div>
     );
@@ -334,23 +337,26 @@ export default function OnboardingPage() {
     const fixTotal = [desc,svcs.length,previews?.categories?.length,hrs,previews?.reviewPreview,post].filter(Boolean).length+1;
     const fixProg = Math.min((fixLines.length/fixTotal)*100,100);
     return (
-      <div style={{...wrap,background:V.text,color:'#fff',alignItems:'center'}}>
-        <div style={box}>
-          <div style={{textAlign:'center',marginBottom:32}}>
+      <div style={{minHeight:'100vh',fontFamily:sans,background:V.bg,color:V.text,display:'flex',justifyContent:'center'}}>
+        <div style={{width:'100%',maxWidth:460,padding:'80px 1.25rem 2rem'}}>
+          <div style={{marginBottom:32}}>
             <div style={logoStyle}>CHOCKA</div>
-            <p style={{fontSize:13,color:'rgba(255,255,255,.4)',marginTop:4}}>Fixing your profile</p>
+            <h2 style={{fontFamily:barlow,fontSize:28,fontWeight:800,textTransform:'uppercase',lineHeight:1,margin:'12px 0 4px',color:V.text}}>Fixing your<br/>profile</h2>
+            <p style={{fontSize:13,color:V.textSoft,marginTop:4}}>Applying changes to Google now.</p>
           </div>
-          <div style={{width:'100%',height:3,background:'rgba(255,255,255,.08)',borderRadius:2,marginBottom:24,overflow:'hidden'}}>
+          <div style={{width:'100%',height:4,background:V.border,borderRadius:2,marginBottom:32,overflow:'hidden'}}>
             <div style={{width:`${fixProg}%`,height:'100%',background:V.green,borderRadius:2,transition:'width 1s ease'}}/>
           </div>
+          <div style={{...card,padding:20}}>
           {fixLines.map((t,i) => (
-            <div key={i} style={{display:'flex',alignItems:'center',gap:12,padding:'8px 0'}}>
-              <span style={{width:20,textAlign:'center',fontSize:13,color:i<fixLines.length-1?V.green:'rgba(255,255,255,.3)'}}>
-                {i<fixLines.length-1?'✓':'•'}
+            <div key={i} style={{display:'flex',alignItems:'center',gap:12,padding:'9px 0',borderBottom:i<fixLines.length-1?`1px solid ${V.border}`:'none'}}>
+              <span style={{width:20,textAlign:'center',fontSize:14,fontWeight:600,color:i<fixLines.length-1?V.green:V.orange}}>
+                {i<fixLines.length-1?'✓':'→'}
               </span>
-              <span style={{fontSize:14,color:i<fixLines.length-1?'rgba(255,255,255,.35)':'#fff'}}>{t}</span>
+              <span style={{fontSize:14,color:i<fixLines.length-1?V.textSoft:V.text}}>{t}</span>
             </div>
           ))}
+          </div>
         </div>
       </div>
     );
