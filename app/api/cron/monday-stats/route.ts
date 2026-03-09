@@ -19,13 +19,13 @@ export async function GET(request: NextRequest) {
 
       try {
         const accessToken = await refreshAccessToken(user.google_refresh_token);
+        // getPerformanceMetrics now returns {views, calls, directions, websiteClicks} directly
         const metrics = await getPerformanceMetrics(accessToken, profile.google_location_name);
 
-        // Parse metrics
-        const views = extractMetricValue(metrics, 'QUERIES_DIRECT') + extractMetricValue(metrics, 'QUERIES_INDIRECT');
-        const calls = extractMetricValue(metrics, 'ACTIONS_PHONE');
-        const directions = extractMetricValue(metrics, 'ACTIONS_DRIVING_DIRECTIONS');
-        const websiteClicks = extractMetricValue(metrics, 'ACTIONS_WEBSITE');
+        const views = metrics?.views || 0;
+        const calls = metrics?.calls || 0;
+        const directions = metrics?.directions || 0;
+        const websiteClicks = metrics?.websiteClicks || 0;
 
         // Upsert weekly stats
         await supabaseAdmin
@@ -39,30 +39,33 @@ export async function GET(request: NextRequest) {
             website_clicks: websiteClicks,
           }, { onConflict: 'profile_id,week_start' });
 
-        // Get last week's views for comparison
+        // Get last week's stats for comparison
         const lastWeekStart = new Date(weekStart);
         lastWeekStart.setDate(lastWeekStart.getDate() - 7);
         const { data: lastWeek } = await supabaseAdmin
           .from('weekly_stats')
-          .select('views')
+          .select('views, calls')
           .eq('profile_id', profile.id)
           .eq('week_start', lastWeekStart.toISOString().split('T')[0])
           .single();
 
         const lastViews = lastWeek?.views || 0;
-        const changePercent = lastViews > 0
-          ? Math.round(((views - lastViews) / lastViews) * 100)
-          : 0;
-        const changeStr = changePercent >= 0 ? `+${changePercent}%` : `${changePercent}%`;
+        const lastCalls = lastWeek?.calls || 0;
+        const viewChange = lastViews > 0 ? Math.round(((views - lastViews) / lastViews) * 100) : 0;
+        const callChange = calls - lastCalls;
 
-        const firstName = user.name.split(' ')[0] || 'there';
-        const streakStr = profile.streak_weeks > 1
-          ? ` 🔥 ${profile.streak_weeks} week streak!`
-          : '';
+        const viewStr = viewChange >= 0 ? `↑${viewChange}%` : `↓${Math.abs(viewChange)}%`;
+        const callStr = callChange >= 0 ? `+${callChange}` : `${callChange}`;
 
-        const smsBody = `Morning ${firstName}! Last week: ${views} views (${changeStr}), ${calls} calls.${streakStr} - Chocka`;
+        const firstName = (user.name || '').split(' ')[0] || 'there';
+        const streakStr = profile.streak_weeks > 1 ? ` 🔥 ${profile.streak_weeks} week streak!` : '';
+
+        const smsBody = `Morning ${firstName}! Last 28 days: ${views} views (${viewStr}), ${calls} calls (${callStr}), ${directions} directions.${streakStr} - Chocka`;
         const sid = await sendSMS({ to: user.phone_number, body: smsBody });
         await logSMS(supabaseAdmin, user.id, user.phone_number, 'monday_stats', smsBody, sid);
+
+        // Increment streak
+        await supabaseAdmin.from('profiles').update({ streak_weeks: (profile.streak_weeks || 0) + 1 }).eq('id', profile.id);
 
         sent++;
       } catch (err) {
@@ -83,15 +86,4 @@ function getWeekStart(): string {
   const diff = now.getDate() - day + (day === 0 ? -6 : 1);
   const monday = new Date(now.setDate(diff));
   return monday.toISOString().split('T')[0];
-}
-
-function extractMetricValue(metrics: any, metricName: string): number {
-  try {
-    const locationMetrics = metrics.locationMetrics?.[0]?.metricValues || [];
-    const metric = locationMetrics.find((m: any) => m.metric === metricName);
-    if (!metric?.dimensionalValues) return 0;
-    return metric.dimensionalValues.reduce((sum: number, dv: any) => sum + (dv.value || 0), 0);
-  } catch {
-    return 0;
-  }
 }
