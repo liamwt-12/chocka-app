@@ -3,8 +3,8 @@
 import { useState, useEffect } from 'react';
 
 const V = { bg:'#F0EDE8',card:'#FAFAF8',card2:'#F5F3EF',orange:'#E8541A',orangeLight:'#FFF0EB',green:'#2D7A4F',greenLight:'#E8F5EE',amber:'#B8860B',amberLight:'#FFF8E6',text:'#1A1A1A',textMid:'#555',textSoft:'#999',border:'rgba(0,0,0,0.07)',shadow:'0 2px 12px rgba(0,0,0,0.06)',star:'#FBBC04' };
-const sans = "'DM Sans',sans-serif";
-const mono = "'DM Mono',monospace";
+const sans = "\'DM Sans\',sans-serif";
+const mono = "\'DM Mono\',monospace";
 const card: React.CSSProperties = { background:V.card, borderRadius:16, padding:16, boxShadow:V.shadow };
 const lbl: React.CSSProperties = { fontFamily:sans, fontSize:10, fontWeight:600, letterSpacing:'0.1em', textTransform:'uppercase', color:V.textSoft, marginBottom:10 };
 const bdg = (bg:string,c:string): React.CSSProperties => ({ display:'inline-flex',alignItems:'center',gap:4,fontSize:11,fontWeight:600,padding:'3px 8px',borderRadius:20,background:bg,color:c,marginTop:6 });
@@ -23,6 +23,8 @@ export default function DashboardPage() {
   const totalActions=(p?.total_posts||0)+(p?.total_replies||0);
   const timeSaved=((p?.total_posts||0)*0.25+(p?.total_replies||0)*0.08+((p?.streak_weeks||0)*0.5)).toFixed(1);
   const comps=g?.competitors;
+  const referralCount = d.referralCount || 0;
+  const referralEarned = referralCount; // months earned
 
   return (
     <>
@@ -88,13 +90,11 @@ export default function DashboardPage() {
             <span style={{...lbl,marginBottom:0}}>Competitor Ranking · {p?.city||'Local'}</span>
             <span style={{fontSize:11,color:V.orange,fontWeight:500,fontFamily:sans}}>{g?.profile?.primaryCategory||p?.category}</span>
           </div>
-          {/* You */}
           <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:8}}>
             <span style={{fontSize:12,fontWeight:600,color:V.text,width:110,flexShrink:0,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',fontFamily:sans}}>You ({p?.business_name?.split(' ')[0]})</span>
             <div style={{flex:1,height:6,background:V.card2,borderRadius:3,overflow:'hidden'}}><div style={{height:'100%',borderRadius:3,background:V.orange,width:`${comps.own.score}%`}}/></div>
             <span style={{fontSize:11,fontFamily:mono,color:V.orange,fontWeight:600,width:24,textAlign:'right'}}>{comps.own.score}</span>
           </div>
-          {/* Competitors */}
           {comps.list.map((c:any,i:number)=>(
             <div key={i} style={{display:'flex',alignItems:'center',gap:10,marginBottom:6}}>
               <span style={{fontSize:12,color:V.textMid,width:110,flexShrink:0,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',fontFamily:sans}}>{c.name}</span>
@@ -131,7 +131,7 @@ export default function DashboardPage() {
           </div>
           <div style={{display:'flex',gap:24,marginBottom:12}}>
             <div><div style={{fontSize:10,color:V.textSoft,fontFamily:sans}}>Total</div><div style={{fontSize:22,fontWeight:600,fontFamily:mono}}>{g.reviews.total}</div></div>
-            <div><div style={{fontSize:10,color:V.textSoft,fontFamily:sans}}>Average</div><div style={{fontSize:22,fontWeight:600,fontFamily:mono}}>{g.reviews.avgRating} <span style={{color:V.star,fontSize:14}}>{'\u2605'}</span></div></div>
+            <div><div style={{fontSize:10,color:V.textSoft,fontFamily:sans}}>Average</div><div style={{fontSize:22,fontWeight:600,fontFamily:mono}}>{g.reviews.avgRating} <span style={{color:V.star,fontSize:14}}>{"\u2605"}</span></div></div>
             <div><div style={{fontSize:10,color:V.textSoft,fontFamily:sans}}>Replied</div><div style={{fontSize:22,fontWeight:600,fontFamily:mono,color:g.reviews.replied===g.reviews.total?V.green:V.orange}}>{g.reviews.replied}/{g.reviews.total}</div></div>
           </div>
           {g.reviews.list?.slice(0,5).map((r:any,i:number)=>(
@@ -139,7 +139,7 @@ export default function DashboardPage() {
               <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:2}}>
                 <div style={{display:'flex',alignItems:'center',gap:4}}>
                   <span style={{fontWeight:600,fontSize:13,fontFamily:sans}}>{r.name}</span>
-                  <span style={{color:V.star,fontSize:11}}>{'\u2605'.repeat(r.rating)}<span style={{color:'#E0DDD8'}}>{'\u2605'.repeat(5-r.rating)}</span></span>
+                  <span style={{color:V.star,fontSize:11}}>{"\u2605".repeat(r.rating)}<span style={{color:'#E0DDD8'}}>{"\u2605".repeat(5-r.rating)}</span></span>
                 </div>
                 <span style={{fontSize:11,color:V.textSoft,fontFamily:sans}}>{timeAgo(r.date)}</span>
               </div>
@@ -205,36 +205,66 @@ export default function DashboardPage() {
       {/* Empty state */}
       {!g&&d.recentPosts?.length===0&&(<div style={{...card,textAlign:'center',padding:'2rem'}}><p style={{fontWeight:600,fontSize:15,margin:'0 0 4px',fontFamily:sans}}>Your first post is on its way</p><p style={{fontSize:13,color:V.textSoft,margin:0,fontFamily:sans}}>We will write and publish to your Google profile this week.</p></div>)}
 
-      {/* Refer */}
-      <div style={{...card,animation:'fadeUp .5s .5s ease both'}}>
-        <div style={{fontSize:15,fontWeight:600,fontFamily:sans}}>Refer a mate 👋</div>
-        <div style={{fontSize:12,color:V.textSoft,marginTop:2,fontFamily:sans}}>You both get a free month.</div>
-        <div style={{display:'flex',gap:8,marginTop:10,alignItems:'center'}}>
-          <input readOnly value={`chocka.co.uk/ref/${d.user.referral_code||''}`} style={{flex:1,background:V.bg,border:'none',borderRadius:10,padding:'9px 12px',fontSize:12,fontFamily:mono,color:V.textSoft,outline:'none'}}/>
-          <CopyBtn code={d.user.referral_code}/>
-        </div>
-      </div>
+      {/* REFERRAL — prominent */}
+      <ReferralBlock code={d.user?.referral_code||''} count={referralCount} earned={referralEarned}/>
+
       <div style={{height:50}}/>
     </>
   );
 }
 
+function ReferralBlock({code, count, earned}:{code:string;count:number;earned:number}) {
+  const [copied, setCopied] = useState(false);
+  const link = `https://chocka.co.uk/ref/${code}`;
+  const copy = () => { navigator.clipboard.writeText(link); setCopied(true); setTimeout(()=>setCopied(false),2000); };
+  const sans = "\'DM Sans\',sans-serif";
+  const mono = "\'DM Mono\',monospace";
+
+  return (
+    <div style={{background:'#1A1A1A',borderRadius:16,padding:'20px 18px',animation:'fadeUp .5s .5s ease both'}}>
+      <div style={{display:'flex',alignItems:'flex-start',justifyContent:'space-between',marginBottom:4}}>
+        <div>
+          <div style={{fontFamily:sans,fontSize:10,fontWeight:600,letterSpacing:'0.1em',textTransform:'uppercase',color:'rgba(255,255,255,0.4)',marginBottom:6}}>Refer a mate</div>
+          <div style={{fontFamily:sans,fontSize:16,fontWeight:600,color:'#fff',lineHeight:1.3}}>
+            {count===0 ? 'Know a tradesperson?' : `${count} mate${count>1?'s':''} signed up`}
+          </div>
+          <div style={{fontFamily:sans,fontSize:12,color:'rgba(255,255,255,0.45)',marginTop:3,lineHeight:1.4}}>
+            {count===0
+              ? 'Send them your link. When they sign up, you get a free month.'
+              : `You\'ve earned ${earned} free month${earned>1?'s':''} — nice one.`}
+          </div>
+        </div>
+        {count>0&&<div style={{background:'#7DFF9B',borderRadius:10,padding:'6px 10px',textAlign:'center',flexShrink:0,marginLeft:12}}>
+          <div style={{fontFamily:mono,fontSize:18,fontWeight:700,color:'#1A1A1A',lineHeight:1}}>{earned}</div>
+          <div style={{fontFamily:sans,fontSize:9,color:'rgba(0,0,0,0.5)',textTransform:'uppercase',letterSpacing:'0.06em'}}>free mo{earned>1?'s':''}</div>
+        </div>}
+      </div>
+
+      <div style={{display:'flex',gap:8,marginTop:14,alignItems:'center'}}>
+        <div style={{flex:1,background:'rgba(255,255,255,0.08)',borderRadius:10,padding:'10px 12px',overflow:'hidden'}}>
+          <div style={{fontFamily:mono,fontSize:11,color:'rgba(255,255,255,0.5)',whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{link}</div>
+        </div>
+        <button onClick={copy} style={{background:'#E8541A',color:'white',border:'none',borderRadius:10,padding:'10px 18px',fontSize:13,fontWeight:600,cursor:'pointer',fontFamily:sans,flexShrink:0,whiteSpace:'nowrap'}}>
+          {copied?'Copied ✓':'Copy link'}
+        </button>
+      </div>
+
+      {count===0&&<div style={{fontFamily:sans,fontSize:11,color:'rgba(255,255,255,0.25)',marginTop:10,textAlign:'center'}}>Share your link · They sign up · You get a free month</div>}
+    </div>
+  );
+}
+
 function SC({num,label,hl,star}:{num:string;label:string;hl?:boolean;star?:boolean}) {
   return (<div style={{background:'#F5F3EF',borderRadius:12,padding:'12px 10px',textAlign:'center'}}>
-    <div style={{fontSize:22,fontWeight:600,fontFamily:"'DM Mono',monospace",lineHeight:1,color:hl?'#E8541A':'#1A1A1A'}}>{num}{star&&<span style={{color:'#FBBC04',fontSize:14,marginLeft:2}}>{'\u2605'}</span>}</div>
-    <div style={{fontSize:10,color:'#999',marginTop:4,lineHeight:1.3,fontFamily:"'DM Sans',sans-serif"}}>{label}</div>
+    <div style={{fontSize:22,fontWeight:600,fontFamily:"\'DM Mono\',monospace",lineHeight:1,color:hl?'#E8541A':'#1A1A1A'}}>{num}{star&&<span style={{color:'#FBBC04',fontSize:14,marginLeft:2}}>{"\u2605"}</span>}</div>
+    <div style={{fontSize:10,color:'#999',marginTop:4,lineHeight:1.3,fontFamily:"\'DM Sans\',sans-serif"}}>{label}</div>
   </div>);
 }
 
 function HI({ok,label,val}:{ok:boolean;label:string;val:string}) {
-  return (<div style={{display:'flex',alignItems:'center',gap:8,fontSize:13,fontFamily:"'DM Sans',sans-serif"}}>
+  return (<div style={{display:'flex',alignItems:'center',gap:8,fontSize:13,fontFamily:"\'DM Sans\',sans-serif"}}>
     <span style={{width:7,height:7,borderRadius:'50%',background:ok?'#2D7A4F':'#E8A020',flexShrink:0}}/>{label}<span style={{marginLeft:'auto',fontSize:11,color:'#999'}}>{val}</span>
   </div>);
-}
-
-function CopyBtn({code}:{code:string}) {
-  const [copied,setCopied]=useState(false);
-  return <button onClick={()=>{navigator.clipboard.writeText(`https://chocka.co.uk/ref/${code}`);setCopied(true);setTimeout(()=>setCopied(false),2000)}} style={{background:'#1A1A1A',color:'white',border:'none',borderRadius:10,padding:'9px 16px',fontSize:13,fontWeight:500,cursor:'pointer',fontFamily:"'DM Sans',sans-serif"}}>{copied?'Copied!':'Copy'}</button>;
 }
 
 function timeAgo(ds:string):string {

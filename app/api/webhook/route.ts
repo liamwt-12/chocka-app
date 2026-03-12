@@ -25,22 +25,46 @@ export async function POST(request: NextRequest) {
           })
           .eq('id', userId);
 
-        // Handle referral
+        // Handle referral — record it and apply free month credit to referrer
         const referralCode = session.metadata?.referral_code;
         if (referralCode) {
           const { data: referrer } = await supabaseAdmin
             .from('users')
-            .select('id')
+            .select('id, stripe_customer_id, email')
             .eq('referral_code', referralCode)
             .single();
 
           if (referrer) {
+            // Record the referral
             await supabaseAdmin.from('referrals').insert({
               referrer_id: referrer.id,
               referred_id: userId,
               referral_code: referralCode,
               status: 'completed',
             });
+
+            // Apply £29 credit to the referrer's Stripe account (one free month)
+            if (referrer.stripe_customer_id) {
+              try {
+                const creditRes = await fetch('https://api.stripe.com/v1/customers/' + referrer.stripe_customer_id + '/balance_transactions', {
+                  method: 'POST',
+                  headers: {
+                    Authorization: `Bearer ${process.env.STRIPE_SECRET_KEY}`,
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                  },
+                  body: new URLSearchParams({
+                    amount: '-2900', // £29.00 in pence, negative = credit
+                    currency: 'gbp',
+                    description: 'Referral reward — thanks for spreading the word 👊',
+                  }),
+                });
+                if (!creditRes.ok) {
+                  console.error('Stripe credit failed:', await creditRes.text());
+                }
+              } catch (creditErr) {
+                console.error('Stripe credit error:', creditErr);
+              }
+            }
           }
         }
         break;

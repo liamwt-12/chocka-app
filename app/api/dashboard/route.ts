@@ -166,11 +166,18 @@ export async function GET(request: NextRequest) {
       { day: 'Daily', action: 'Q&A section checked', status: 'ongoing' },
     ];
 
+    // Referral count
+    const { count: referralCount } = await supabaseAdmin
+      .from('referrals')
+      .select('id', { count: 'exact', head: true })
+      .eq('referrer_id', userId)
+      .eq('status', 'completed');
+
     return NextResponse.json({
       user: { name: user.name, email: user.email, phone: user.phone_number, referral_code: user.referral_code, subscription_status: user.subscription_status, auto_post_enabled: user.auto_post_enabled, auto_reply_enabled: user.auto_reply_enabled, sms_enabled: user.sms_enabled },
       profile: profile ? { business_name: profile.business_name, category: profile.category, city: profile.city, streak_weeks: profile.streak_weeks || 0, total_posts: postCountRes.count || 0, total_replies: replyCountRes.count || 0, audit_score: profile.audit_score || null, audit_score_after: profile.audit_score_after || null, latitude: profile.latitude, longitude: profile.longitude } : null,
       google, recentPosts: postsRes.data || [], recentReviews: reviewsRes.data || [],
-      activity: activity.slice(0, 10), plan,
+      activity: activity.slice(0, 10), plan, referralCount: referralCount || 0,
     });
   } catch (error: any) {
     console.error('Dashboard error:', error);

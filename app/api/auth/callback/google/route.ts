@@ -92,6 +92,7 @@ export async function GET(request: NextRequest) {
     if (insertError) throw insertError;
 
     // Fetch their GBP accounts and locations
+    let hasProfile = false;
     try {
       const accounts = await getAccounts(tokens.access_token);
       if (accounts.accounts?.length > 0) {
@@ -110,11 +111,24 @@ export async function GET(request: NextRequest) {
             latitude: loc.latlng?.latitude,
             longitude: loc.latlng?.longitude,
           });
+          hasProfile = true;
         }
       }
     } catch (err) {
       console.error('Failed to fetch GBP data:', err);
-      // Continue anyway — they can reconnect later
+      // Continue — they will see the no-profile screen
+    }
+
+    // No GBP found — send them to the helpful screen
+    if (!hasProfile) {
+      const noProfileResponse = NextResponse.redirect(new URL('/no-profile', process.env.NEXT_PUBLIC_APP_URL!));
+      noProfileResponse.cookies.set('chocka_user_id', newUser.id, {
+        httpOnly: true,
+        secure: true,
+        sameSite: 'lax',
+        maxAge: 60 * 60 * 24 * 30,
+      });
+      return noProfileResponse;
     }
 
     const response = NextResponse.redirect(new URL(`/onboarding?plan=${plan}`, process.env.NEXT_PUBLIC_APP_URL!));
