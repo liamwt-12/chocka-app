@@ -180,7 +180,7 @@ export default function OnboardingPage() {
             ))}
           </div>
 
-          {audit.fixes.length > 0 && <button onClick={()=>setPhase('preview')} style={btn}>See what we can fix right now →</button>}
+          {audit.fixes.length > 0 && <button onClick={()=>setPhase('preview')} style={btn}>See What We Can Fix Right Now →</button>}
         </div>
       </div>
     );
@@ -294,8 +294,8 @@ export default function OnboardingPage() {
             <p style={{fontSize:12,color:V.textSoft,marginTop:12}}>Changes go live on Google. You can undo them from your Google Business dashboard.</p>
           </div>
 
-          <button onClick={()=>setPhase('phone')} style={btn}>Apply these changes →</button>
-          <button onClick={()=>setPhase('preview')} style={btnGhost}>Go back and edit</button>
+          <button onClick={()=>setPhase('phone')} style={btn}>Apply These Changes →</button>
+          <button onClick={()=>setPhase('preview')} style={btnGhost}>Go Back And Edit</button>
         </div>
       </div>
     );
@@ -326,7 +326,7 @@ export default function OnboardingPage() {
             <div style={{fontSize:11,color:'rgba(255,255,255,.3)',textAlign:'right'}}>Billed monthly<br/>via Stripe</div>
           </div>
 
-          <button onClick={submitPhone} style={btn}>Continue to payment →</button>
+          <button onClick={submitPhone} style={btn}>Continue To Payment →</button>
         </div>
       </div>
     );
@@ -396,7 +396,7 @@ export default function OnboardingPage() {
           </div>
 
           <p style={{textAlign:'center',fontSize:13,color:V.textSoft,margin:'16px 0'}}>You don&apos;t need to do anything. Your profile is managed.</p>
-          <button onClick={()=>router.push('/dashboard')} style={btn}>Go to dashboard →</button>
+          <button onClick={()=>router.push('/dashboard')} style={btn}>Go To Dashboard →</button>
         </div>
       </div>
     );

@@ -41,7 +41,7 @@ export function postPreviewEmail(businessName: string, postContent: string, canc
       <div style="background: #f3f4f6; border-radius: 12px; padding: 20px; margin-bottom: 24px;">
         <p style="color: #1a1a2e; font-size: 15px; line-height: 1.6; margin: 0;">${postContent}</p>
       </div>
-      <p style="color: #6b7280; font-size: 14px; margin-bottom: 16px;">This will be posted to your Google profile on Monday at 10am. If you're happy with it, do nothing.</p>
+      <p style="color: #6b7280; font-size: 14px; margin-bottom: 16px;">This will be posted to your Google profile on Friday at 10am. If you're happy with it, do nothing.</p>
       <a href="${cancelUrl}" style="display: inline-block; background: #1a1a2e; color: #fff; padding: 12px 24px; border-radius: 8px; text-decoration: none; font-size: 14px; font-weight: 600;">Cancel this post</a>
     </div>
   `;

@@ -110,7 +110,7 @@ export default function SettingsPage() {
           </div>
         </div>
         <button onClick={handleBilling} disabled={saving==='billing'} style={{background:V.text,color:'white',border:'none',borderRadius:10,padding:'9px 16px',fontSize:13,fontWeight:500,cursor:'pointer',fontFamily:sans,width:'100%',opacity:saving==='billing'?.5:1}}>
-          {saving==='billing'?'Opening...':'Manage billing'}
+          {saving==='billing'?'Opening...':'Manage Billing'}
         </button>
       </div>
 
@@ -118,13 +118,13 @@ export default function SettingsPage() {
       <div style={{...card,animation:'fadeUp .5s .25s ease both'}}>
         <div style={{...lbl,color:V.red}}>Danger Zone</div>
         {!showDelete ? (
-          <button onClick={()=>setShowDelete(true)} style={{background:'none',border:'none',fontSize:13,color:V.textSoft,cursor:'pointer',padding:0,fontFamily:sans}}>Delete my account</button>
+          <button onClick={()=>setShowDelete(true)} style={{background:'none',border:'none',fontSize:13,color:V.textSoft,cursor:'pointer',padding:0,fontFamily:sans}}>Delete My Account</button>
         ) : (
           <div>
             <p style={{fontSize:13,color:V.textMid,lineHeight:1.5,margin:'0 0 10px',fontFamily:sans}}>This will permanently delete all your data, cancel your subscription, and disconnect your Google profile. Type <strong>DELETE</strong> to confirm.</p>
             <input value={deleteText} onChange={e=>setDeleteText(e.target.value)} placeholder="Type DELETE" style={{width:'100%',padding:'9px 12px',borderRadius:10,border:`2px solid rgba(217,48,37,0.2)`,fontSize:13,fontFamily:sans,color:V.text,outline:'none',background:'transparent',marginBottom:8}}/>
             <div style={{display:'flex',gap:8}}>
-              <button onClick={handleDelete} disabled={deleteText!=='DELETE'||saving==='delete'} style={{background:V.red,color:'white',border:'none',borderRadius:10,padding:'9px 16px',fontSize:13,fontWeight:500,cursor:'pointer',fontFamily:sans,opacity:deleteText!=='DELETE'?.4:1}}>{saving==='delete'?'Deleting...':'Delete everything'}</button>
+              <button onClick={handleDelete} disabled={deleteText!=='DELETE'||saving==='delete'} style={{background:V.red,color:'white',border:'none',borderRadius:10,padding:'9px 16px',fontSize:13,fontWeight:500,cursor:'pointer',fontFamily:sans,opacity:deleteText!=='DELETE'?.4:1}}>{saving==='delete'?'Deleting...':'Delete Everything'}</button>
               <button onClick={()=>{setShowDelete(false);setDeleteText('')}} style={{background:'none',border:'none',fontSize:13,color:V.textSoft,cursor:'pointer',fontFamily:sans}}>Cancel</button>
             </div>
           </div>

@@ -178,7 +178,7 @@ export default function DashboardPage() {
         <div style={{...card,animation:'fadeUp .5s .4s ease both'}}>
           <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:10}}>
             <span style={{...lbl,marginBottom:0}}>Recent Activity</span>
-            <span style={{fontSize:11,color:V.orange,fontWeight:500,cursor:'pointer',fontFamily:sans}}>View all</span>
+            <span style={{fontSize:11,color:V.orange,fontWeight:500,cursor:'pointer',fontFamily:sans}}>View All</span>
           </div>
           <div style={{display:'flex',flexDirection:'column',gap:10}}>
             {d.activity.slice(0,4).map((a:any,i:number)=>(
@@ -245,7 +245,7 @@ function ReferralBlock({code, count, earned}:{code:string;count:number;earned:nu
           <div style={{fontFamily:mono,fontSize:11,color:'rgba(255,255,255,0.5)',whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{link}</div>
         </div>
         <button onClick={copy} style={{background:'#E8541A',color:'white',border:'none',borderRadius:10,padding:'10px 18px',fontSize:13,fontWeight:600,cursor:'pointer',fontFamily:sans,flexShrink:0,whiteSpace:'nowrap'}}>
-          {copied?'Copied ✓':'Copy link'}
+          {copied?'Copied ✓':'Copy Link'}
         </button>
       </div>
 
