@@ -66,6 +66,16 @@ export default function AdminPage() {
 
   const s = data?.summary;
   const users = data?.users || [];
+  const utmBreakdown = s?.utmBreakdown || {};
+
+  const formatTime = (iso: string) => {
+    if (!iso) return '—';
+    const d = new Date(iso);
+    const diff = Math.floor((Date.now() - d.getTime()) / 1000 / 60);
+    if (diff < 60) return `${diff}m ago`;
+    if (diff < 1440) return `${Math.floor(diff / 60)}h ago`;
+    return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+  };
 
   return (
     <div style={{ minHeight:'100vh', background:V.bg, fontFamily:sans }}>
@@ -95,16 +105,57 @@ export default function AdminPage() {
           </div>
         </div>
 
+        {/* Last signup alert */}
+        {s?.lastSignup && (
+          <div style={{ background:V.greenLight, borderRadius:12, padding:'10px 14px', display:'flex', justifyContent:'space-between', alignItems:'center', animation:'fadeUp .4s .02s ease both' }}>
+            <span style={{ fontSize:12, color:V.green, fontWeight:500 }}>🟢 Last signup</span>
+            <span style={{ fontSize:12, color:V.green, fontWeight:600, fontFamily:mono }}>{formatTime(s.lastSignup)}</span>
+          </div>
+        )}
+
         {/* Key Stats */}
         <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10, animation:'fadeUp .4s .05s ease both' }}>
           <Stat num={s?.totalSignups || 0} label="Total Signups" />
           <Stat num={s?.activeSubscribers || 0} label="Active Subscribers" hl />
+          <Stat num={s?.signupsThisWeek || 0} label="Signups This Week" hl />
+          <Stat num={`${s?.conversionRate || 0}%`} label="Conversion Rate" hl={s?.conversionRate > 20} />
           <Stat num={s?.churned || 0} label="Churned" warn={s?.churned > 0} />
           <Stat num={s?.totalReferrals || 0} label="Referrals Converted" />
         </div>
 
+        {/* Score lift */}
+        {s?.avgScoreLift > 0 && (
+          <div style={{ ...card, animation:'fadeUp .4s .08s ease both' }}>
+            <div style={lbl}>Profile Score Improvement</div>
+            <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between' }}>
+              <div style={{ fontSize:13, color:V.textMid }}>Average score lift per customer</div>
+              <div style={{ fontSize:24, fontWeight:700, fontFamily:mono, color:V.green }}>+{s.avgScoreLift} pts</div>
+            </div>
+          </div>
+        )}
+
+        {/* Campaign sources */}
+        {Object.keys(utmBreakdown).length > 0 && (
+          <div style={{ ...card, animation:'fadeUp .4s .1s ease both' }}>
+            <div style={lbl}>Signup Sources</div>
+            <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
+              {Object.entries(utmBreakdown).sort((a: any, b: any) => b[1] - a[1]).map(([source, count]: any) => (
+                <div key={source} style={{ display:'flex', alignItems:'center', gap:10 }}>
+                  <div style={{ flex:1 }}>
+                    <div style={{ fontSize:12, fontWeight:500, color:V.text, marginBottom:3 }}>{source}</div>
+                    <div style={{ height:6, background:V.card2, borderRadius:3, overflow:'hidden' }}>
+                      <div style={{ height:'100%', background:source.includes('cold') ? V.orange : V.green, borderRadius:3, width:`${Math.round((count / s.totalSignups) * 100)}%` }} />
+                    </div>
+                  </div>
+                  <div style={{ fontSize:13, fontWeight:600, fontFamily:mono, color:V.textMid, width:24, textAlign:'right' }}>{count}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
         {/* Automation Stats */}
-        <div style={{ ...card, animation:'fadeUp .4s .1s ease both' }}>
+        <div style={{ ...card, animation:'fadeUp .4s .12s ease both' }}>
           <div style={lbl}>Automation Activity</div>
           <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8 }}>
             <div style={{ background:V.card2, borderRadius:12, padding:'12px', textAlign:'center' }}>
@@ -136,7 +187,7 @@ export default function AdminPage() {
   );
 }
 
-function Stat({ num, label, hl, warn }: { num: number; label: string; hl?: boolean; warn?: boolean }) {
+function Stat({ num, label, hl, warn }: { num: number | string; label: string; hl?: boolean; warn?: boolean }) {
   const col = warn ? '#D93025' : hl ? '#E8541A' : '#1A1A1A';
   return (
     <div style={{ background:'#FAFAF8', borderRadius:14, padding:'14px 16px', boxShadow:'0 2px 12px rgba(0,0,0,0.06)' }}>
@@ -178,6 +229,7 @@ function UserRow({ user }: { user: any }) {
           <Row label="Posts Written" val={String(p?.total_auto_posts || 0)} />
           <Row label="Replies Written" val={String(p?.total_auto_replies || 0)} />
           <Row label="Weeks Managed" val={String(p?.streak_weeks || 0)} />
+          <Row label="Source" val={user.utm_campaign || user.utm_source || 'direct'} />
           <Row label="Joined" val={new Date(user.created_at).toLocaleDateString('en-GB', { day:'numeric', month:'short', year:'numeric' })} />
           <Row label="Referred By" val={user.referred_by || '—'} />
           <div style={{ marginTop:4 }}>
