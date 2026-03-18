@@ -28,6 +28,7 @@ export async function POST(request: NextRequest) {
       .eq('phone_number', from)
       .single();
 
+    let targetUser = user;
     if (!user) {
       // Also try without country code
       const normalised = from.replace(/^\+44/, '0');
@@ -38,9 +39,8 @@ export async function POST(request: NextRequest) {
         .single();
 
       if (!userAlt) return twimlResponse('');
+      targetUser = userAlt;
     }
-
-    const targetUser = user || userAlt;
     if (!targetUser) return twimlResponse('');
 
     // Handle STOP

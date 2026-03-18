@@ -68,6 +68,7 @@ export async function GET(request: NextRequest) {
           break;
 
         case 1:
+          if (!profile) continue;
           // Only send if they have a post
           const { data: posts } = await supabaseAdmin
             .from('scheduled_posts')

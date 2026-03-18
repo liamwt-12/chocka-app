@@ -29,11 +29,11 @@ export async function GET(request: NextRequest) {
           .gte('published_at', lastMonth.toISOString())
           .lte('published_at', lastMonthEnd.toISOString());
 
-        // Count reviews replied last month
+        // Count reviews replied last month (join through reviews to scope by profile)
         const { count: reviewsReplied } = await supabaseAdmin
           .from('review_replies')
-          .select('id', { count: 'exact', head: true })
-          .eq('profile_id', profile.id)
+          .select('id, reviews!inner(profile_id)', { count: 'exact', head: true })
+          .eq('reviews.profile_id', profile.id)
           .eq('status', 'published')
           .gte('published_at', lastMonth.toISOString())
           .lte('published_at', lastMonthEnd.toISOString());

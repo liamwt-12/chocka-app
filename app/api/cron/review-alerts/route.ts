@@ -66,7 +66,7 @@ export async function GET(request: NextRequest) {
           if (rating >= 4) {
             // Auto-publish for 4-5 star reviews
             try {
-              await replyToReview(accessToken, review.name + '/reply' ? review.name : `${profile.google_location_name}/reviews/${googleReviewId}`, replyContent);
+              await replyToReview(accessToken, review.name, replyContent);
 
               await supabaseAdmin.from('review_replies').insert({
                 review_id: newReview.id,
