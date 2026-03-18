@@ -81,7 +81,7 @@ export async function GET(request: NextRequest) {
       u.profile?.audit_score != null && u.profile?.audit_score_after != null
     );
     const avgScoreLift = withScores.length > 0
-      ? Math.round(withScores.reduce((sum, u) => sum + (u.profile.audit_score_after - u.profile.audit_score), 0) / withScores.length)
+      ? Math.round(withScores.reduce((sum, u) => sum + (u.profile!.audit_score_after - u.profile!.audit_score), 0) / withScores.length)
       : 0;
 
     return NextResponse.json({
