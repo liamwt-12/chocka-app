@@ -90,7 +90,14 @@ export async function verifyWebhookSignature(payload: string, signature: string)
     .update(signedPayload)
     .digest('hex');
 
-  if (expectedSignature !== v1Signature) throw new Error('Signature mismatch');
+  const isValid = crypto.timingSafeEqual(
+    Buffer.from(expectedSignature, 'hex'),
+    Buffer.from(v1Signature, 'hex')
+  );
+  if (!isValid) throw new Error('Signature mismatch');
+
+  // Reject events older than 5 minutes
+  if (Date.now() / 1000 - parseInt(timestamp) > 300) throw new Error('Webhook too old');
 
   return JSON.parse(payload);
 }

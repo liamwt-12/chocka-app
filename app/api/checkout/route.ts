@@ -42,7 +42,7 @@ export async function POST(request: NextRequest) {
     const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://app.chocka.co.uk';
     const session = await createCheckoutSession({
       customerId,
-      priceId: getPriceId('monthly'),
+      priceId: getPriceId(plan),
       successUrl: `${appUrl}/onboarding?paid=true`,
       cancelUrl: `${appUrl}/onboarding`,
       metadata: {

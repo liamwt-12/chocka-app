@@ -1,9 +1,19 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
+import twilio from 'twilio';
 
 export async function POST(request: NextRequest) {
   try {
     const formData = await request.formData();
+
+    // Verify Twilio signature
+    const authToken = process.env.TWILIO_AUTH_TOKEN!;
+    const twilioSignature = request.headers.get('X-Twilio-Signature') || '';
+    const url = process.env.NEXT_PUBLIC_APP_URL + '/api/sms/webhook';
+    const params = Object.fromEntries(formData.entries()) as Record<string, string>;
+    const valid = twilio.validateRequest(authToken, twilioSignature, url, params);
+    if (!valid) return NextResponse.json({ error: 'Invalid signature' }, { status: 403 });
+
     const from = formData.get('From') as string;
     const body = (formData.get('Body') as string || '').trim().toUpperCase();
 

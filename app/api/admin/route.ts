@@ -3,11 +3,12 @@ import { supabaseAdmin } from '@/lib/supabase';
 
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD;
 
-export async function GET(request: NextRequest) {
+export async function POST(request: NextRequest) {
   if (!ADMIN_PASSWORD) return NextResponse.json({ error: 'Not configured' }, { status: 500 });
 
-  const { searchParams } = new URL(request.url);
-  if (searchParams.get('password') !== ADMIN_PASSWORD) {
+  const auth = request.headers.get('authorization') || '';
+  const password = auth.replace('Bearer ', '');
+  if (password !== ADMIN_PASSWORD) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 

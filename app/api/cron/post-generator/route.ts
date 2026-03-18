@@ -20,6 +20,19 @@ export async function GET(request: NextRequest) {
       if (!profile) continue;
 
       try {
+        // Check if a post already exists for this profile this week
+        const weekStart = new Date();
+        weekStart.setDate(weekStart.getDate() - weekStart.getDay());
+        weekStart.setHours(0, 0, 0, 0);
+        const { data: existingThisWeek } = await supabaseAdmin
+          .from('scheduled_posts')
+          .select('id')
+          .eq('profile_id', profile.id)
+          .gte('scheduled_for', weekStart.toISOString())
+          .in('status', ['pending_approval', 'published'])
+          .limit(1);
+        if (existingThisWeek?.length) continue;
+
         // Get last 4 posts to avoid repeating themes
         const { data: recentPosts } = await supabaseAdmin
           .from('scheduled_posts')

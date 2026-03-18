@@ -34,6 +34,16 @@ export async function GET(request: NextRequest) {
 // POST — record a referral (called from webhook after checkout)
 export async function POST(request: NextRequest) {
   try {
+    const userId = request.cookies.get('chocka_user_id')?.value;
+    if (!userId) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
+
+    const { data: authUser } = await supabaseAdmin
+      .from('users')
+      .select('id')
+      .eq('id', userId)
+      .single();
+    if (!authUser) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
+
     const { referrer_code, referred_id, referred_name } = await request.json();
 
     if (!referrer_code || !referred_id) {

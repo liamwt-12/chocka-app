@@ -32,7 +32,7 @@ export async function getActiveUsersWithProfiles(supabaseAdmin: any) {
 export function generateCancelHash(postId: string): string {
   const crypto = require('crypto');
   return crypto
-    .createHmac('sha256', process.env.CRON_SECRET!)
+    .createHmac('sha256', process.env.CANCEL_HASH_SECRET!)
     .update(postId)
     .digest('hex')
     .substring(0, 16);

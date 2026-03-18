@@ -38,7 +38,7 @@ export async function GET(request: NextRequest) {
 
       if (sentToday && sentToday.length > 0) continue;
 
-      const firstName = user.name.split(' ')[0] || 'there';
+      const firstName = (user.name || '').split(' ')[0] || 'there';
       let smsBody = '';
 
       switch (daysSinceSignup) {

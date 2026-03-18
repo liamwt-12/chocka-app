@@ -19,7 +19,10 @@ export default function AdminPage() {
     setLoading(true);
     setError('');
     try {
-      const res = await fetch(`/api/admin?password=${encodeURIComponent(password)}`);
+      const res = await fetch('/api/admin', {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${password}` },
+      });
       if (!res.ok) { setError('Wrong password'); setLoading(false); return; }
       const d = await res.json();
       setData(d);
@@ -33,7 +36,10 @@ export default function AdminPage() {
   const refresh = async () => {
     setLoading(true);
     try {
-      const res = await fetch(`/api/admin?password=${encodeURIComponent(password)}`);
+      const res = await fetch('/api/admin', {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${password}` },
+      });
       const d = await res.json();
       setData(d);
     } catch {}
