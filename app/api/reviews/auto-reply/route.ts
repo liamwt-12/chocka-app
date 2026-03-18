@@ -1,14 +1,24 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
 import { refreshAccessToken, replyToReview } from '@/lib/google';
+import { generateReviewHash } from '@/lib/cron';
 
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const action = searchParams.get('action');
   const reviewId = searchParams.get('review_id');
+  const hash = searchParams.get('hash');
 
   if (!action || !reviewId || !['approve', 'reject'].includes(action)) {
     return new NextResponse(resultPage('Invalid link', 'This link is missing some information.'), {
+      headers: { 'Content-Type': 'text/html' },
+    });
+  }
+
+  // Verify HMAC hash
+  const expectedHash = generateReviewHash(reviewId);
+  if (!hash || hash !== expectedHash) {
+    return new NextResponse(resultPage('Invalid link', 'This link has expired or is invalid.'), {
       headers: { 'Content-Type': 'text/html' },
     });
   }

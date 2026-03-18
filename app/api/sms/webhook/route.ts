@@ -30,7 +30,7 @@ export async function POST(request: NextRequest) {
       if (!userAlt) return twimlResponse('');
     }
 
-    const targetUser = user;
+    const targetUser = user || userAlt;
     if (!targetUser) return twimlResponse('');
 
     // Handle STOP

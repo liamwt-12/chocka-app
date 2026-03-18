@@ -51,7 +51,6 @@ export async function GET(request: NextRequest) {
           .update({
             total_auto_posts: (profile.total_auto_posts || 0) + 1,
             last_auto_post_at: new Date().toISOString(),
-            streak_weeks: (profile.streak_weeks || 0) + 1,
           })
           .eq('id', profile.id);
 

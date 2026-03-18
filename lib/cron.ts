@@ -37,3 +37,13 @@ export function generateCancelHash(postId: string): string {
     .digest('hex')
     .substring(0, 16);
 }
+
+// Generate a signed review action hash
+export function generateReviewHash(reviewId: string): string {
+  const crypto = require('crypto');
+  return crypto
+    .createHmac('sha256', process.env.CRON_SECRET!)
+    .update(`review:${reviewId}`)
+    .digest('hex')
+    .substring(0, 16);
+}

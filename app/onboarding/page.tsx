@@ -83,7 +83,7 @@ export default function OnboardingPage() {
     const c = phone.replace(/\s/g, '');
     if (!c.match(/^(\+44|0)7\d{9}$/)) { setPhoneErr('Enter a valid UK mobile number'); return; }
     setPhoneErr('');
-    const res = await fetch('/api/checkout', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ phone: c, plan: 'monthly', referralCode: '' }) });
+    const res = await fetch('/api/checkout', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ phone: c, plan: 'monthly', referralCode: sessionStorage.getItem('chocka_ref') || '' }) });
     if (res.ok) {
       const data = await res.json();
       if (data.url) { sessionStorage.setItem('chocka_fix_data', JSON.stringify({ desc, svcs, cats: previews?.categories, hrs, post, reviewPreview: previews?.reviewPreview })); window.location.href = data.url; return; }

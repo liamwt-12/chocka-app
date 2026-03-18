@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
-import { verifyCronSecret, unauthorizedResponse, getActiveUsersWithProfiles } from '@/lib/cron';
+import { verifyCronSecret, unauthorizedResponse, getActiveUsersWithProfiles, generateReviewHash } from '@/lib/cron';
 import { refreshAccessToken, getReviews, replyToReview, parseStarRating } from '@/lib/google';
 import { generateReviewReply } from '@/lib/ai';
 import { sendSMS, logSMS } from '@/lib/twilio';
@@ -106,8 +106,9 @@ export async function GET(request: NextRequest) {
             });
 
             const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://app.chocka.co.uk';
-            const approveUrl = `${appUrl}/api/reviews/auto-reply?action=approve&review_id=${newReview.id}`;
-            const rejectUrl = `${appUrl}/api/reviews/auto-reply?action=reject&review_id=${newReview.id}`;
+            const hash = generateReviewHash(newReview.id);
+            const approveUrl = `${appUrl}/api/reviews/auto-reply?action=approve&review_id=${newReview.id}&hash=${hash}`;
+            const rejectUrl = `${appUrl}/api/reviews/auto-reply?action=reject&review_id=${newReview.id}&hash=${hash}`;
 
             // SMS alert
             if (user.sms_enabled && user.phone_number) {

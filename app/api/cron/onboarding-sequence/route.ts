@@ -11,7 +11,7 @@ export async function GET(request: NextRequest) {
     // Get users in onboarding (steps 0-7)
     const { data: users } = await supabaseAdmin
       .from('users')
-      .select('*')
+      .select('*, profiles(*)')
       .eq('subscription_status', 'active')
       .gte('onboarding_step', 0)
       .lte('onboarding_step', 7);
@@ -20,6 +20,7 @@ export async function GET(request: NextRequest) {
 
     for (const user of users || []) {
       if (!user.phone_number || !user.sms_enabled) continue;
+      const profile = user.profiles?.[0];
 
       const daysSinceSignup = Math.floor(
         (Date.now() - new Date(user.created_at).getTime()) / (1000 * 60 * 60 * 24)
@@ -71,6 +72,7 @@ export async function GET(request: NextRequest) {
           const { data: posts } = await supabaseAdmin
             .from('scheduled_posts')
             .select('id')
+            .eq('profile_id', profile.id)
             .eq('status', 'published')
             .limit(1);
 

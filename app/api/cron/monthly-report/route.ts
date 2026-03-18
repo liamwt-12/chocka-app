@@ -33,6 +33,7 @@ export async function GET(request: NextRequest) {
         const { count: reviewsReplied } = await supabaseAdmin
           .from('review_replies')
           .select('id', { count: 'exact', head: true })
+          .eq('profile_id', profile.id)
           .eq('status', 'published')
           .gte('published_at', lastMonth.toISOString())
           .lte('published_at', lastMonthEnd.toISOString());
