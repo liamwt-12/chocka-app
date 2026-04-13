@@ -84,7 +84,8 @@ export async function POST(request: NextRequest) {
     };
 
     // Save scores to profile
-    await supaAdmin.from('profiles').update({ audit_score: audit.score, audit_score_after: pred }).eq('id', profile.id);
+    const { error: updateErr } = await supaAdmin.from('profiles').update({ audit_score: audit.score, audit_score_after: pred }).eq('id', profile.id);
+    if (updateErr) console.error('Failed to save audit scores:', updateErr);
 
     return NextResponse.json({
       audit, predicted: pred,

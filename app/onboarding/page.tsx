@@ -30,6 +30,9 @@ export default function OnboardingPage() {
   const [fixLines, setFixLines] = useState<string[]>([]);
   const [counter, setCounter] = useState(0);
   const [finalCounter, setFinalCounter] = useState(0);
+  const [auditError, setAuditError] = useState(false);
+  const [animDone, setAnimDone] = useState(false);
+  const [auditLoaded, setAuditLoaded] = useState(false);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -43,7 +46,8 @@ export default function OnboardingPage() {
   useEffect(() => {
     if (phase !== 'analysing') return;
     const iv = setInterval(() => { setAIdx(p => { if (p < STEPS.length-1) { setDoneSt(d => { const n = new Set(Array.from(d)); n.add(p); return n; }); return p+1; } return p; }); }, 1300);
-    return () => clearInterval(iv);
+    const animTimer = setTimeout(() => { setDoneSt(d => { const n = new Set(Array.from(d)); n.add(STEPS.length-1); return n; }); setAnimDone(true); }, STEPS.length * 1300);
+    return () => { clearInterval(iv); clearTimeout(animTimer); };
   }, [phase]);
 
   useEffect(() => {
@@ -59,6 +63,10 @@ export default function OnboardingPage() {
   }, [phase, audit, predicted]);
 
   async function runAudit() {
+    setAuditError(false);
+    setAuditLoaded(false);
+    setAnimDone(false);
+    const startTime = Date.now();
     try {
       const res = await fetch('/api/audit', { method: 'POST' });
       if (!res.ok) throw new Error('Audit failed');
@@ -69,13 +77,15 @@ export default function OnboardingPage() {
       if (d.previews.services) setSvcs(d.previews.services);
       if (d.previews.firstPost) setPost(d.previews.firstPost);
       if (d.previews.defaultHours) setHrs(d.previews.defaultHours);
-      const delay = STEPS.length * 1300 + 400;
-      setTimeout(() => { setDoneSt(x => { const n = new Set(Array.from(x)); n.add(STEPS.length-1); return n; }); setTimeout(() => setPhase('score'), 600); }, delay);
+      setAuditLoaded(true);
+      const minDelay = STEPS.length * 1300 + 1000;
+      const elapsed = Date.now() - startTime;
+      const remaining = Math.max(minDelay - elapsed, 600);
+      setTimeout(() => { setPhase('score'); }, remaining);
     } catch (e: any) {
       console.error('Audit failed:', e);
-      setPhase('score');
-      setAudit({ score: 0, maxScore: 100, band: 'Could not analyse', bandColour: V.red, items: [], fixes: [] });
-      setPredicted(0);
+      setAuditError(true);
+      setAuditLoaded(true);
     }
   }
 
@@ -119,7 +129,30 @@ export default function OnboardingPage() {
 
   /* ── ANALYSING ── */
   if (phase === 'analysing') {
+    // Error during analysis — show retry/skip
+    if (auditError) {
+      return (
+        <div style={{minHeight:'100vh',fontFamily:sans,background:V.bg,color:V.text,display:'flex',justifyContent:'center'}}>
+          <div style={{width:'100%',maxWidth:460,padding:'80px 1.25rem 2rem'}}>
+            <div style={{marginBottom:32}}>
+              <div style={logoStyle}>CHOCKA</div>
+              <h2 style={{fontFamily:barlow,fontSize:28,fontWeight:800,textTransform:'uppercase',lineHeight:1,margin:'12px 0 4px',color:V.text}}>Something<br/>went wrong</h2>
+              <p style={{fontSize:13,color:V.textSoft,marginTop:4}}>We couldn&apos;t connect to your Google profile right now. This is usually temporary.</p>
+            </div>
+            <div style={{...card,padding:20,textAlign:'center'}}>
+              <div style={{fontSize:40,marginBottom:12}}>!</div>
+              <p style={{fontSize:14,color:V.textMid,margin:'0 0 16px'}}>Google&apos;s servers didn&apos;t respond in time. Your profile data is safe — nothing has changed.</p>
+              <button onClick={()=>{ setPhase('analysing'); setAIdx(0); setDoneSt(new Set()); runAudit(); }} style={btn}>Try Again</button>
+              <button onClick={()=>setPhase('phone')} style={{...btnGhost,marginTop:8}}>Skip and continue to setup</button>
+              <p style={{fontSize:11,color:V.textSoft,marginTop:8}}>We&apos;ll run your full audit once you&apos;re set up.</p>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
     const progress = Math.min(((aIdx+1)/STEPS.length)*100,100);
+    const showStillWorking = animDone && !auditLoaded;
     return (
       <div style={{minHeight:'100vh',fontFamily:sans,background:V.bg,color:V.text,display:'flex',justifyContent:'center'}}>
         <div style={{width:'100%',maxWidth:460,padding:'80px 1.25rem 2rem'}}>
@@ -141,6 +174,11 @@ export default function OnboardingPage() {
             </div>
           ))}
           </div>
+          {showStillWorking && (
+            <p style={{textAlign:'center',fontSize:13,color:V.textSoft,marginTop:16,animation:'pulse 2s ease-in-out infinite'}}>
+              Still working — your profile has a lot of data...
+            </p>
+          )}
         </div>
       </div>
     );
@@ -180,7 +218,14 @@ export default function OnboardingPage() {
             ))}
           </div>
 
-          {audit.fixes.length > 0 && <button onClick={()=>setPhase('preview')} style={btn}>See What We Can Fix Right Now →</button>}
+          {audit.fixes.length > 0 ? (
+            <button onClick={()=>setPhase('preview')} style={btn}>See What We Can Fix Right Now →</button>
+          ) : (
+            <>
+              <button onClick={()=>setPhase('phone')} style={btn}>Continue To Setup →</button>
+              {audit.score === 0 && <p style={{textAlign:'center',fontSize:12,color:V.textSoft,marginTop:8}}>We&apos;ll run your full audit once you&apos;re set up.</p>}
+            </>
+          )}
         </div>
       </div>
     );
