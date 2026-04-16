@@ -31,8 +31,8 @@ export default function OnboardingPage() {
   const [counter, setCounter] = useState(0);
   const [finalCounter, setFinalCounter] = useState(0);
   const [auditError, setAuditError] = useState(false);
-  const [animDone, setAnimDone] = useState(false);
-  const [auditLoaded, setAuditLoaded] = useState(false);
+  const [auditReady, setAuditReady] = useState(false);
+  const [previewsLoading, setPreviewsLoading] = useState(false);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -45,10 +45,15 @@ export default function OnboardingPage() {
 
   useEffect(() => {
     if (phase !== 'analysing') return;
-    const iv = setInterval(() => { setAIdx(p => { if (p < STEPS.length-1) { setDoneSt(d => { const n = new Set(Array.from(d)); n.add(p); return n; }); return p+1; } return p; }); }, 1300);
-    const animTimer = setTimeout(() => { setDoneSt(d => { const n = new Set(Array.from(d)); n.add(STEPS.length-1); return n; }); setAnimDone(true); }, STEPS.length * 1300);
-    return () => { clearInterval(iv); clearTimeout(animTimer); };
-  }, [phase]);
+    if (auditReady) {
+      setDoneSt(new Set(STEPS.map((_, i) => i)));
+      setAIdx(STEPS.length - 1);
+      const t = setTimeout(() => setPhase('score'), 600);
+      return () => clearTimeout(t);
+    }
+    const iv = setInterval(() => { setAIdx(p => { if (p < STEPS.length-1) { setDoneSt(d => { const n = new Set(Array.from(d)); n.add(p); return n; }); return p+1; } return p; }); }, 800);
+    return () => clearInterval(iv);
+  }, [phase, auditReady]);
 
   useEffect(() => {
     if (phase !== 'score' || !audit) return;
@@ -64,28 +69,37 @@ export default function OnboardingPage() {
 
   async function runAudit() {
     setAuditError(false);
-    setAuditLoaded(false);
-    setAnimDone(false);
-    const startTime = Date.now();
+    setAuditReady(false);
     try {
       const res = await fetch('/api/audit', { method: 'POST' });
       if (!res.ok) throw new Error('Audit failed');
       const d = await res.json();
       if (d.error) throw new Error(d.error);
-      setAudit(d.audit); setPredicted(d.predicted); setPreviews(d.previews); setLocData(d.locationData);
-      if (d.previews.description) setDesc(d.previews.description);
-      if (d.previews.services) setSvcs(d.previews.services);
-      if (d.previews.firstPost) setPost(d.previews.firstPost);
-      if (d.previews.defaultHours) setHrs(d.previews.defaultHours);
-      setAuditLoaded(true);
-      const minDelay = STEPS.length * 1300 + 1000;
-      const elapsed = Date.now() - startTime;
-      const remaining = Math.max(minDelay - elapsed, 600);
-      setTimeout(() => { setPhase('score'); }, remaining);
+      setAudit(d.audit); setPredicted(d.predicted); setLocData(d.locationData);
+      if (d.defaultHours) setHrs(d.defaultHours);
+      fetchPreviews();
+      setAuditReady(true);
     } catch (e: any) {
       console.error('Audit failed:', e);
       setAuditError(true);
-      setAuditLoaded(true);
+    }
+  }
+
+  async function fetchPreviews() {
+    setPreviewsLoading(true);
+    try {
+      const res = await fetch('/api/audit/previews', { method: 'POST' });
+      if (!res.ok) throw new Error('Previews failed');
+      const d = await res.json();
+      setPreviews(d.previews);
+      if (d.previews?.description) setDesc(d.previews.description);
+      if (d.previews?.services) setSvcs(d.previews.services);
+      if (d.previews?.firstPost) setPost(d.previews.firstPost);
+    } catch (e) {
+      console.error('Preview generation failed:', e);
+      setPreviews({ description: null, services: null, firstPost: null, categories: null, reviewPreview: null });
+    } finally {
+      setPreviewsLoading(false);
     }
   }
 
@@ -152,7 +166,7 @@ export default function OnboardingPage() {
     }
 
     const progress = Math.min(((aIdx+1)/STEPS.length)*100,100);
-    const showStillWorking = animDone && !auditLoaded;
+    const showStillWorking = aIdx >= STEPS.length - 1 && !auditReady && !auditError;
     return (
       <div style={{minHeight:'100vh',fontFamily:sans,background:V.bg,color:V.text,display:'flex',justifyContent:'center'}}>
         <div style={{width:'100%',maxWidth:460,padding:'80px 1.25rem 2rem'}}>
@@ -232,79 +246,122 @@ export default function OnboardingPage() {
   }
 
   /* ── PREVIEW (editable) ── */
-  if (phase === 'preview' && audit && previews) {
+  if (phase === 'preview' && audit) {
     const pts = (n:number) => <span style={{fontFamily:mono,fontSize:11,fontWeight:500,color:V.orange}}>+{n} pts</span>;
+    const skel: React.CSSProperties = { background:V.border,borderRadius:6,height:14 };
+    const showSkel = previewsLoading || !previews;
     return (
       <div style={{...wrap,background:V.bg}}>
         <div style={box}>
           <div style={logoStyle}>CHOCKA</div>
           <h2 style={{fontFamily:barlow,fontSize:28,fontWeight:800,textTransform:'uppercase',lineHeight:1,margin:'12px 0 4px',color:V.text}}>Here&apos;s what<br/>we&apos;ll fix.</h2>
-          <p style={{fontSize:13,color:V.textSoft,marginBottom:20}}>Tap any section to edit before we apply it.</p>
+          <p style={{fontSize:13,color:V.textSoft,marginBottom:20}}>{showSkel ? 'Generating your previews...' : 'Tap any section to edit before we apply it.'}</p>
 
-          {previews.description && (
-            <div style={card}>
-              <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:8}}>
-                <span style={{fontSize:15,fontWeight:600}}>Business description</span>
-                {pts(audit.fixes.find((f:any)=>f.key==='description')?.pointsGain||15)}
-              </div>
-              <textarea value={desc} onChange={e=>setDesc(e.target.value)} rows={5} style={{width:'100%',background:V.card2,color:V.text,border:`1px solid ${V.border}`,borderRadius:12,padding:12,fontSize:14,lineHeight:'1.6',resize:'vertical',fontFamily:sans,outline:'none',boxSizing:'border-box'}}/>
-              <p style={{fontSize:11,color:V.textSoft,marginTop:4}}>Appears in your "From the business" section on Google.</p>
-            </div>
-          )}
-
-          {previews.services && (
-            <div style={card}>
-              <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:8}}>
-                <span style={{fontSize:15,fontWeight:600}}>Services ({svcs.length})</span>
-                {pts(audit.fixes.find((f:any)=>f.key==='services')?.pointsGain||12)}
-              </div>
-              <div style={{display:'flex',flexWrap:'wrap',gap:6}}>
-                {svcs.map((s,i) => <span key={i} style={{background:V.card2,borderRadius:20,padding:'6px 12px',fontSize:13}}>{s}</span>)}
-              </div>
-            </div>
-          )}
-
-          {previews.firstPost && (
-            <div style={card}>
-              <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:8}}>
-                <span style={{fontSize:15,fontWeight:600}}>Your first post</span>
-                {pts(5)}
-              </div>
-              <textarea value={post} onChange={e=>setPost(e.target.value)} rows={3} style={{width:'100%',background:V.card2,color:V.text,border:`1px solid ${V.border}`,borderRadius:12,padding:12,fontSize:14,lineHeight:'1.6',resize:'vertical',fontFamily:sans,outline:'none',boxSizing:'border-box'}}/>
-              <p style={{fontSize:11,color:V.textSoft,marginTop:4}}>Goes live tomorrow at 10am.</p>
-            </div>
-          )}
-
-          {previews.reviewPreview && (
-            <div style={card}>
-              <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:8}}>
-                <span style={{fontSize:15,fontWeight:600}}>Review replies ({previews.reviewPreview.totalUnreplied})</span>
-                {pts(audit.fixes.find((f:any)=>f.key==='reviews')?.pointsGain||8)}
-              </div>
-              <div style={{background:V.card2,borderRadius:12,padding:12,marginBottom:8}}>
-                <div style={{display:'flex',alignItems:'center',gap:4,marginBottom:4}}>
-                  <span style={{fontWeight:600,fontSize:13}}>{previews.reviewPreview.reviewerName}</span>
-                  <span style={{color:V.star,fontSize:11}}>{'\u2605'.repeat(previews.reviewPreview.rating)}<span style={{color:'#E0DDD8'}}>{'\u2605'.repeat(5-previews.reviewPreview.rating)}</span></span>
+          {audit.fixes.some((f:any) => f.key === 'description') && (
+            desc ? (
+              <div style={card}>
+                <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:8}}>
+                  <span style={{fontSize:15,fontWeight:600}}>Business description</span>
+                  {pts(audit.fixes.find((f:any)=>f.key==='description')?.pointsGain||15)}
                 </div>
-                <p style={{fontSize:13,color:V.textMid,margin:0,lineHeight:1.4}}>{previews.reviewPreview.comment}</p>
+                <textarea value={desc} onChange={e=>setDesc(e.target.value)} rows={5} style={{width:'100%',background:V.card2,color:V.text,border:`1px solid ${V.border}`,borderRadius:12,padding:12,fontSize:14,lineHeight:'1.6',resize:'vertical',fontFamily:sans,outline:'none',boxSizing:'border-box'}}/>
+                <p style={{fontSize:11,color:V.textSoft,marginTop:4}}>Appears in your "From the business" section on Google.</p>
               </div>
-              <div style={{background:V.orangeLight,borderRadius:12,padding:12,borderLeft:`3px solid ${V.orange}`}}>
-                <p style={{fontSize:11,color:V.orange,fontWeight:600,margin:'0 0 4px'}}>Our reply:</p>
-                <p style={{fontSize:13,margin:0,lineHeight:1.4}}>{previews.reviewPreview.suggestedReply}</p>
+            ) : showSkel ? (
+              <div style={card}>
+                <div style={{...skel,width:'50%',height:16,marginBottom:16}}/>
+                <div style={{...skel,width:'100%',marginBottom:8}}/>
+                <div style={{...skel,width:'100%',marginBottom:8}}/>
+                <div style={{...skel,width:'100%',marginBottom:8}}/>
+                <div style={{...skel,width:'70%'}}/>
               </div>
-            </div>
+            ) : null
           )}
 
-          {previews.categories?.length > 0 && (
-            <div style={card}>
-              <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:8}}>
-                <span style={{fontSize:15,fontWeight:600}}>Categories</span>
-                {pts(audit.fixes.find((f:any)=>f.key==='categories')?.pointsGain||8)}
+          {audit.fixes.some((f:any) => f.key === 'services') && (
+            svcs.length > 0 ? (
+              <div style={card}>
+                <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:8}}>
+                  <span style={{fontSize:15,fontWeight:600}}>Services ({svcs.length})</span>
+                  {pts(audit.fixes.find((f:any)=>f.key==='services')?.pointsGain||12)}
+                </div>
+                <div style={{display:'flex',flexWrap:'wrap',gap:6}}>
+                  {svcs.map((s,i) => <span key={i} style={{background:V.card2,borderRadius:20,padding:'6px 12px',fontSize:13}}>{s}</span>)}
+                </div>
               </div>
-              <div style={{display:'flex',flexWrap:'wrap',gap:6}}>
-                {previews.categories.map((c:string,i:number) => <span key={i} style={{background:V.card2,borderRadius:20,padding:'6px 12px',fontSize:13}}>{c}</span>)}
+            ) : showSkel ? (
+              <div style={card}>
+                <div style={{...skel,width:'40%',height:16,marginBottom:16}}/>
+                <div style={{display:'flex',flexWrap:'wrap',gap:6}}>{[1,2,3,4,5].map(i=><div key={i} style={{...skel,width:80,height:28,borderRadius:20}}/>)}</div>
               </div>
-            </div>
+            ) : null
+          )}
+
+          {audit.fixes.some((f:any) => f.key === 'firstPost') && (
+            post ? (
+              <div style={card}>
+                <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:8}}>
+                  <span style={{fontSize:15,fontWeight:600}}>Your first post</span>
+                  {pts(5)}
+                </div>
+                <textarea value={post} onChange={e=>setPost(e.target.value)} rows={3} style={{width:'100%',background:V.card2,color:V.text,border:`1px solid ${V.border}`,borderRadius:12,padding:12,fontSize:14,lineHeight:'1.6',resize:'vertical',fontFamily:sans,outline:'none',boxSizing:'border-box'}}/>
+                <p style={{fontSize:11,color:V.textSoft,marginTop:4}}>Goes live tomorrow at 10am.</p>
+              </div>
+            ) : showSkel ? (
+              <div style={card}>
+                <div style={{...skel,width:'45%',height:16,marginBottom:16}}/>
+                <div style={{...skel,width:'100%',marginBottom:8}}/>
+                <div style={{...skel,width:'90%',marginBottom:8}}/>
+                <div style={{...skel,width:'60%'}}/>
+              </div>
+            ) : null
+          )}
+
+          {audit.fixes.some((f:any) => f.key === 'reviews') && (
+            previews?.reviewPreview ? (
+              <div style={card}>
+                <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:8}}>
+                  <span style={{fontSize:15,fontWeight:600}}>Review replies ({previews.reviewPreview.totalUnreplied})</span>
+                  {pts(audit.fixes.find((f:any)=>f.key==='reviews')?.pointsGain||8)}
+                </div>
+                <div style={{background:V.card2,borderRadius:12,padding:12,marginBottom:8}}>
+                  <div style={{display:'flex',alignItems:'center',gap:4,marginBottom:4}}>
+                    <span style={{fontWeight:600,fontSize:13}}>{previews.reviewPreview.reviewerName}</span>
+                    <span style={{color:V.star,fontSize:11}}>{'\u2605'.repeat(previews.reviewPreview.rating)}<span style={{color:'#E0DDD8'}}>{'\u2605'.repeat(5-previews.reviewPreview.rating)}</span></span>
+                  </div>
+                  <p style={{fontSize:13,color:V.textMid,margin:0,lineHeight:1.4}}>{previews.reviewPreview.comment}</p>
+                </div>
+                <div style={{background:V.orangeLight,borderRadius:12,padding:12,borderLeft:`3px solid ${V.orange}`}}>
+                  <p style={{fontSize:11,color:V.orange,fontWeight:600,margin:'0 0 4px'}}>Our reply:</p>
+                  <p style={{fontSize:13,margin:0,lineHeight:1.4}}>{previews.reviewPreview.suggestedReply}</p>
+                </div>
+              </div>
+            ) : showSkel ? (
+              <div style={card}>
+                <div style={{...skel,width:'55%',height:16,marginBottom:16}}/>
+                <div style={{background:V.card2,borderRadius:12,padding:12,marginBottom:8}}><div style={{...skel,width:'40%',marginBottom:8}}/><div style={{...skel,width:'80%'}}/></div>
+                <div style={{background:V.orangeLight,borderRadius:12,padding:12}}><div style={{...skel,width:'30%',marginBottom:8}}/><div style={{...skel,width:'90%'}}/></div>
+              </div>
+            ) : null
+          )}
+
+          {audit.fixes.some((f:any) => f.key === 'categories') && (
+            previews?.categories?.length > 0 ? (
+              <div style={card}>
+                <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:8}}>
+                  <span style={{fontSize:15,fontWeight:600}}>Categories</span>
+                  {pts(audit.fixes.find((f:any)=>f.key==='categories')?.pointsGain||8)}
+                </div>
+                <div style={{display:'flex',flexWrap:'wrap',gap:6}}>
+                  {previews.categories.map((c:string,i:number) => <span key={i} style={{background:V.card2,borderRadius:20,padding:'6px 12px',fontSize:13}}>{c}</span>)}
+                </div>
+              </div>
+            ) : showSkel ? (
+              <div style={card}>
+                <div style={{...skel,width:'40%',height:16,marginBottom:16}}/>
+                <div style={{display:'flex',flexWrap:'wrap',gap:6}}>{[1,2,3].map(i=><div key={i} style={{...skel,width:90,height:28,borderRadius:20}}/>)}</div>
+              </div>
+            ) : null
           )}
 
           <div style={{textAlign:'center',padding:'16px 0 8px'}}>
@@ -313,15 +370,15 @@ export default function OnboardingPage() {
             <div style={{fontSize:12,color:V.textSoft}}>Up from {audit.score}</div>
           </div>
 
-          <button onClick={()=>setPhase('confirm')} style={btn}>Continue →</button>
+          <button onClick={()=>setPhase('confirm')} style={{...btn,opacity:showSkel?0.5:1,pointerEvents:showSkel?'none':'auto'}}>Continue →</button>
         </div>
       </div>
     );
   }
 
   /* ── CONFIRM ── */
-  if (phase === 'confirm' && audit && previews) {
-    const fixes = [previews.description&&'Update business description',previews.services&&`Add ${svcs.length} services`,previews.categories?.length&&`Add ${previews.categories.length} categories`,previews.defaultHours&&'Set opening hours',previews.reviewPreview&&`Reply to ${previews.reviewPreview.totalUnreplied} reviews`,previews.firstPost&&'Schedule first post'].filter(Boolean) as string[];
+  if (phase === 'confirm' && audit) {
+    const fixes = [desc&&'Update business description',svcs.length>0&&`Add ${svcs.length} services`,previews?.categories?.length&&`Add ${previews.categories.length} categories`,hrs&&'Set opening hours',previews?.reviewPreview&&`Reply to ${previews.reviewPreview.totalUnreplied} reviews`,post&&'Schedule first post'].filter(Boolean) as string[];
     return (
       <div style={{...wrap,background:V.bg}}>
         <div style={box}>
