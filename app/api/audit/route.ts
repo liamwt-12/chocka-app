@@ -6,13 +6,13 @@ import { scoreProfile, predictedScore } from '@/lib/audit';
 export async function POST(request: NextRequest) {
   try {
     const userId = request.cookies.get('chocka_user_id')?.value;
-    if (!userId) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
+    if (!userId) { console.error('Audit: no userId cookie'); return NextResponse.json({ error: 'Not authenticated' }, { status: 401 }); }
 
     const { data: userData } = await supaAdmin.from('users').select('id, google_refresh_token').eq('id', userId).single();
-    if (!userData?.google_refresh_token) return NextResponse.json({ error: 'Google not connected' }, { status: 400 });
+    if (!userData?.google_refresh_token) { console.error('Audit: no refresh token for user', userId); return NextResponse.json({ error: 'Google not connected' }, { status: 400 }); }
 
     const { data: profile } = await supaAdmin.from('profiles').select('*').eq('user_id', userId).single();
-    if (!profile) return NextResponse.json({ error: 'No profile found' }, { status: 400 });
+    if (!profile) { console.error('Audit: no profile for user', userId); return NextResponse.json({ error: 'No profile found' }, { status: 400 }); }
 
     const accessToken = await refreshAccessToken(userData.google_refresh_token);
     const locName = profile.google_location_name;

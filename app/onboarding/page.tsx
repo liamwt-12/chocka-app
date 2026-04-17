@@ -30,7 +30,7 @@ export default function OnboardingPage() {
   const [fixLines, setFixLines] = useState<string[]>([]);
   const [counter, setCounter] = useState(0);
   const [finalCounter, setFinalCounter] = useState(0);
-  const [auditError, setAuditError] = useState(false);
+  const [auditError, setAuditError] = useState<string|false>(false);
   const [auditReady, setAuditReady] = useState(false);
   const [previewsLoading, setPreviewsLoading] = useState(false);
 
@@ -72,16 +72,15 @@ export default function OnboardingPage() {
     setAuditReady(false);
     try {
       const res = await fetch('/api/audit', { method: 'POST' });
-      if (!res.ok) throw new Error('Audit failed');
       const d = await res.json();
-      if (d.error) throw new Error(d.error);
+      if (!res.ok || d.error) throw new Error(d.error || 'Audit failed');
       setAudit(d.audit); setPredicted(d.predicted); setLocData(d.locationData);
       if (d.defaultHours) setHrs(d.defaultHours);
       fetchPreviews();
       setAuditReady(true);
     } catch (e: any) {
       console.error('Audit failed:', e);
-      setAuditError(true);
+      setAuditError(e.message || 'Audit failed');
     }
   }
 
@@ -145,18 +144,39 @@ export default function OnboardingPage() {
   if (phase === 'analysing') {
     // Error during analysis — show retry/skip
     if (auditError) {
+      const isNoProfile = auditError === 'No profile found';
+      const isNotConnected = auditError === 'Google not connected';
+      const isNotAuth = auditError === 'Not authenticated';
+      const heading = isNoProfile ? 'No Google Business\nProfile found' : isNotAuth ? 'Session\nexpired' : 'Something\nwent wrong';
+      const subtitle = isNoProfile
+        ? 'We couldn\u2019t find a Google Business Profile linked to this account.'
+        : isNotConnected
+        ? 'We lost the connection to your Google account.'
+        : isNotAuth
+        ? 'Your session has expired.'
+        : 'We couldn\u2019t connect to your Google profile right now. This is usually temporary.';
+      const detail = isNoProfile
+        ? 'Try signing in with the Google account you use to manage your listing. Not sure which one? Email team@chocka.co.uk and we\u2019ll help.'
+        : isNotConnected || isNotAuth
+        ? 'Please sign in again to reconnect.'
+        : 'Something went wrong on our end. Please try again, or email team@chocka.co.uk.';
+      const showSignIn = isNoProfile || isNotConnected || isNotAuth;
       return (
         <div style={{minHeight:'100vh',fontFamily:sans,background:V.bg,color:V.text,display:'flex',justifyContent:'center'}}>
           <div style={{width:'100%',maxWidth:460,padding:'80px 1.25rem 2rem'}}>
             <div style={{marginBottom:32}}>
               <div style={logoStyle}>CHOCKA</div>
-              <h2 style={{fontFamily:barlow,fontSize:28,fontWeight:800,textTransform:'uppercase',lineHeight:1,margin:'12px 0 4px',color:V.text}}>Something<br/>went wrong</h2>
-              <p style={{fontSize:13,color:V.textSoft,marginTop:4}}>We couldn&apos;t connect to your Google profile right now. This is usually temporary.</p>
+              <h2 style={{fontFamily:barlow,fontSize:28,fontWeight:800,textTransform:'uppercase',lineHeight:1,margin:'12px 0 4px',color:V.text,whiteSpace:'pre-line'}}>{heading}</h2>
+              <p style={{fontSize:13,color:V.textSoft,marginTop:4}}>{subtitle}</p>
             </div>
             <div style={{...card,padding:20,textAlign:'center'}}>
               <div style={{fontSize:40,marginBottom:12}}>!</div>
-              <p style={{fontSize:14,color:V.textMid,margin:'0 0 16px'}}>Google&apos;s servers didn&apos;t respond in time. Your profile data is safe — nothing has changed.</p>
-              <button onClick={()=>{ setPhase('analysing'); setAIdx(0); setDoneSt(new Set()); runAudit(); }} style={btn}>Try Again</button>
+              <p style={{fontSize:14,color:V.textMid,margin:'0 0 16px'}}>{detail}</p>
+              {showSignIn ? (
+                <button onClick={()=>{ window.location.href='/api/auth/callback/google'; }} style={btn}>Sign In With a Different Account</button>
+              ) : (
+                <button onClick={()=>{ setPhase('analysing'); setAIdx(0); setDoneSt(new Set()); runAudit(); }} style={btn}>Try Again</button>
+              )}
               <button onClick={()=>setPhase('phone')} style={{...btnGhost,marginTop:8}}>Skip and continue to setup</button>
               <p style={{fontSize:11,color:V.textSoft,marginTop:8}}>We&apos;ll run your full audit once you&apos;re set up.</p>
             </div>

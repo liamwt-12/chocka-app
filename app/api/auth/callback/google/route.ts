@@ -53,16 +53,49 @@ export async function GET(request: NextRequest) {
     }
 
     if (existingUser) {
-      // Existing user — update token and go to dashboard
+      // Existing user — update token
+      const freshRefreshToken = tokens.refresh_token || existingUser.google_refresh_token;
       await supabaseAdmin
         .from('users')
         .update({
-          google_refresh_token: tokens.refresh_token || existingUser.google_refresh_token,
+          google_refresh_token: freshRefreshToken,
           token_status: 'valid',
           token_invalid_at: null,
           updated_at: new Date().toISOString(),
         })
         .eq('id', existingUser.id);
+
+      // If no profile exists yet, retry GBP fetch
+      const { data: existingProfile } = await supabaseAdmin
+        .from('profiles')
+        .select('id')
+        .eq('user_id', existingUser.id)
+        .single();
+
+      if (!existingProfile) {
+        try {
+          const accounts = await getAccounts(tokens.access_token);
+          if (accounts.accounts?.length > 0) {
+            const account = accounts.accounts[0];
+            const locations = await getLocations(tokens.access_token, account.name);
+            if (locations.locations?.length > 0) {
+              const loc = locations.locations[0];
+              await supabaseAdmin.from('profiles').insert({
+                user_id: existingUser.id,
+                google_account_id: account.name,
+                google_location_name: loc.name,
+                business_name: loc.title || '',
+                category: loc.categories?.primaryCategory?.displayName || '',
+                address: formatAddress(loc.storefrontAddress),
+                latitude: loc.latlng?.latitude,
+                longitude: loc.latlng?.longitude,
+              });
+            }
+          }
+        } catch (err) {
+          console.error('Failed to fetch GBP data for returning user:', err);
+        }
+      }
 
       const dest = existingUser.onboarding_step === 'complete' ? '/dashboard' : '/onboarding';
       const response = NextResponse.redirect(new URL(dest, process.env.NEXT_PUBLIC_APP_URL!));
