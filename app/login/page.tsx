@@ -4,24 +4,42 @@ import { useEffect, useState } from 'react';
 
 const bg = '#efede4';
 const text = '#1a1a1a';
-const rust = '#c23b22';
+const orange = '#E8541A';
 const secondary = '#4a4a4a';
 const muted = '#6b6b6b';
 const cardBg = '#f5f3eb';
 const border = '#d8d4c3';
 const label = '#8a8575';
+const ringTrack = '#e5e2d4';
+const ringProgress = '#22c55e';
 
-const archivo = "'Archivo Black',sans-serif";
-const inter = "'Inter',sans-serif";
+const display = "'Barlow Condensed',sans-serif";
+const body = "'DM Sans',sans-serif";
 const caveat = "'Caveat',cursive";
 
 export default function LoginPage() {
   const [privacyOpen, setPrivacyOpen] = useState(false);
+  const [score, setScore] = useState(0);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const ref = params.get('ref');
     if (ref) sessionStorage.setItem('chocka_ref', ref);
+  }, []);
+
+  useEffect(() => {
+    const target = 84;
+    const duration = 1500;
+    const start = performance.now();
+    let raf = 0;
+    const tick = (now: number) => {
+      const t = Math.min(1, (now - start) / duration);
+      const eased = 1 - Math.pow(1 - t, 3);
+      setScore(Math.round(target * eased));
+      if (t < 1) raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
   }, []);
 
   const handleGoogleLogin = () => {
@@ -30,21 +48,26 @@ export default function LoginPage() {
     window.location.href = `/api/auth/callback/google?action=login&plan=${plan}`;
   };
 
+  const radius = 34;
+  const circumference = 2 * Math.PI * radius;
+  const dashoffset = circumference * (1 - score / 100);
+
   return (
     <>
       <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=Archivo+Black&family=Caveat:wght@400;700&family=Inter:wght@400;500;600&display=swap');
+        @import url('https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@800&family=DM+Sans:wght@400;500;600;700&family=Caveat:wght@400;700&display=swap');
       `}</style>
-      <div style={{ minHeight:'100vh',display:'flex',flexDirection:'column',alignItems:'center',padding:'3rem 1.25rem 2rem',background:bg,fontFamily:inter }}>
+      <div style={{ minHeight:'100vh',display:'flex',flexDirection:'column',alignItems:'center',padding:'3rem 1.25rem 2rem',background:bg,fontFamily:body }}>
         <div style={{ width:'100%',maxWidth:540 }}>
 
           {/* Wordmark */}
-          <div style={{ fontFamily:archivo,fontSize:'1rem',color:rust,letterSpacing:'0.08em',marginBottom:'2.5rem' }}>CHOCKA</div>
+          <div style={{ fontFamily:display,fontWeight:800,fontSize:'1.25rem',color:orange,letterSpacing:'0.08em',marginBottom:'2.5rem' }}>CHOCKA</div>
 
           {/* Hero */}
           <h1 style={{
-            fontFamily:archivo,
-            fontSize:'clamp(2.5rem, 8vw, 3.75rem)',
+            fontFamily:display,
+            fontWeight:800,
+            fontSize:'clamp(2.75rem, 9vw, 4.25rem)',
             textTransform:'uppercase',
             lineHeight:1,
             margin:'0 0 1rem',
@@ -53,9 +76,22 @@ export default function LoginPage() {
             SEE YOUR<br/>GOOGLE PROFILE<br/>SCORE.
           </h1>
 
-          <p style={{ fontSize:'1.125rem',color:secondary,lineHeight:1.5,margin:'0 0 2rem',maxWidth:440 }}>
+          <p style={{ fontSize:'1.125rem',color:secondary,lineHeight:1.5,margin:'0 0 0.75rem',maxWidth:440 }}>
             Find out what&apos;s hurting your visibility and what to fix first. Takes 30 seconds.
           </p>
+
+          {/* Social proof */}
+          <div style={{
+            display:'inline-block',
+            fontSize:'0.8125rem',
+            color:muted,
+            background:'rgba(0,0,0,0.03)',
+            padding:'0.3rem 0.7rem',
+            borderRadius:'999px',
+            marginBottom:'2rem',
+          }}>
+            7,101 businesses scored across the North East
+          </div>
 
           {/* Card */}
           <div style={{
@@ -64,6 +100,34 @@ export default function LoginPage() {
             borderRadius:'1.25rem',
             padding:'2rem 1.5rem',
           }}>
+
+            {/* Score ring */}
+            <div style={{ display:'flex',flexDirection:'column',alignItems:'center',marginBottom:'1.5rem' }}>
+              <div style={{ position:'relative',width:80,height:80 }}>
+                <svg width="80" height="80" viewBox="0 0 80 80" style={{ transform:'rotate(-90deg)' }}>
+                  <circle cx="40" cy="40" r={radius} fill="none" stroke={ringTrack} strokeWidth="8" />
+                  <circle
+                    cx="40" cy="40" r={radius}
+                    fill="none"
+                    stroke={ringProgress}
+                    strokeWidth="8"
+                    strokeLinecap="round"
+                    strokeDasharray={circumference}
+                    strokeDashoffset={dashoffset}
+                  />
+                </svg>
+                <div style={{
+                  position:'absolute',inset:0,
+                  display:'flex',alignItems:'center',justifyContent:'center',
+                  fontFamily:body,fontWeight:700,fontSize:'1.375rem',color:text,
+                }}>
+                  {score}
+                </div>
+              </div>
+              <div style={{ fontSize:'0.75rem',color:muted,marginTop:'0.5rem' }}>
+                Average score after 8 weeks
+              </div>
+            </div>
 
             {/* Label */}
             <div style={{
@@ -97,7 +161,7 @@ export default function LoginPage() {
                   <circle cx="10" cy="14.5" r="0.75" fill={muted}/>
                 </svg>
                 <div>
-                  <div style={{ fontSize:'0.9375rem',fontWeight:600,color:text }}>What&apos;s losing you jobs</div>
+                  <div style={{ fontSize:'0.9375rem',fontWeight:600,color:text }}>What&apos;s losing you customers</div>
                   <div style={{ fontSize:'0.8125rem',color:muted,marginTop:2 }}>Missing photos, reviews, response time, and more</div>
                 </div>
               </div>
@@ -118,9 +182,12 @@ export default function LoginPage() {
               display:'flex',alignItems:'center',justifyContent:'center',gap:10,
               width:'100%',padding:'1rem',borderRadius:'0.875rem',
               background:text,color:'#fff',border:'none',
-              fontFamily:inter,fontSize:'1rem',fontWeight:600,cursor:'pointer',
-              transition:'opacity .2s',
-            }}>
+              fontFamily:body,fontSize:'1rem',fontWeight:600,cursor:'pointer',
+              transition:'background .2s',
+            }}
+              onMouseEnter={(e) => { e.currentTarget.style.background = orange; }}
+              onMouseLeave={(e) => { e.currentTarget.style.background = text; }}
+            >
               <svg width="20" height="20" viewBox="0 0 24 24">
                 <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z"/>
                 <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
@@ -133,6 +200,15 @@ export default function LoginPage() {
             {/* Microcopy */}
             <p style={{ textAlign:'center',fontSize:'0.8125rem',color:muted,margin:'0.75rem 0 0' }}>
               Free · No card required · 30 seconds
+            </p>
+
+            {/* Visible security line */}
+            <p style={{ display:'flex',alignItems:'center',justifyContent:'center',gap:6,fontSize:'0.8125rem',color:muted,margin:'0.5rem 0 0' }}>
+              <svg width="12" height="12" viewBox="0 0 16 16" style={{ flexShrink:0 }}>
+                <rect x="4.5" y="7" width="7" height="5.5" rx="1" fill="none" stroke="currentColor" strokeWidth="1.3"/>
+                <path d="M5.75 7V5.25a2.25 2.25 0 0 1 4.5 0V7" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
+              </svg>
+              We only access your Google Business Profile. Not your Gmail, Drive, or calendar.
             </p>
 
             {/* Privacy accordion */}
@@ -148,7 +224,7 @@ export default function LoginPage() {
                 style={{
                   display:'flex',alignItems:'center',justifyContent:'space-between',
                   width:'100%',padding:'0.75rem 1rem',background:'transparent',border:'none',
-                  cursor:'pointer',fontFamily:inter,fontSize:'0.8125rem',color:secondary,
+                  cursor:'pointer',fontFamily:body,fontSize:'0.8125rem',color:secondary,
                 }}
               >
                 <span style={{ display:'flex',alignItems:'center',gap:8 }}>
@@ -172,7 +248,7 @@ export default function LoginPage() {
                   </p>
                   <p style={{ fontSize:'0.8125rem',color:secondary,margin:0,lineHeight:1.55 }}>
                     You can remove our access any time at{' '}
-                    <a href="https://myaccount.google.com/permissions" target="_blank" rel="noopener noreferrer" style={{ color:rust,textDecoration:'none' }}>
+                    <a href="https://myaccount.google.com/permissions" target="_blank" rel="noopener noreferrer" style={{ color:orange,textDecoration:'none' }}>
                       myaccount.google.com/permissions
                     </a>.
                   </p>
@@ -183,7 +259,7 @@ export default function LoginPage() {
 
           {/* Signature */}
           <div style={{ textAlign:'center',marginTop:'2rem' }}>
-            <div style={{ fontFamily:caveat,fontSize:'2rem',color:rust }}>Liam</div>
+            <div style={{ fontFamily:caveat,fontSize:'2rem',color:orange }}>Liam</div>
             <p style={{ fontSize:'0.8125rem',color:muted,margin:'0.25rem 0 0' }}>
               Built in the North East · team@chocka.co.uk
             </p>
