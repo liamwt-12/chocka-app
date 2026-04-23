@@ -61,7 +61,7 @@ export default function LoginPage() {
         <div style={{ width:'100%',maxWidth:540 }}>
 
           {/* Wordmark */}
-          <div style={{ fontFamily:display,fontWeight:800,fontSize:'1.25rem',color:orange,letterSpacing:'0.08em',marginBottom:'2.5rem' }}>CHOCKA</div>
+          <a href="https://chocka.co.uk" style={{ display:'inline-block',fontFamily:display,fontWeight:800,fontSize:'1.25rem',color:orange,letterSpacing:'0.08em',marginBottom:'2.5rem',textDecoration:'none' }}>CHOCKA</a>
 
           {/* Hero */}
           <h1 style={{
