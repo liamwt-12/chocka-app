@@ -20,11 +20,13 @@ const caveat = "'Caveat',cursive";
 export default function LoginPage() {
   const [privacyOpen, setPrivacyOpen] = useState(false);
   const [score, setScore] = useState(0);
+  const [errorCode, setErrorCode] = useState<string | null>(null);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const ref = params.get('ref');
     if (ref) sessionStorage.setItem('chocka_ref', ref);
+    setErrorCode(params.get('error'));
   }, []);
 
   useEffect(() => {
@@ -92,6 +94,22 @@ export default function LoginPage() {
           }}>
             7,101 businesses scored across the North East
           </div>
+
+          {/* Error banner */}
+          {errorCode === 'scope_missing' && (
+            <div role="alert" style={{
+              background:'#fdecea',
+              border:`1px solid #f5c2bb`,
+              borderRadius:'0.875rem',
+              padding:'1rem 1.125rem',
+              marginBottom:'1.5rem',
+              fontSize:'0.9375rem',
+              color:'#7a1d11',
+              lineHeight:1.5,
+            }}>
+              Google didn&apos;t grant access to your Business Profile. Please try again and make sure you approve all permissions on Google&apos;s screen. If it keeps happening, email <a href="mailto:team@chocka.co.uk" style={{ color:'#7a1d11',textDecoration:'underline' }}>team@chocka.co.uk</a> and we&apos;ll help.
+            </div>
+          )}
 
           {/* Card */}
           <div style={{

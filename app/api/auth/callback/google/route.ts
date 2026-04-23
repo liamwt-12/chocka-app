@@ -18,6 +18,13 @@ export async function GET(request: NextRequest) {
     // Step 2: Exchange code for tokens
     const tokens = await exchangeCodeForTokens(code);
 
+    // Verify the user actually granted the GBP scope — Google's granular consent
+    // lets users uncheck individual scopes, and there's no point continuing without it.
+    if (!tokens.scope || !tokens.scope.includes('business.manage')) {
+      console.log('OAuth granted scopes missing business.manage — redirecting to scope error');
+      return NextResponse.redirect(new URL('/login?error=scope_missing', request.url));
+    }
+
     // Get user info from Google
     const userInfoRes = await fetch('https://www.googleapis.com/oauth2/v2/userinfo', {
       headers: { Authorization: `Bearer ${tokens.access_token}` },
@@ -49,7 +56,7 @@ export async function GET(request: NextRequest) {
         })
         .eq('id', existingUser.id);
 
-      return NextResponse.redirect(new URL('/settings', process.env.NEXT_PUBLIC_APP_URL!));
+      return NextResponse.redirect(new URL('/settings', request.url));
     }
 
     if (existingUser) {
@@ -98,7 +105,7 @@ export async function GET(request: NextRequest) {
       }
 
       const dest = existingUser.onboarding_step === 'complete' ? '/dashboard' : '/onboarding';
-      const response = NextResponse.redirect(new URL(dest, process.env.NEXT_PUBLIC_APP_URL!));
+      const response = NextResponse.redirect(new URL(dest, request.url));
       response.cookies.set('chocka_user_id', existingUser.id, {
         httpOnly: true,
         secure: true,
@@ -154,7 +161,7 @@ export async function GET(request: NextRequest) {
 
     // No GBP found — send them to the helpful screen
     if (!hasProfile) {
-      const noProfileResponse = NextResponse.redirect(new URL('/no-profile', process.env.NEXT_PUBLIC_APP_URL!));
+      const noProfileResponse = NextResponse.redirect(new URL('/no-profile', request.url));
       noProfileResponse.cookies.set('chocka_user_id', newUser.id, {
         httpOnly: true,
         secure: true,
@@ -164,7 +171,7 @@ export async function GET(request: NextRequest) {
       return noProfileResponse;
     }
 
-    const response = NextResponse.redirect(new URL(`/onboarding?plan=${plan}`, process.env.NEXT_PUBLIC_APP_URL!));
+    const response = NextResponse.redirect(new URL(`/onboarding?plan=${plan}`, request.url));
     response.cookies.set('chocka_user_id', newUser.id, {
       httpOnly: true,
       secure: true,
@@ -175,7 +182,7 @@ export async function GET(request: NextRequest) {
 
   } catch (err) {
     console.error('Auth callback error:', err);
-    return NextResponse.redirect(new URL('/login?error=auth_failed', process.env.NEXT_PUBLIC_APP_URL!));
+    return NextResponse.redirect(new URL('/login?error=auth_failed', request.url));
   }
 }
 
