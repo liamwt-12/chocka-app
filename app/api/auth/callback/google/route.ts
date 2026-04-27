@@ -7,6 +7,7 @@ export async function GET(request: NextRequest) {
   const code = searchParams.get('code');
   const action = searchParams.get('action');
   const plan = searchParams.get('plan') || 'monthly';
+  const baseUrl = process.env.NEXT_PUBLIC_APP_URL || request.url;
 
   // Step 1: No code yet — redirect to Google consent
   if (!code) {
@@ -22,7 +23,7 @@ export async function GET(request: NextRequest) {
     // lets users uncheck individual scopes, and there's no point continuing without it.
     if (!tokens.scope || !tokens.scope.includes('business.manage')) {
       console.log('OAuth granted scopes missing business.manage — redirecting to scope error');
-      return NextResponse.redirect(new URL('/login?error=scope_missing', request.url));
+      return NextResponse.redirect(new URL('/login?error=scope_missing', baseUrl));
     }
 
     // Get user info from Google
@@ -56,7 +57,7 @@ export async function GET(request: NextRequest) {
         })
         .eq('id', existingUser.id);
 
-      return NextResponse.redirect(new URL('/settings', request.url));
+      return NextResponse.redirect(new URL('/settings', baseUrl));
     }
 
     if (existingUser) {
@@ -105,7 +106,7 @@ export async function GET(request: NextRequest) {
       }
 
       const dest = existingUser.onboarding_step === 'complete' ? '/dashboard' : '/onboarding';
-      const response = NextResponse.redirect(new URL(dest, request.url));
+      const response = NextResponse.redirect(new URL(dest, baseUrl));
       response.cookies.set('chocka_user_id', existingUser.id, {
         httpOnly: true,
         secure: true,
@@ -161,7 +162,7 @@ export async function GET(request: NextRequest) {
 
     // No GBP found — send them to the helpful screen
     if (!hasProfile) {
-      const noProfileResponse = NextResponse.redirect(new URL('/no-profile', request.url));
+      const noProfileResponse = NextResponse.redirect(new URL('/no-profile', baseUrl));
       noProfileResponse.cookies.set('chocka_user_id', newUser.id, {
         httpOnly: true,
         secure: true,
@@ -171,7 +172,7 @@ export async function GET(request: NextRequest) {
       return noProfileResponse;
     }
 
-    const response = NextResponse.redirect(new URL(`/onboarding?plan=${plan}`, request.url));
+    const response = NextResponse.redirect(new URL(`/onboarding?plan=${plan}`, baseUrl));
     response.cookies.set('chocka_user_id', newUser.id, {
       httpOnly: true,
       secure: true,
@@ -182,7 +183,7 @@ export async function GET(request: NextRequest) {
 
   } catch (err) {
     console.error('Auth callback error:', err);
-    return NextResponse.redirect(new URL('/login?error=auth_failed', request.url));
+    return NextResponse.redirect(new URL('/login?error=auth_failed', baseUrl));
   }
 }
 
