@@ -5,10 +5,55 @@ mocked suite (`lib/google.test.ts`, run with `npm test`) proves the code logic g
 assumed API shapes; **this matrix proves those shapes match reality.** Run it against
 throwaway accounts **before any Tarkett retailer connects.**
 
-## Why this can't be automated
+## Why this can't be fully automated
 Cases below require creating Google accounts, granting owner/manager/group roles on
 real GBP listings, and completing interactive OAuth consent — all human actions on
 Google's side. There are no shortcuts; budget time for GBP verification lead times.
+
+But the **backend decision logic** for every case *can* be checked automatically once you've
+done the one-time consent — see the harness below. What still needs a human is only the
+consent click and a single pass through the UI to confirm the screens are wired to those
+decisions.
+
+---
+
+## Semi-automated harness (`scripts/live-matrix.ts`)
+
+You do the one manual step Google blocks (the consent click) once per account; the harness
+captures the refresh token and runs the matrix assertions against the **real GBP API** by
+calling `getManageableListings` and a faithful replica of the audit path directly.
+
+**Covers automatically (library level):** all of cases 1–8, including the three gating
+ones — 2 (manager returns exactly the managed listing + audit ok), 4 (group listing
+enumerated + audits, no 403), 8 (a denied listing maps to `listing_access_denied`, plus a
+synthetic 403/404→code check that always runs).
+
+**Does NOT cover (needs a human in the browser):** the OAuth consent click; the UI/routing
+glue (that len-1 redirects to onboarding, len>1 renders the picker and its buttons work,
+len-0 shows `/no-profile`, the error screen copy + "Choose a Different Listing" navigation,
+Settings → "Change listing" R1/R2); and case 5's "no `profiles` row" DB side-effect. Run
+those from the tables below.
+
+**Setup (one-time):**
+1. Add this loopback redirect URI to the OAuth client in the Google Cloud console:
+   `http://localhost:53682/oauth2callback` (override port with `OAUTH_LOOPBACK_PORT`).
+2. Provide `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` (shell export or a gitignored `.env`).
+
+**Run:**
+```
+npm run live:connect -- manager    # consent as each account, once. Labels:
+npm run live:connect -- group      #   owner | manager | manager-multi | group |
+npm run live:connect -- denied     #   empty | revoked | mixed | denied
+npm run live:run                   # runs all assertions for connected labels
+```
+`live:run` prints a PASS/FAIL/INCONCLUSIVE table and a logic-level GO/NO-GO on the three
+gating cases. Captured tokens live in `.gbp-tokens.json` (gitignored — treat as secrets).
+
+> Case 8's *setup* (an account with account-level manage role but no per-location rights on
+> a listing it can still enumerate) is the hard one to reproduce. If you can't produce it,
+> the harness says INCONCLUSIVE for the real case but still proves the 403/404→code mapping
+> via the synthetic check; the UI recovery ("Choose a Different Listing") then needs the
+> manual pass.
 
 ---
 

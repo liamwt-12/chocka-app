@@ -3,3 +3,6 @@ node_modules/
 .env
 .env.local
 .env*.local
+
+# Live GBP test-matrix harness — captured refresh tokens (secrets)
+.gbp-tokens.json
