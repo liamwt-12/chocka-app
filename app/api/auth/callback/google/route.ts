@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
-import { exchangeCodeForTokens, getAccounts, getLocations, getGoogleAuthUrl } from '@/lib/google';
+import { exchangeCodeForTokens, getManageableListings, getGoogleAuthUrl } from '@/lib/google';
 
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
@@ -73,39 +73,29 @@ export async function GET(request: NextRequest) {
         })
         .eq('id', existingUser.id);
 
-      // If no profile exists yet, retry GBP fetch
+      // If a profile is already bound, keep it. Otherwise enumerate what this
+      // user can manage and either auto-bind (one) or send them to the picker.
       const { data: existingProfile } = await supabaseAdmin
         .from('profiles')
         .select('id')
         .eq('user_id', existingUser.id)
         .single();
 
-      if (!existingProfile) {
+      let dest: string;
+      if (existingProfile) {
+        dest = existingUser.onboarding_step === 'complete' ? '/dashboard' : '/onboarding';
+      } else {
+        let result: BindResult = 'no_profile';
         try {
-          const accounts = await getAccounts(tokens.access_token);
-          if (accounts.accounts?.length > 0) {
-            const account = accounts.accounts[0];
-            const locations = await getLocations(tokens.access_token, account.name);
-            if (locations.locations?.length > 0) {
-              const loc = locations.locations[0];
-              await supabaseAdmin.from('profiles').insert({
-                user_id: existingUser.id,
-                google_account_id: account.name,
-                google_location_name: loc.name,
-                business_name: loc.title || '',
-                category: loc.categories?.primaryCategory?.displayName || '',
-                address: formatAddress(loc.storefrontAddress),
-                latitude: loc.latlng?.latitude,
-                longitude: loc.latlng?.longitude,
-              });
-            }
-          }
+          result = await bindManageableListing(existingUser.id, tokens.access_token);
         } catch (err) {
-          console.error('Failed to fetch GBP data for returning user:', err);
+          console.error('Failed to enumerate GBP listings for returning user:', err);
         }
+        dest = result === 'onboarding' ? (existingUser.onboarding_step === 'complete' ? '/dashboard' : '/onboarding')
+             : result === 'select' ? '/onboarding?select=1'
+             : '/no-profile';
       }
 
-      const dest = existingUser.onboarding_step === 'complete' ? '/dashboard' : '/onboarding';
       const response = NextResponse.redirect(new URL(dest, baseUrl));
       response.cookies.set('chocka_user_id', existingUser.id, {
         httpOnly: true,
@@ -132,47 +122,20 @@ export async function GET(request: NextRequest) {
 
     if (insertError) throw insertError;
 
-    // Fetch their GBP accounts and locations
-    let hasProfile = false;
+    // Enumerate the listings this user can manage and decide where to send them:
+    // one → auto-bind and start onboarding; several → picker; none → no-profile.
+    let result: BindResult = 'no_profile';
     try {
-      const accounts = await getAccounts(tokens.access_token);
-      if (accounts.accounts?.length > 0) {
-        const account = accounts.accounts[0];
-        const locations = await getLocations(tokens.access_token, account.name);
-
-        if (locations.locations?.length > 0) {
-          const loc = locations.locations[0];
-          await supabaseAdmin.from('profiles').insert({
-            user_id: newUser.id,
-            google_account_id: account.name,
-            google_location_name: loc.name,
-            business_name: loc.title || '',
-            category: loc.categories?.primaryCategory?.displayName || '',
-            address: formatAddress(loc.storefrontAddress),
-            latitude: loc.latlng?.latitude,
-            longitude: loc.latlng?.longitude,
-          });
-          hasProfile = true;
-        }
-      }
+      result = await bindManageableListing(newUser.id, tokens.access_token);
     } catch (err) {
-      console.error('Failed to fetch GBP data:', err);
-      // Continue — they will see the no-profile screen
+      console.error('Failed to enumerate GBP listings for new user:', err);
     }
 
-    // No GBP found — send them to the helpful screen
-    if (!hasProfile) {
-      const noProfileResponse = NextResponse.redirect(new URL('/no-profile', baseUrl));
-      noProfileResponse.cookies.set('chocka_user_id', newUser.id, {
-        httpOnly: true,
-        secure: true,
-        sameSite: 'lax',
-        maxAge: 60 * 60 * 24 * 30,
-      });
-      return noProfileResponse;
-    }
+    const dest = result === 'onboarding' ? `/onboarding?plan=${plan}`
+               : result === 'select' ? `/onboarding?select=1&plan=${plan}`
+               : '/no-profile';
 
-    const response = NextResponse.redirect(new URL(`/onboarding?plan=${plan}`, baseUrl));
+    const response = NextResponse.redirect(new URL(dest, baseUrl));
     response.cookies.set('chocka_user_id', newUser.id, {
       httpOnly: true,
       secure: true,
@@ -196,12 +159,28 @@ function generateReferralCode(): string {
   return code;
 }
 
-function formatAddress(address: any): string {
-  if (!address) return '';
-  const parts = [
-    address.addressLines?.join(', '),
-    address.locality,
-    address.postalCode,
-  ].filter(Boolean);
-  return parts.join(', ');
+type BindResult = 'onboarding' | 'select' | 'no_profile';
+
+// Enumerate the listings this user can manage and bind the single profile when
+// there's exactly one. Returns where the caller should route:
+//   'onboarding' — exactly one listing, profile bound, go straight to the audit
+//   'select'     — several listings, nothing bound yet, send to the picker
+//   'no_profile' — nothing manageable, show the no-profile screen
+async function bindManageableListing(userId: string, accessToken: string): Promise<BindResult> {
+  const listings = await getManageableListings(accessToken);
+  if (listings.length === 0) return 'no_profile';
+  if (listings.length > 1) return 'select';
+
+  const only = listings[0];
+  await supabaseAdmin.from('profiles').insert({
+    user_id: userId,
+    google_account_id: only.accountName,
+    google_location_name: only.locationName,
+    business_name: only.title,
+    category: only.category,
+    address: only.address,
+    latitude: only.latitude,
+    longitude: only.longitude,
+  });
+  return 'onboarding';
 }

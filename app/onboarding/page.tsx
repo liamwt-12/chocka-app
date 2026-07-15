@@ -10,7 +10,7 @@ const barlow = "'Barlow Condensed',sans-serif";
 
 const STEPS = ['Connecting to your Google profile','Reading your business information','Checking your opening hours','Scanning your reviews','Counting your photos','Checking your services','Analysing your visibility','Comparing against top profiles','Building your report'];
 
-type Phase = 'analysing'|'score'|'preview'|'confirm'|'phone'|'fixing'|'done';
+type Phase = 'select'|'analysing'|'score'|'preview'|'confirm'|'phone'|'fixing'|'done';
 
 export default function OnboardingPage() {
   const router = useRouter();
@@ -31,14 +31,27 @@ export default function OnboardingPage() {
   const [counter, setCounter] = useState(0);
   const [finalCounter, setFinalCounter] = useState(0);
   const [auditError, setAuditError] = useState<string|false>(false);
+  const [auditCode, setAuditCode] = useState<string>('');
   const [auditReady, setAuditReady] = useState(false);
   const [previewsLoading, setPreviewsLoading] = useState(false);
+  const [listings, setListings] = useState<any[]|null>(null);
+  const [listingsError, setListingsError] = useState<string>('');
+  const [selecting, setSelecting] = useState<string>('');
+  const [returnTo, setReturnTo] = useState<string>('');
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     if (params.get('paid') === 'true') {
       const stored = sessionStorage.getItem('chocka_fix_data');
       if (stored) { try { const fd = JSON.parse(stored); setDesc(fd.desc||''); setSvcs(fd.svcs||[]); setPost(fd.post||''); setHrs(fd.hrs||null); setPreviews(fd); sessionStorage.removeItem('chocka_fix_data'); setPhase('fixing'); setTimeout(()=>runFixes(fd),100); return; } catch {} }
+    }
+    // Manager of several listings (or a settings-initiated "change listing") —
+    // pick which one to set up before auditing anything.
+    if (params.get('select') === '1') {
+      setReturnTo(params.get('return') || '');
+      setPhase('select');
+      loadListings();
+      return;
     }
     runAudit();
   }, []);
@@ -69,11 +82,12 @@ export default function OnboardingPage() {
 
   async function runAudit() {
     setAuditError(false);
+    setAuditCode('');
     setAuditReady(false);
     try {
       const res = await fetch('/api/audit', { method: 'POST' });
       const d = await res.json();
-      if (!res.ok || d.error) throw new Error(d.error || 'Audit failed');
+      if (!res.ok || d.error) { setAuditCode(d.code || ''); throw new Error(d.error || 'Audit failed'); }
       setAudit(d.audit); setPredicted(d.predicted); setLocData(d.locationData);
       if (d.defaultHours) setHrs(d.defaultHours);
       fetchPreviews();
@@ -81,6 +95,39 @@ export default function OnboardingPage() {
     } catch (e: any) {
       console.error('Audit failed:', e);
       setAuditError(e.message || 'Audit failed');
+    }
+  }
+
+  async function loadListings() {
+    setListings(null); setListingsError(''); setSelecting('');
+    try {
+      const res = await fetch('/api/listings');
+      const d = await res.json();
+      if (!res.ok) throw new Error(d.error || 'Failed to load listings');
+      setListings(d.listings || []);
+    } catch (e: any) {
+      console.error('Load listings failed:', e);
+      setListingsError(e.message || 'Failed to load listings');
+      setListings([]);
+    }
+  }
+
+  async function selectListing(accountName: string, locationName: string) {
+    setSelecting(locationName); setListingsError('');
+    try {
+      const res = await fetch('/api/listings/select', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ accountName, locationName }) });
+      const d = await res.json();
+      if (!res.ok || !d.ok) throw new Error(d.error || 'Selection failed');
+      // Re-pick from settings: repopulate the audit for the new listing, then return.
+      if (returnTo === 'settings') { await fetch('/api/audit', { method: 'POST' }).catch(()=>{}); router.push('/dashboard'); return; }
+      // Onboarding: audit the listing they just chose.
+      setAuditError(false); setAuditCode(''); setAIdx(0); setDoneSt(new Set());
+      setPhase('analysing');
+      runAudit();
+    } catch (e: any) {
+      console.error('Select listing failed:', e);
+      setListingsError(e.message || 'Selection failed');
+      setSelecting('');
     }
   }
 
@@ -140,27 +187,76 @@ export default function OnboardingPage() {
   const btnGhost: React.CSSProperties = { background:'none',border:'none',color:V.textSoft,fontSize:13,cursor:'pointer',fontFamily:sans,width:'100%',padding:'10px',marginTop:4 };
   const sc = (s:number) => s>=76?V.green:s>=56?V.amber:s>=31?V.orange:V.red;
 
+  /* ── SELECT LISTING (picker) ── */
+  if (phase === 'select') {
+    return (
+      <div style={{minHeight:'100vh',fontFamily:sans,background:V.bg,color:V.text,display:'flex',justifyContent:'center'}}>
+        <div style={{width:'100%',maxWidth:460,padding:'80px 1.25rem 2rem'}}>
+          <div style={{marginBottom:24}}>
+            <div style={logoStyle}>CHOCKA</div>
+            <h2 style={{fontFamily:barlow,fontSize:28,fontWeight:800,textTransform:'uppercase',lineHeight:1,margin:'12px 0 4px',color:V.text}}>Which listing<br/>is yours?</h2>
+            <p style={{fontSize:13,color:V.textSoft,marginTop:4}}>You manage more than one Google Business Profile. Pick the one to set up.</p>
+          </div>
+          {listings === null ? (
+            <div style={{...card,padding:20,textAlign:'center'}}><p style={{fontSize:14,color:V.textSoft,margin:0}}>Loading your listings…</p></div>
+          ) : listingsError ? (
+            <div style={{...card,padding:20,textAlign:'center'}}>
+              <p style={{fontSize:14,color:V.textMid,margin:'0 0 16px'}}>{listingsError}</p>
+              <button onClick={loadListings} style={btn}>Try Again</button>
+            </div>
+          ) : listings.length === 0 ? (
+            <div style={{...card,padding:20,textAlign:'center'}}><p style={{fontSize:14,color:V.textMid,margin:0}}>We couldn&apos;t find a Google Business Profile you manage.</p></div>
+          ) : (
+            <div style={{...card,padding:8}}>
+              {listings.map((l:any) => (
+                <button key={l.locationName} onClick={()=>selectListing(l.accountName, l.locationName)} disabled={!!selecting}
+                  style={{display:'block',width:'100%',textAlign:'left',background:'none',border:'none',borderBottom:`1px solid ${V.border}`,padding:'14px 12px',cursor:selecting?'default':'pointer',opacity:selecting && selecting!==l.locationName?0.4:1}}>
+                  <div style={{fontSize:15,fontWeight:600,color:V.text}}>{l.title || 'Untitled listing'}</div>
+                  {l.address && <div style={{fontSize:13,color:V.textSoft,marginTop:2}}>{l.address}</div>}
+                  <div style={{fontSize:11,color:V.textSoft,marginTop:4}}>{l.accountDisplay || (l.accountType === 'PERSONAL' ? 'Personal account' : 'Google account')}</div>
+                  {selecting===l.locationName && <div style={{fontSize:12,color:V.orange,marginTop:6}}>Setting up…</div>}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
   /* ── ANALYSING ── */
   if (phase === 'analysing') {
     // Error during analysis — show retry/skip
     if (auditError) {
-      const isNoProfile = auditError === 'No profile found';
-      const isNotConnected = auditError === 'Google not connected';
-      const isNotAuth = auditError === 'Not authenticated';
-      const heading = isNoProfile ? 'No Google Business\nProfile found' : isNotAuth ? 'Session\nexpired' : 'Something\nwent wrong';
+      // Prefer the structured code from the API; fall back to legacy string
+      // matching so older responses still render the right screen.
+      const isNoProfile = auditCode === 'no_profile' || auditError === 'No profile found';
+      const isNotAuth = auditCode === 'not_authenticated' || auditError === 'Not authenticated';
+      const isDisconnected = auditCode === 'google_disconnected' || auditError === 'Google not connected';
+      const isListing = auditCode === 'listing_access_denied' || auditCode === 'listing_not_found';
+      const heading = isNoProfile ? 'No Google Business\nProfile found'
+        : isNotAuth ? 'Session\nexpired'
+        : isDisconnected ? 'Reconnect\nyour Google'
+        : isListing ? 'Listing access\nproblem'
+        : 'Something\nwent wrong';
       const subtitle = isNoProfile
         ? 'We couldn\u2019t find a Google Business Profile linked to this account.'
-        : isNotConnected
-        ? 'We lost the connection to your Google account.'
         : isNotAuth
         ? 'Your session has expired.'
+        : isDisconnected
+        ? 'We lost the connection to your Google account.'
+        : isListing
+        ? 'We couldn\u2019t open the listing that\u2019s currently connected.'
         : 'We couldn\u2019t connect to your Google profile right now. This is usually temporary.';
       const detail = isNoProfile
         ? 'Try signing in with the Google account you use to manage your listing. Not sure which one? Email team@chocka.co.uk and we\u2019ll help.'
-        : isNotConnected || isNotAuth
+        : isNotAuth
         ? 'Please sign in again to reconnect.'
+        : isDisconnected
+        ? 'Please sign in again to reconnect.'
+        : isListing
+        ? 'You may not have permission to manage this listing, or it\u2019s been removed. Choose a different one, or ask the owner to add you.'
         : 'Something went wrong on our end. Please try again, or email team@chocka.co.uk.';
-      const showSignIn = isNoProfile || isNotConnected || isNotAuth;
       return (
         <div style={{minHeight:'100vh',fontFamily:sans,background:V.bg,color:V.text,display:'flex',justifyContent:'center'}}>
           <div style={{width:'100%',maxWidth:460,padding:'80px 1.25rem 2rem'}}>
@@ -172,7 +268,9 @@ export default function OnboardingPage() {
             <div style={{...card,padding:20,textAlign:'center'}}>
               <div style={{fontSize:40,marginBottom:12}}>!</div>
               <p style={{fontSize:14,color:V.textMid,margin:'0 0 16px'}}>{detail}</p>
-              {showSignIn ? (
+              {isListing ? (
+                <button onClick={()=>{ setAuditError(false); setAuditCode(''); setPhase('select'); loadListings(); }} style={btn}>Choose a Different Listing</button>
+              ) : (isNoProfile || isDisconnected || isNotAuth) ? (
                 <button onClick={()=>{ window.location.href='/api/auth/callback/google'; }} style={btn}>Sign In With a Different Account</button>
               ) : (
                 <button onClick={()=>{ setPhase('analysing'); setAIdx(0); setDoneSt(new Set()); runAudit(); }} style={btn}>Try Again</button>

@@ -6,21 +6,38 @@ import { scoreProfile, predictedScore } from '@/lib/audit';
 export async function POST(request: NextRequest) {
   try {
     const userId = request.cookies.get('chocka_user_id')?.value;
-    if (!userId) { console.error('Audit: no userId cookie'); return NextResponse.json({ error: 'Not authenticated' }, { status: 401 }); }
+    if (!userId) { console.error('Audit: no userId cookie'); return NextResponse.json({ error: 'Not authenticated', code: 'not_authenticated' }, { status: 401 }); }
 
     const { data: userData } = await supaAdmin.from('users').select('id, google_refresh_token').eq('id', userId).single();
-    if (!userData?.google_refresh_token) { console.error('Audit: no refresh token for user', userId); return NextResponse.json({ error: 'Google not connected' }, { status: 400 }); }
+    if (!userData?.google_refresh_token) { console.error('Audit: no refresh token for user', userId); return NextResponse.json({ error: 'Google not connected', code: 'google_disconnected' }, { status: 400 }); }
 
     const { data: profile } = await supaAdmin.from('profiles').select('*').eq('user_id', userId).single();
-    if (!profile) { console.error('Audit: no profile for user', userId); return NextResponse.json({ error: 'No profile found' }, { status: 400 }); }
+    if (!profile) { console.error('Audit: no profile for user', userId); return NextResponse.json({ error: 'No profile found', code: 'no_profile' }, { status: 400 }); }
 
     const accessToken = await refreshAccessToken(userData.google_refresh_token);
     const locName = profile.google_location_name;
     const acctId = profile.google_account_id;
 
-    // Fetch all GBP data in parallel
-    const [location, googleUpdated, attributes, media, reviews, posts] = await Promise.all([
-      getLocationFull(accessToken, locName),
+    // The full-location read is the one call that must succeed — a manager
+    // without rights on this listing gets a 403 here. Map it to an honest code
+    // (the picker offers "choose a different listing") instead of a 500 crash.
+    let location: any;
+    try {
+      location = await getLocationFull(accessToken, locName);
+    } catch (e: any) {
+      if (e?.status === 403 || e?.googleStatus === 'PERMISSION_DENIED') {
+        console.error('Audit: no permission on listing', locName);
+        return NextResponse.json({ error: 'You don’t have permission to manage this listing on Google.', code: 'listing_access_denied' }, { status: 403 });
+      }
+      if (e?.status === 404 || e?.googleStatus === 'NOT_FOUND') {
+        console.error('Audit: listing not found', locName);
+        return NextResponse.json({ error: 'This listing no longer exists on Google.', code: 'listing_not_found' }, { status: 404 });
+      }
+      throw e;
+    }
+
+    // The rest are best-effort — a failure just lowers the score, never crashes.
+    const [googleUpdated, attributes, media, reviews, posts] = await Promise.all([
       getGoogleUpdated(accessToken, locName).catch(() => null),
       getAttributes(accessToken, locName).catch(() => ({ attributes: [] })),
       getMedia(accessToken, locName, acctId).catch(() => ({ mediaItems: [] })),
@@ -56,6 +73,7 @@ export async function POST(request: NextRequest) {
     });
   } catch (error: any) {
     console.error('Audit error:', error);
-    return NextResponse.json({ error: error.message || 'Audit failed' }, { status: 500 });
+    const code = String(error?.message).includes('invalid_grant') ? 'google_disconnected' : 'unknown';
+    return NextResponse.json({ error: error.message || 'Audit failed', code }, { status: 500 });
   }
 }

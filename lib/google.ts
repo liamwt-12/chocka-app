@@ -2,6 +2,56 @@ const GOOGLE_TOKEN_URL = 'https://oauth2.googleapis.com/token';
 const GBP_API_BASE = 'https://mybusinessbusinessinformation.googleapis.com/v1';
 const GBP_POSTS_BASE = 'https://mybusiness.googleapis.com/v4';
 
+// Account-level roles that grant management of a listing. Used to filter the
+// accounts we enumerate down to ones the user can actually act on. This is a
+// heuristic — a role-manageable account can still hold a location the user
+// lacks per-location rights on, which is caught at read time (403) instead.
+const MANAGE_ROLES = new Set(['PRIMARY_OWNER', 'OWNER', 'MANAGER', 'SITE_MANAGER']);
+
+// Error that carries Google's HTTP status and canonical status string
+// (e.g. PERMISSION_DENIED) so callers can map failures to honest messages
+// instead of a generic crash.
+export class GbpError extends Error {
+  status: number;
+  googleStatus: string | null;
+  constructor(message: string, status: number, googleStatus: string | null) {
+    super(message);
+    this.name = 'GbpError';
+    this.status = status;
+    this.googleStatus = googleStatus;
+  }
+}
+
+async function gbpError(res: Response, context: string): Promise<GbpError> {
+  const text = await res.text();
+  let googleStatus: string | null = null;
+  try { googleStatus = JSON.parse(text)?.error?.status ?? null; } catch {}
+  return new GbpError(`${context}: ${text}`, res.status, googleStatus);
+}
+
+export interface Listing {
+  accountName: string;     // e.g. "accounts/123"
+  accountDisplay: string;  // human name of the account/group, may be ''
+  accountType: string;     // PERSONAL | LOCATION_GROUP | ORGANIZATION | ...
+  accountRole: string;     // PRIMARY_OWNER | OWNER | MANAGER | SITE_MANAGER
+  locationName: string;    // e.g. "locations/456"
+  title: string;
+  address: string;
+  latitude?: number;
+  longitude?: number;
+  category: string;
+}
+
+export function formatAddress(address: any): string {
+  if (!address) return '';
+  const parts = [
+    address.addressLines?.join(', '),
+    address.locality,
+    address.postalCode,
+  ].filter(Boolean);
+  return parts.join(', ');
+}
+
 export function getGoogleAuthUrl(state?: string): string {
   const params = new URLSearchParams({
     client_id: process.env.GOOGLE_CLIENT_ID!,
@@ -46,22 +96,75 @@ export async function refreshAccessToken(refreshToken: string): Promise<string> 
 }
 
 export async function getAccounts(accessToken: string) {
-  const res = await fetch(
-    'https://mybusinessaccountmanagement.googleapis.com/v1/accounts',
-    { headers: { Authorization: `Bearer ${accessToken}` } }
-  );
-  if (!res.ok) throw new Error(`Failed to get accounts: ${await res.text()}`);
-  return res.json();
+  const accounts: any[] = [];
+  let pageToken: string | undefined;
+  do {
+    const url = new URL('https://mybusinessaccountmanagement.googleapis.com/v1/accounts');
+    if (pageToken) url.searchParams.set('pageToken', pageToken);
+    const res = await fetch(url.toString(), { headers: { Authorization: `Bearer ${accessToken}` } });
+    if (!res.ok) throw await gbpError(res, 'Failed to get accounts');
+    const data = await res.json();
+    if (data.accounts) accounts.push(...data.accounts);
+    pageToken = data.nextPageToken;
+  } while (pageToken);
+  return { accounts };
 }
 
 export async function getLocations(accessToken: string, accountName: string) {
   const mask = 'name,title,storefrontAddress,latlng,categories';
-  const res = await fetch(
-    `${GBP_API_BASE}/${accountName}/locations?readMask=${mask}`,
-    { headers: { Authorization: `Bearer ${accessToken}` } }
-  );
-  if (!res.ok) throw new Error(`Failed to get locations: ${await res.text()}`);
-  return res.json();
+  const locations: any[] = [];
+  let pageToken: string | undefined;
+  do {
+    const url = new URL(`${GBP_API_BASE}/${accountName}/locations`);
+    url.searchParams.set('readMask', mask);
+    url.searchParams.set('pageSize', '100');
+    if (pageToken) url.searchParams.set('pageToken', pageToken);
+    const res = await fetch(url.toString(), { headers: { Authorization: `Bearer ${accessToken}` } });
+    if (!res.ok) throw await gbpError(res, 'Failed to get locations');
+    const data = await res.json();
+    if (data.locations) locations.push(...data.locations);
+    pageToken = data.nextPageToken;
+  } while (pageToken);
+  return { locations };
+}
+
+// ── Enumerate every listing the user can manage, across all accounts ──
+// Replaces the old "accounts[0] × locations[0]" assumption. Walks every
+// account with a management role and every location under it, so managers and
+// group-managed shops surface instead of silently binding the wrong listing.
+export async function getManageableListings(accessToken: string): Promise<Listing[]> {
+  const accountsRes = await getAccounts(accessToken);
+  const accounts: any[] = accountsRes.accounts || [];
+  const listings: Listing[] = [];
+
+  for (const account of accounts) {
+    // Drop accounts the user has no management role on (e.g. a personal
+    // account they can view but not act on).
+    if (!MANAGE_ROLES.has(account.role)) continue;
+
+    // Propagate a locations failure rather than swallow it. A partial
+    // enumeration must never be treated as the authoritative complete set —
+    // otherwise a transient failure on one account could auto-bind the wrong
+    // listing, or make the select re-validation falsely reject a valid choice.
+    const locationsRes = await getLocations(accessToken, account.name);
+
+    for (const loc of locationsRes.locations || []) {
+      listings.push({
+        accountName: account.name,
+        accountDisplay: account.accountName || '',
+        accountType: account.type || '',
+        accountRole: account.role || '',
+        locationName: loc.name,
+        title: loc.title || '',
+        address: formatAddress(loc.storefrontAddress),
+        latitude: loc.latlng?.latitude,
+        longitude: loc.latlng?.longitude,
+        category: loc.categories?.primaryCategory?.displayName || '',
+      });
+    }
+  }
+
+  return listings;
 }
 
 // ── NEW: Full location for audit ──
@@ -77,7 +180,7 @@ export async function getLocationFull(accessToken: string, locationName: string)
     `${GBP_API_BASE}/${locationName}?readMask=${mask}`,
     { headers: { Authorization: `Bearer ${accessToken}` } }
   );
-  if (!res.ok) throw new Error(`Failed to get full location: ${await res.text()}`);
+  if (!res.ok) throw await gbpError(res, 'Failed to get full location');
   return res.json();
 }
 

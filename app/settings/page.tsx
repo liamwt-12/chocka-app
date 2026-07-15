@@ -87,7 +87,10 @@ export default function SettingsPage() {
           </div>
           <button onClick={()=>window.location.href='/api/auth/callback/google?action=reconnect'} style={{background:V.card2,border:'none',borderRadius:10,padding:'7px 14px',fontSize:12,fontWeight:500,cursor:'pointer',fontFamily:sans,color:V.textMid}}>Reconnect</button>
         </div>
-        <div style={{fontSize:11,color:V.textSoft,marginTop:6,fontFamily:sans}}>Profile: {d.profile?.business_name}</div>
+        <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginTop:10}}>
+          <div style={{fontSize:11,color:V.textSoft,fontFamily:sans}}>Profile: {d.profile?.business_name || '—'}</div>
+          <button onClick={()=>window.location.href='/onboarding?select=1&return=settings'} style={{background:'none',border:'none',padding:0,fontSize:12,fontWeight:500,cursor:'pointer',fontFamily:sans,color:V.orange}}>Change listing</button>
+        </div>
       </div>
 
       {/* Automation */}
