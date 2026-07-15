@@ -23,3 +23,31 @@ onboarding "Try Again" path) instead of `/no-profile`, which should be reserved 
 empty manageable set. Isolated to the two catch blocks in the callback plus one error
 branch in `app/onboarding/page.tsx`. Optionally add a short low-level retry inside
 `getManageableListings` for transient 5xx before giving up.
+
+## Pre-pilot — Stellar landing (`/stellar`)
+
+Must land before real retailers see the page. Both are known compromises in the initial
+`/stellar` port (`app/stellar/`).
+
+### Stellar-branded /privacy and /terms  [pre-pilot — blocks real retailers]
+**Context:** the `/stellar` footer links the existing `/privacy` and `/terms` routes, which
+are Chocka-branded ("Useful for Humans Ltd", chocka.co.uk). A page that immediately asks for
+Google `business.manage` consent must show privacy/terms that match the Stellar brand and
+name the correct data controller.
+
+**Why deferred:** writing legal copy is a content/legal task, not something to fabricate in
+the port. The structural gap (footer links exist) is closed; the destinations need Stellar
+versions.
+
+**Fix when picked up:** add Stellar-branded privacy + terms (new routes, or per-tenant legal
+pages once hostname-tenancy lands) and point the `/stellar` footer at them.
+
+### Swap `metadataBase` to the Stellar domain  [pre-pilot]
+**Context:** `app/stellar/page.tsx` sets `metadataBase` to `NEXT_PUBLIC_APP_URL`
+(app.chocka.co.uk) as a placeholder, so OG/canonical URLs resolve against the Chocka app
+domain, not Stellar's.
+
+**Why deferred:** the Stellar domain doesn't exist yet.
+
+**Fix when picked up:** once the Stellar domain is live, set `metadataBase` (and the OAuth
+redirect URI) to it so canonical/OG URLs and the white-label framing are correct.
