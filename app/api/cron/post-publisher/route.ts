@@ -3,11 +3,13 @@ import { supabaseAdmin } from '@/lib/supabase';
 import { verifyCronSecret, unauthorizedResponse } from '@/lib/cron';
 import { refreshAccessToken, createLocalPost } from '@/lib/google';
 import { sendSMS, logSMS } from '@/lib/twilio';
+import { getTenant } from '@/lib/tenant';
 
 export async function GET(request: NextRequest) {
   if (!verifyCronSecret(request)) return unauthorizedResponse();
 
   try {
+    const t = getTenant();
     // Get all pending posts that are due
     const { data: pendingPosts } = await supabaseAdmin
       .from('scheduled_posts')
@@ -57,7 +59,7 @@ export async function GET(request: NextRequest) {
         // SMS notification
         if (user.sms_enabled && user.phone_number) {
           const excerpt = post.content.substring(0, 60) + (post.content.length > 60 ? '...' : '');
-          const smsBody = `Posted for you: "${excerpt}" Your Google profile stays active 👍 - Chocka`;
+          const smsBody = `Posted for you: "${excerpt}" Your Google profile stays active 👍 - ${t.brandName}`;
           const sid = await sendSMS({ to: user.phone_number, body: smsBody });
           await logSMS(supabaseAdmin, user.id, user.phone_number, 'post_published', smsBody, sid);
         }
@@ -77,7 +79,7 @@ export async function GET(request: NextRequest) {
             .eq('id', user.id);
 
           if (user.sms_enabled && user.phone_number) {
-            const smsBody = `Your Google connection has expired. Please reconnect at app.chocka.co.uk/settings so we can keep posting for you. - Chocka`;
+            const smsBody = `Your Google connection has expired. Please reconnect at ${t.appHost}/settings so we can keep posting for you. - ${t.brandName}`;
             const sid = await sendSMS({ to: user.phone_number, body: smsBody });
             await logSMS(supabaseAdmin, user.id, user.phone_number, 'token_broken', smsBody, sid);
           }

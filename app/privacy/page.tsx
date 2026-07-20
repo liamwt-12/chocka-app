@@ -1,14 +1,17 @@
+import { getTenant } from '@/lib/tenant';
+
 export default function PrivacyPage() {
+  const t = getTenant();
   return (
     <div className="max-w-2xl mx-auto px-6 py-16">
-      <a href="/" className="text-brand font-extrabold text-xl">Chocka</a>
+      <a href="/" className="text-brand font-extrabold text-xl">{t.brandName}</a>
       <h1 className="text-3xl font-extrabold text-charcoal mt-8 mb-8">Privacy Policy</h1>
 
       <div className="prose prose-gray text-sm leading-relaxed text-gray-500 space-y-6">
         <p>Last updated: March 2026</p>
 
         <p>
-          Chocka (&quot;we&quot;, &quot;our&quot;, &quot;us&quot;) is operated by Useful for Humans Ltd. This policy explains what data we
+          {t.brandName} (&quot;we&quot;, &quot;our&quot;, &quot;us&quot;) is operated by {t.legalEntity}. This policy explains what data we
           collect, how we use it, and your rights under UK GDPR.
         </p>
 
@@ -21,7 +24,7 @@ export default function PrivacyPage() {
 
         <h2 className="text-lg font-bold text-charcoal mt-8">How we use your data</h2>
         <p>
-          We use your data solely to provide the Chocka service: posting to your Google profile,
+          We use your data solely to provide the {t.brandName} service: posting to your Google profile,
           replying to reviews, sending you SMS notifications, and generating performance reports.
           We do not sell your data to third parties. We do not use your data for advertising.
         </p>
@@ -44,12 +47,12 @@ export default function PrivacyPage() {
         <p>
           Under UK GDPR you have the right to access, correct, delete, and export your data.
           You can delete your account from Settings at any time. For other requests, email
-          privacy@chocka.co.uk.
+          {' '}{t.privacyEmail}.
         </p>
 
         <h2 className="text-lg font-bold text-charcoal mt-8">Contact</h2>
         <p>
-          Useful for Humans Ltd · hello@chocka.co.uk
+          {t.legalEntity} · {t.supportEmail}
         </p>
       </div>
     </div>

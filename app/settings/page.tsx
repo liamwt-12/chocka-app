@@ -1,14 +1,16 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
+import { useTenant } from '@/lib/tenant-context';
 
-const V = { bg:'#F0EDE8',card:'#FAFAF8',card2:'#F5F3EF',orange:'#E8541A',orangeLight:'#FFF0EB',green:'#2D7A4F',greenLight:'#E8F5EE',red:'#D93025',text:'#1A1A1A',textMid:'#555',textSoft:'#999',border:'rgba(0,0,0,0.07)',shadow:'0 2px 12px rgba(0,0,0,0.06)' };
+const V = { bg:'#F0EDE8',card:'#FAFAF8',card2:'#F5F3EF',orange:'var(--brand-strong)',orangeLight:'var(--brand-strong-light)',green:'#2D7A4F',greenLight:'#E8F5EE',red:'#D93025',text:'#1A1A1A',textMid:'#555',textSoft:'#999',border:'rgba(0,0,0,0.07)',shadow:'0 2px 12px rgba(0,0,0,0.06)' };
 const sans = "'DM Sans',sans-serif";
 const mono = "'DM Mono',monospace";
 const card: React.CSSProperties = { background:V.card, borderRadius:16, padding:16, boxShadow:V.shadow };
 const lbl: React.CSSProperties = { fontFamily:sans, fontSize:10, fontWeight:600, letterSpacing:'0.1em', textTransform:'uppercase', color:V.textSoft, marginBottom:12 };
 
 export default function SettingsPage() {
+  const tenant = useTenant();
   const [d, setD] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [autoPost, setAutoPost] = useState(true);
@@ -73,7 +75,7 @@ export default function SettingsPage() {
         <InfoRow label="Business" value={d.profile?.business_name || '—'} />
         <InfoRow label="Email" value={d.user.email || '—'} />
         <InfoRow label="Phone" value={d.user.phone || '—'} />
-        <InfoRow label="Plan" value={d.user.subscription_status === 'active' ? '£29/month' : 'No active plan'} />
+        <InfoRow label="Plan" value={d.user.subscription_status === 'active' ? `£${tenant.priceMonthlyGbp}/month` : 'No active plan'} />
         <InfoRow label="Member since" value={d.profile?.streak_weeks ? `${d.profile.streak_weeks} weeks` : 'New'} />
       </div>
 
@@ -108,7 +110,7 @@ export default function SettingsPage() {
         <div style={lbl}>Subscription</div>
         <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:8}}>
           <div>
-            <div style={{fontSize:14,fontWeight:600,fontFamily:sans}}>Chocka · £29/month</div>
+            <div style={{fontSize:14,fontWeight:600,fontFamily:sans}}>{tenant.brandName} · £{tenant.priceMonthlyGbp}/month</div>
             <div style={{fontSize:11,color:V.textSoft,marginTop:2,fontFamily:sans}}>Cancel anytime · No contract</div>
           </div>
         </div>

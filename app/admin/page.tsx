@@ -1,14 +1,16 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { useTenant } from '@/lib/tenant-context';
 
-const V = { bg:'#F0EDE8',card:'#FAFAF8',card2:'#F5F3EF',orange:'#E8541A',orangeLight:'#FFF0EB',green:'#2D7A4F',greenLight:'#E8F5EE',amber:'#B8860B',amberLight:'#FFF8E6',red:'#D93025',redLight:'#FDECEA',text:'#1A1A1A',textMid:'#555',textSoft:'#999',border:'rgba(0,0,0,0.07)',shadow:'0 2px 12px rgba(0,0,0,0.06)' };
+const V = { bg:'#F0EDE8',card:'#FAFAF8',card2:'#F5F3EF',orange:'var(--brand-strong)',orangeLight:'var(--brand-strong-light)',green:'#2D7A4F',greenLight:'#E8F5EE',amber:'#B8860B',amberLight:'#FFF8E6',red:'#D93025',redLight:'#FDECEA',text:'#1A1A1A',textMid:'#555',textSoft:'#999',border:'rgba(0,0,0,0.07)',shadow:'0 2px 12px rgba(0,0,0,0.06)' };
 const sans = "'DM Sans',sans-serif";
 const mono = "'DM Mono',monospace";
 const card: React.CSSProperties = { background:V.card, borderRadius:16, padding:16, boxShadow:V.shadow };
 const lbl: React.CSSProperties = { fontFamily:sans, fontSize:10, fontWeight:600, letterSpacing:'0.1em', textTransform:'uppercase', color:V.textSoft, marginBottom:10 };
 
 export default function AdminPage() {
+  const tenant = useTenant();
   const [password, setPassword] = useState('');
   const [authed, setAuthed] = useState(false);
   const [data, setData] = useState<any>(null);
@@ -50,7 +52,7 @@ export default function AdminPage() {
     return (
       <div style={{ minHeight:'100vh', display:'flex', alignItems:'center', justifyContent:'center', background:V.bg, padding:'1.5rem' }}>
         <div style={{ width:'100%', maxWidth:340 }}>
-          <div style={{ fontFamily:mono, fontSize:14, fontWeight:500, letterSpacing:'0.12em', color:V.orange, marginBottom:24 }}>CHOCKA ADMIN</div>
+          <div style={{ fontFamily:mono, fontSize:14, fontWeight:500, letterSpacing:'0.12em', color:V.orange, marginBottom:24 }}>{tenant.wordmark} ADMIN</div>
           <div style={{ ...card, padding:'24px' }}>
             <input
               type="password"
@@ -88,7 +90,7 @@ export default function AdminPage() {
       {/* Nav */}
       <nav style={{ position:'sticky', top:0, zIndex:10, background:V.card, borderBottom:`1px solid ${V.border}`, padding:'14px 20px' }}>
         <div style={{ maxWidth:480, margin:'0 auto', display:'flex', alignItems:'center', justifyContent:'space-between' }}>
-          <span style={{ fontFamily:mono, fontSize:15, fontWeight:500, letterSpacing:'0.12em', color:V.orange }}>CHOCKA ADMIN</span>
+          <span style={{ fontFamily:mono, fontSize:15, fontWeight:500, letterSpacing:'0.12em', color:V.orange }}>{tenant.wordmark} ADMIN</span>
           <button onClick={refresh} disabled={loading} style={{ background:V.card2, border:'none', borderRadius:8, padding:'6px 14px', fontSize:12, fontWeight:500, cursor:'pointer', fontFamily:sans, color:V.textMid }}>
             {loading ? 'Refreshing...' : 'Refresh'}
           </button>
@@ -103,7 +105,7 @@ export default function AdminPage() {
           <div>
             <div style={{ fontSize:11, opacity:.4, textTransform:'uppercase', letterSpacing:'0.08em', marginBottom:4, fontFamily:sans }}>Monthly Recurring Revenue</div>
             <div style={{ fontSize:36, fontWeight:700, fontFamily:mono, color:'#fff' }}>£{s?.mrr?.toLocaleString() || 0}</div>
-            <div style={{ fontSize:11, opacity:.35, marginTop:2, fontFamily:sans }}>{s?.activeSubscribers || 0} active × £29/mo</div>
+            <div style={{ fontSize:11, opacity:.35, marginTop:2, fontFamily:sans }}>{s?.activeSubscribers || 0} active × £{tenant.priceMonthlyGbp}/mo</div>
           </div>
           <div style={{ textAlign:'right' }}>
             <div style={{ fontSize:22, fontWeight:600, fontFamily:mono, color:'#7DFF9B' }}>{s?.signupsThisMonth || 0}</div>
@@ -194,7 +196,7 @@ export default function AdminPage() {
 }
 
 function Stat({ num, label, hl, warn }: { num: number | string; label: string; hl?: boolean; warn?: boolean }) {
-  const col = warn ? '#D93025' : hl ? '#E8541A' : '#1A1A1A';
+  const col = warn ? '#D93025' : hl ? 'var(--brand-strong)' : '#1A1A1A';
   return (
     <div style={{ background:'#FAFAF8', borderRadius:14, padding:'14px 16px', boxShadow:'0 2px 12px rgba(0,0,0,0.06)' }}>
       <div style={{ fontSize:32, fontWeight:700, fontFamily:"'DM Mono',monospace", lineHeight:1, color:col }}>{num}</div>
@@ -239,7 +241,7 @@ function UserRow({ user }: { user: any }) {
           <Row label="Joined" val={new Date(user.created_at).toLocaleDateString('en-GB', { day:'numeric', month:'short', year:'numeric' })} />
           <Row label="Referred By" val={user.referred_by || '—'} />
           <div style={{ marginTop:4 }}>
-            <a href={`mailto:${user.email}`} style={{ fontSize:12, color:'#E8541A', fontWeight:500, fontFamily:"'DM Sans',sans-serif", textDecoration:'none' }}>
+            <a href={`mailto:${user.email}`} style={{ fontSize:12, color:'var(--brand-strong)', fontWeight:500, fontFamily:"'DM Sans',sans-serif", textDecoration:'none' }}>
               ✉ Email {user.name?.split(' ')[0] || 'them'} →
             </a>
           </div>

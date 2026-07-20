@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
 import { createCustomer, createCheckoutSession, getPriceId } from '@/lib/stripe';
+import { getTenant } from '@/lib/tenant';
 
 export async function POST(request: NextRequest) {
   try {
@@ -39,7 +40,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Create checkout session
-    const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://app.chocka.co.uk';
+    const appUrl = getTenant().appUrl;
     const session = await createCheckoutSession({
       customerId,
       priceId: getPriceId(plan),

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
 import { createBillingPortalSession } from '@/lib/stripe';
+import { getTenant } from '@/lib/tenant';
 
 export async function POST(request: NextRequest) {
   try {
@@ -17,7 +18,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'No billing account found' }, { status: 400 });
     }
 
-    const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://app.chocka.co.uk';
+    const appUrl = getTenant().appUrl;
     const session = await createBillingPortalSession(user.stripe_customer_id, `${appUrl}/settings`);
 
     return NextResponse.json({ url: session.url });

@@ -2,8 +2,9 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
+import { useTenant } from '@/lib/tenant-context';
 
-const V = { bg:'#F0EDE8',card:'#FAFAF8',card2:'#F5F3EF',orange:'#E8541A',orangeLight:'#FFF0EB',orangeDark:'#C43E10',green:'#2D7A4F',greenLight:'#E8F5EE',amber:'#B8860B',amberLight:'#FFF8E6',red:'#D93025',text:'#1A1A1A',textMid:'#555',textSoft:'#999',border:'rgba(0,0,0,0.07)',shadow:'0 2px 12px rgba(0,0,0,0.06)',star:'#FBBC04' };
+const V = { bg:'#F0EDE8',card:'#FAFAF8',card2:'#F5F3EF',orange:'var(--brand-strong)',orangeLight:'var(--brand-strong-light)',orangeDark:'var(--brand-strong-dark)',green:'#2D7A4F',greenLight:'#E8F5EE',amber:'#B8860B',amberLight:'#FFF8E6',red:'#D93025',text:'#1A1A1A',textMid:'#555',textSoft:'#999',border:'rgba(0,0,0,0.07)',shadow:'0 2px 12px rgba(0,0,0,0.06)',star:'#FBBC04' };
 const sans = "'DM Sans',sans-serif";
 const mono = "'DM Mono',monospace";
 const barlow = "'Barlow Condensed',sans-serif";
@@ -14,6 +15,7 @@ type Phase = 'select'|'analysing'|'score'|'preview'|'confirm'|'phone'|'fixing'|'
 
 export default function OnboardingPage() {
   const router = useRouter();
+  const tenant = useTenant();
   const [phase, setPhase] = useState<Phase>('analysing');
   const [aIdx, setAIdx] = useState(0);
   const [doneSt, setDoneSt] = useState<Set<number>>(new Set());
@@ -193,7 +195,7 @@ export default function OnboardingPage() {
       <div style={{minHeight:'100vh',fontFamily:sans,background:V.bg,color:V.text,display:'flex',justifyContent:'center'}}>
         <div style={{width:'100%',maxWidth:460,padding:'80px 1.25rem 2rem'}}>
           <div style={{marginBottom:24}}>
-            <div style={logoStyle}>CHOCKA</div>
+            <div style={logoStyle}>{tenant.wordmark}</div>
             <h2 style={{fontFamily:barlow,fontSize:28,fontWeight:800,textTransform:'uppercase',lineHeight:1,margin:'12px 0 4px',color:V.text}}>Which listing<br/>is yours?</h2>
             <p style={{fontSize:13,color:V.textSoft,marginTop:4}}>You manage more than one Google Business Profile. Pick the one to set up.</p>
           </div>
@@ -249,19 +251,19 @@ export default function OnboardingPage() {
         ? 'We couldn\u2019t open the listing that\u2019s currently connected.'
         : 'We couldn\u2019t connect to your Google profile right now. This is usually temporary.';
       const detail = isNoProfile
-        ? 'Try signing in with the Google account you use to manage your listing. Not sure which one? Email team@chocka.co.uk and we\u2019ll help.'
+        ? `Try signing in with the Google account you use to manage your listing. Not sure which one? Email ${tenant.teamEmail} and we\u2019ll help.`
         : isNotAuth
         ? 'Please sign in again to reconnect.'
         : isDisconnected
         ? 'Please sign in again to reconnect.'
         : isListing
         ? 'You may not have permission to manage this listing, or it\u2019s been removed. Choose a different one, or ask the owner to add you.'
-        : 'Something went wrong on our end. Please try again, or email team@chocka.co.uk.';
+        : `Something went wrong on our end. Please try again, or email ${tenant.teamEmail}.`;
       return (
         <div style={{minHeight:'100vh',fontFamily:sans,background:V.bg,color:V.text,display:'flex',justifyContent:'center'}}>
           <div style={{width:'100%',maxWidth:460,padding:'80px 1.25rem 2rem'}}>
             <div style={{marginBottom:32}}>
-              <div style={logoStyle}>CHOCKA</div>
+              <div style={logoStyle}>{tenant.wordmark}</div>
               <h2 style={{fontFamily:barlow,fontSize:28,fontWeight:800,textTransform:'uppercase',lineHeight:1,margin:'12px 0 4px',color:V.text,whiteSpace:'pre-line'}}>{heading}</h2>
               <p style={{fontSize:13,color:V.textSoft,marginTop:4}}>{subtitle}</p>
             </div>
@@ -289,7 +291,7 @@ export default function OnboardingPage() {
       <div style={{minHeight:'100vh',fontFamily:sans,background:V.bg,color:V.text,display:'flex',justifyContent:'center'}}>
         <div style={{width:'100%',maxWidth:460,padding:'80px 1.25rem 2rem'}}>
           <div style={{marginBottom:32}}>
-            <div style={logoStyle}>CHOCKA</div>
+            <div style={logoStyle}>{tenant.wordmark}</div>
             <h2 style={{fontFamily:barlow,fontSize:28,fontWeight:800,textTransform:'uppercase',lineHeight:1,margin:'12px 0 4px',color:V.text}}>Analysing your<br/>Google profile</h2>
             <p style={{fontSize:13,color:V.textSoft,marginTop:4}}>This takes about 15 seconds.</p>
           </div>
@@ -321,7 +323,7 @@ export default function OnboardingPage() {
     return (
       <div style={{...wrap,background:V.bg}}>
         <div style={box}>
-          <div style={logoStyle}>CHOCKA</div>
+          <div style={logoStyle}>{tenant.wordmark}</div>
           <p style={{fontSize:13,color:V.textSoft,marginTop:4,marginBottom:24}}>Your Google profile report</p>
 
           <div style={{textAlign:'center',marginBottom:24}}>
@@ -371,7 +373,7 @@ export default function OnboardingPage() {
     return (
       <div style={{...wrap,background:V.bg}}>
         <div style={box}>
-          <div style={logoStyle}>CHOCKA</div>
+          <div style={logoStyle}>{tenant.wordmark}</div>
           <h2 style={{fontFamily:barlow,fontSize:28,fontWeight:800,textTransform:'uppercase',lineHeight:1,margin:'12px 0 4px',color:V.text}}>Here&apos;s what<br/>we&apos;ll fix.</h2>
           <p style={{fontSize:13,color:V.textSoft,marginBottom:20}}>{showSkel ? 'Generating your previews...' : 'Tap any section to edit before we apply it.'}</p>
 
@@ -500,7 +502,7 @@ export default function OnboardingPage() {
     return (
       <div style={{...wrap,background:V.bg}}>
         <div style={box}>
-          <div style={logoStyle}>CHOCKA</div>
+          <div style={logoStyle}>{tenant.wordmark}</div>
           <h2 style={{fontFamily:barlow,fontSize:28,fontWeight:800,textTransform:'uppercase',lineHeight:1,margin:'12px 0 20px',color:V.text}}>Ready?</h2>
 
           <div style={card}>
@@ -526,7 +528,7 @@ export default function OnboardingPage() {
     return (
       <div style={{...wrap,background:V.bg}}>
         <div style={box}>
-          <div style={logoStyle}>CHOCKA</div>
+          <div style={logoStyle}>{tenant.wordmark}</div>
           <h2 style={{fontFamily:barlow,fontSize:28,fontWeight:800,textTransform:'uppercase',lineHeight:1,margin:'12px 0 4px',color:V.text}}>Nearly<br/>there.</h2>
           <p style={{fontSize:13,color:V.textSoft,marginBottom:20}}>One last thing before we fix your profile.</p>
 
@@ -540,7 +542,7 @@ export default function OnboardingPage() {
 
           <div style={{background:V.text,borderRadius:12,padding:'14px 16px',display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:16}}>
             <div>
-              <div style={{fontFamily:mono,fontSize:22,fontWeight:600,color:'#fff'}}>£29<span style={{fontSize:12,color:'rgba(255,255,255,.4)'}}>/month</span></div>
+              <div style={{fontFamily:mono,fontSize:22,fontWeight:600,color:'#fff'}}>£{tenant.priceMonthlyGbp}<span style={{fontSize:12,color:'rgba(255,255,255,.4)'}}>/month</span></div>
               <div style={{fontSize:11,color:'rgba(255,255,255,.3)'}}>Cancel anytime · No contract</div>
             </div>
             <div style={{fontSize:11,color:'rgba(255,255,255,.3)',textAlign:'right'}}>Billed monthly<br/>via Stripe</div>
@@ -560,7 +562,7 @@ export default function OnboardingPage() {
       <div style={{minHeight:'100vh',fontFamily:sans,background:V.bg,color:V.text,display:'flex',justifyContent:'center'}}>
         <div style={{width:'100%',maxWidth:460,padding:'80px 1.25rem 2rem'}}>
           <div style={{marginBottom:32}}>
-            <div style={logoStyle}>CHOCKA</div>
+            <div style={logoStyle}>{tenant.wordmark}</div>
             <h2 style={{fontFamily:barlow,fontSize:28,fontWeight:800,textTransform:'uppercase',lineHeight:1,margin:'12px 0 4px',color:V.text}}>Fixing your<br/>profile</h2>
             <p style={{fontSize:13,color:V.textSoft,marginTop:4}}>Applying changes to Google now.</p>
           </div>
@@ -587,7 +589,7 @@ export default function OnboardingPage() {
     return (
       <div style={{...wrap,background:V.bg}}>
         <div style={box}>
-          <div style={logoStyle}>CHOCKA</div>
+          <div style={logoStyle}>{tenant.wordmark}</div>
           <h2 style={{fontFamily:barlow,fontSize:32,fontWeight:800,textTransform:'uppercase',lineHeight:1,margin:'12px 0 24px',color:V.text}}>Sorted.</h2>
 
           <div style={{textAlign:'center',marginBottom:24}}>

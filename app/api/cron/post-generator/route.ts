@@ -3,6 +3,7 @@ import { supabaseAdmin } from '@/lib/supabase';
 import { verifyCronSecret, unauthorizedResponse, getActiveUsersWithProfiles, generateCancelHash } from '@/lib/cron';
 import { generatePost } from '@/lib/ai';
 import { sendEmail, postPreviewEmail } from '@/lib/email';
+import { getTenant } from '@/lib/tenant';
 
 export async function GET(request: NextRequest) {
   if (!verifyCronSecret(request)) return unauthorizedResponse();
@@ -66,7 +67,7 @@ export async function GET(request: NextRequest) {
 
         if (post && user.email) {
           const hash = generateCancelHash(post.id);
-          const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://app.chocka.co.uk';
+          const appUrl = getTenant().appUrl;
           const cancelUrl = `${appUrl}/api/posts/cancel?id=${post.id}&hash=${hash}`;
 
           await sendEmail({

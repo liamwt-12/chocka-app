@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { useTenant } from '@/lib/tenant-context';
 
 interface ReferralCardProps {
   referralCode: string;
@@ -8,8 +9,9 @@ interface ReferralCardProps {
 }
 
 export default function ReferralCard({ referralCode, referralCount }: ReferralCardProps) {
+  const tenant = useTenant();
   const [copied, setCopied] = useState(false);
-  const link = `https://chocka.co.uk/ref/${referralCode}`;
+  const link = `${tenant.marketingUrl}/ref/${referralCode}`;
 
   const copyLink = () => {
     navigator.clipboard.writeText(link);
