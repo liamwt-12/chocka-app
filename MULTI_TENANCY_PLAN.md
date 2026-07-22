@@ -306,6 +306,29 @@ actually read) and a server-only remainder (`emailFrom`, OAuth/`google_client_*`
 pass only the subset to `TenantProvider`. Worth an audit of `useTenant()` call sites at that point to
 see which fields genuinely need to be client-side. Blocking for slice 6, not before.
 
+*Also in slice 6 — settle the hostname→tenant map before host resolution goes live.* The domain setup
+is currently untidy and the middleware's fallback hides it. Netlify has **`app.mapboost.co` as the
+site's primary domain**, with `app.chocka.co.uk` serving as an alias; there are also
+`mapboost-app.netlify.app` and the `deploy-preview-*--mapboost-app.netlify.app` preview hosts; and
+Stellar's host is still to come. **None of the mapboost/netlify.app hosts appear in
+`lib/tenant-registry.ts`'s `HOST_TO_SLUG`, nor in the seeded `tenants.hostname` /
+`tenants.hostname_aliases`** — they all currently land on `resolveTenantSlug()`'s
+`?? PRIMARY_TENANT_SLUG` fallback. With one tenant that is invisible and correct. Once `getTenant()`
+actually reads `x-tenant-slug`, that same silent fallback means **any host we forgot to map resolves
+to the primary tenant rather than failing** — i.e. a request on an unmapped or misconfigured host can
+be served as the wrong tenant. Before slice 6 flips host resolution on, decide and write down
+deliberately:
+- which domain is canonical per tenant (and whether `app.mapboost.co` stays primary on Netlify, gets
+  demoted, or is retired) — the Netlify primary and the app's notion of a tenant's `hostname` should
+  not disagree;
+- where preview/branch hosts (`deploy-preview-*`, `*.netlify.app`) and local hosts map to, given they
+  are per-deploy and cannot be enumerated in a static map;
+- what an **unknown** host does — 404 / holding page / explicit primary — replacing the silent
+  `?? PRIMARY_TENANT_SLUG` fallback with a deliberate choice;
+- that `HOST_TO_SLUG` and `tenants.hostname`/`hostname_aliases` agree, or better, that one is derived
+  from the other rather than maintained twice.
+Blocking for slice 6: getting this wrong is a cross-tenant mis-serve, not a cosmetic bug.
+
 **Why this order:** branding (Slice 1) is the largest, safest change and unblocks visual verification
 before any data risk. The table/middleware (2) and `tenant_id`/backfill (3) are additive and invisible
 to one tenant. RLS (4) — the one slice that can break live reads — comes only once tenant scoping is
