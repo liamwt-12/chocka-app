@@ -1,8 +1,9 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { useTenant } from '@/lib/tenant-context';
 
-const V = { bg:'#F0EDE8',card:'#FAFAF8',card2:'#F5F3EF',orange:'#E8541A',orangeLight:'#FFF0EB',green:'#2D7A4F',greenLight:'#E8F5EE',amber:'#B8860B',amberLight:'#FFF8E6',text:'#1A1A1A',textMid:'#555',textSoft:'#999',border:'rgba(0,0,0,0.07)',shadow:'0 2px 12px rgba(0,0,0,0.06)',star:'#FBBC04' };
+const V = { bg:'#F0EDE8',card:'#FAFAF8',card2:'#F5F3EF',orange:'var(--brand-strong)',orangeLight:'var(--brand-strong-light)',green:'#2D7A4F',greenLight:'#E8F5EE',amber:'#B8860B',amberLight:'#FFF8E6',text:'#1A1A1A',textMid:'#555',textSoft:'#999',border:'rgba(0,0,0,0.07)',shadow:'0 2px 12px rgba(0,0,0,0.06)',star:'#FBBC04' };
 const sans = "\'DM Sans\',sans-serif";
 const mono = "\'DM Mono\',monospace";
 const card: React.CSSProperties = { background:V.card, borderRadius:16, padding:16, boxShadow:V.shadow };
@@ -10,6 +11,7 @@ const lbl: React.CSSProperties = { fontFamily:sans, fontSize:10, fontWeight:600,
 const bdg = (bg:string,c:string): React.CSSProperties => ({ display:'inline-flex',alignItems:'center',gap:4,fontSize:11,fontWeight:600,padding:'3px 8px',borderRadius:20,background:bg,color:c,marginTop:6 });
 
 export default function DashboardPage() {
+  const tenant = useTenant();
   const [d, setD] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   useEffect(() => { fetch('/api/dashboard').then(r=>r.ok?r.json():Promise.reject()).then(x=>{setD(x);setLoading(false)}).catch(()=>setLoading(false)); }, []);
@@ -19,7 +21,7 @@ export default function DashboardPage() {
 
   const p=d.profile, g=d.google, hasScore=p?.audit_score!=null;
   const sc=(s:number)=>s>=76?V.green:s>=56?V.amber:s>=31?V.orange:'#E05050';
-  const estCalls=g?.metrics?.calls||0, avgJob=180, estValue=estCalls*avgJob, roi=estValue>0?Math.round(estValue/29):0;
+  const estCalls=g?.metrics?.calls||0, avgJob=180, estValue=estCalls*avgJob, roi=estValue>0?Math.round(estValue/tenant.priceMonthlyGbp):0;
   const totalActions=(p?.total_posts||0)+(p?.total_replies||0);
   const timeSaved=((p?.total_posts||0)*0.25+(p?.total_replies||0)*0.08+((p?.streak_weeks||0)*0.5)).toFixed(1);
   const comps=g?.competitors;
@@ -61,7 +63,7 @@ export default function DashboardPage() {
           <div style={{fontSize:28,fontWeight:600,fontFamily:mono,color:'#fff'}}>£{estValue.toLocaleString()}</div>
           <div style={{fontSize:11,opacity:.4,marginTop:2,fontFamily:sans}}>Based on {estCalls} calls × £{avgJob} avg job</div>
         </div>
-        <div style={{textAlign:'right'}}><div style={{fontSize:22,fontWeight:600,fontFamily:mono,color:'#7DFF9B'}}>{roi}×</div><div style={{fontSize:10,opacity:.4,textTransform:'uppercase',letterSpacing:'0.06em',fontFamily:sans}}>return on £29/mo</div></div>
+        <div style={{textAlign:'right'}}><div style={{fontSize:22,fontWeight:600,fontFamily:mono,color:'#7DFF9B'}}>{roi}×</div><div style={{fontSize:10,opacity:.4,textTransform:'uppercase',letterSpacing:'0.06em',fontFamily:sans}}>return on £{tenant.priceMonthlyGbp}/mo</div></div>
       </div>)}
 
       {/* Google Stats */}
@@ -214,8 +216,9 @@ export default function DashboardPage() {
 }
 
 function ReferralBlock({code, count, earned}:{code:string;count:number;earned:number}) {
+  const tenant = useTenant();
   const [copied, setCopied] = useState(false);
-  const link = `https://chocka.co.uk/ref/${code}`;
+  const link = `${tenant.marketingUrl}/ref/${code}`;
   const copy = () => { navigator.clipboard.writeText(link); setCopied(true); setTimeout(()=>setCopied(false),2000); };
   const sans = "\'DM Sans\',sans-serif";
   const mono = "\'DM Mono\',monospace";
@@ -244,7 +247,7 @@ function ReferralBlock({code, count, earned}:{code:string;count:number;earned:nu
         <div style={{flex:1,background:'rgba(255,255,255,0.08)',borderRadius:10,padding:'10px 12px',overflow:'hidden'}}>
           <div style={{fontFamily:mono,fontSize:11,color:'rgba(255,255,255,0.5)',whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{link}</div>
         </div>
-        <button onClick={copy} style={{background:'#E8541A',color:'white',border:'none',borderRadius:10,padding:'10px 18px',fontSize:13,fontWeight:600,cursor:'pointer',fontFamily:sans,flexShrink:0,whiteSpace:'nowrap'}}>
+        <button onClick={copy} style={{background:'var(--brand-strong)',color:'white',border:'none',borderRadius:10,padding:'10px 18px',fontSize:13,fontWeight:600,cursor:'pointer',fontFamily:sans,flexShrink:0,whiteSpace:'nowrap'}}>
           {copied?'Copied ✓':'Copy Link'}
         </button>
       </div>
@@ -256,7 +259,7 @@ function ReferralBlock({code, count, earned}:{code:string;count:number;earned:nu
 
 function SC({num,label,hl,star}:{num:string;label:string;hl?:boolean;star?:boolean}) {
   return (<div style={{background:'#F5F3EF',borderRadius:12,padding:'12px 10px',textAlign:'center'}}>
-    <div style={{fontSize:22,fontWeight:600,fontFamily:"\'DM Mono\',monospace",lineHeight:1,color:hl?'#E8541A':'#1A1A1A'}}>{num}{star&&<span style={{color:'#FBBC04',fontSize:14,marginLeft:2}}>{"\u2605"}</span>}</div>
+    <div style={{fontSize:22,fontWeight:600,fontFamily:"\'DM Mono\',monospace",lineHeight:1,color:hl?'var(--brand-strong)':'#1A1A1A'}}>{num}{star&&<span style={{color:'#FBBC04',fontSize:14,marginLeft:2}}>{"\u2605"}</span>}</div>
     <div style={{fontSize:10,color:'#999',marginTop:4,lineHeight:1.3,fontFamily:"\'DM Sans\',sans-serif"}}>{label}</div>
   </div>);
 }

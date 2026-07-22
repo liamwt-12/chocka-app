@@ -3,11 +3,13 @@ import { supabaseAdmin } from '@/lib/supabase';
 import { verifyCronSecret, unauthorizedResponse, getActiveUsersWithProfiles } from '@/lib/cron';
 import { sendEmail, monthlyReportEmail } from '@/lib/email';
 import { sendSMS, logSMS } from '@/lib/twilio';
+import { getTenant } from '@/lib/tenant';
 
 export async function GET(request: NextRequest) {
   if (!verifyCronSecret(request)) return unauthorizedResponse();
 
   try {
+    const t = getTenant();
     const users = await getActiveUsersWithProfiles(supabaseAdmin);
     const now = new Date();
     const lastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
@@ -77,8 +79,8 @@ export async function GET(request: NextRequest) {
             .limit(1);
 
           if (!nudgeSent || nudgeSent.length === 0) {
-            const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://app.chocka.co.uk';
-            const smsBody = `Know a tradesperson who'd benefit from Chocka? Share your link and you both get a free month: ${appUrl}/ref/${user.referral_code} - Chocka`;
+            const appUrl = t.appUrl;
+            const smsBody = `Know a tradesperson who'd benefit from ${t.brandName}? Share your link and you both get a free month: ${appUrl}/ref/${user.referral_code} - ${t.brandName}`;
             const sid = await sendSMS({ to: user.phone_number, body: smsBody });
             await logSMS(supabaseAdmin, user.id, user.phone_number, 'referral_nudge', smsBody, sid);
           }

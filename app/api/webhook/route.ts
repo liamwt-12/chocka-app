@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
 import { verifyWebhookSignature } from '@/lib/stripe';
+import { getTenant } from '@/lib/tenant';
 
 export async function POST(request: NextRequest) {
   try {
@@ -53,7 +54,7 @@ export async function POST(request: NextRequest) {
                     'Content-Type': 'application/x-www-form-urlencoded',
                   },
                   body: new URLSearchParams({
-                    amount: '-2900', // £29.00 in pence, negative = credit
+                    amount: String(-getTenant().priceMonthlyPence), // one month in pence, negative = credit
                     currency: 'gbp',
                     description: 'Referral reward — thanks for spreading the word 👊',
                   }),

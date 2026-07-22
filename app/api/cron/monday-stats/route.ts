@@ -3,11 +3,13 @@ import { supabaseAdmin } from '@/lib/supabase';
 import { verifyCronSecret, unauthorizedResponse, getActiveUsersWithProfiles } from '@/lib/cron';
 import { refreshAccessToken, getPerformanceMetrics } from '@/lib/google';
 import { sendSMS, logSMS } from '@/lib/twilio';
+import { getTenant } from '@/lib/tenant';
 
 export async function GET(request: NextRequest) {
   if (!verifyCronSecret(request)) return unauthorizedResponse();
 
   try {
+    const t = getTenant();
     const users = await getActiveUsersWithProfiles(supabaseAdmin);
     let sent = 0;
 
@@ -60,7 +62,7 @@ export async function GET(request: NextRequest) {
         const firstName = (user.name || '').split(' ')[0] || 'there';
         const streakStr = profile.streak_weeks > 1 ? ` 🔥 ${profile.streak_weeks} week streak!` : '';
 
-        const smsBody = `Morning ${firstName}! Last 28 days: ${views} views (${viewStr}), ${calls} calls (${callStr}), ${directions} directions.${streakStr} - Chocka`;
+        const smsBody = `Morning ${firstName}! Last 28 days: ${views} views (${viewStr}), ${calls} calls (${callStr}), ${directions} directions.${streakStr} - ${t.brandName}`;
         const sid = await sendSMS({ to: user.phone_number, body: smsBody });
         await logSMS(supabaseAdmin, user.id, user.phone_number, 'monday_stats', smsBody, sid);
 

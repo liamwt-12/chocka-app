@@ -3,11 +3,13 @@ import { supabaseAdmin } from '@/lib/supabase';
 import { verifyCronSecret, unauthorizedResponse } from '@/lib/cron';
 import { sendSMS, logSMS } from '@/lib/twilio';
 import { sendEmail } from '@/lib/email';
+import { getTenant } from '@/lib/tenant';
 
 export async function GET(request: NextRequest) {
   if (!verifyCronSecret(request)) return unauthorizedResponse();
 
   try {
+    const t = getTenant();
     // Get users in onboarding (steps 0-7)
     const { data: users } = await supabaseAdmin
       .from('users')
@@ -43,16 +45,16 @@ export async function GET(request: NextRequest) {
 
       switch (daysSinceSignup) {
         case 0:
-          smsBody = `Welcome to Chocka, ${firstName}! We're managing your Google profile now. Your first post goes out this week. - Chocka`;
+          smsBody = `Welcome to ${t.brandName}, ${firstName}! We're managing your Google profile now. Your first post goes out this week. - ${t.brandName}`;
 
           // Also send welcome email
           if (user.email) {
             await sendEmail({
               to: user.email,
-              subject: 'Welcome to Chocka!',
+              subject: `Welcome to ${t.brandName}!`,
               html: `
                 <div style="font-family: 'Helvetica Neue', sans-serif; max-width: 500px; margin: 0 auto; padding: 32px;">
-                  <h2 style="color: #FF6B35;">Welcome to Chocka, ${firstName}!</h2>
+                  <h2 style="color: ${t.palette.routeAccent};">Welcome to ${t.brandName}, ${firstName}!</h2>
                   <p style="color: #374151; line-height: 1.6;">We're now managing your Google Business Profile. Here's what happens next:</p>
                   <ul style="color: #374151; line-height: 2;">
                     <li>This week, we'll write and publish your first Google post</li>
@@ -60,7 +62,7 @@ export async function GET(request: NextRequest) {
                     <li>Every Monday at 7am, you'll get a stats text</li>
                   </ul>
                   <p style="color: #374151;">That's it. We do the work, you get the calls.</p>
-                  <p style="color: #6b7280; font-size: 14px; margin-top: 24px;">— The Chocka team</p>
+                  <p style="color: #6b7280; font-size: 14px; margin-top: 24px;">— The ${t.brandName} team</p>
                 </div>
               `,
             });
@@ -78,16 +80,16 @@ export async function GET(request: NextRequest) {
             .limit(1);
 
           if (posts && posts.length > 0) {
-            smsBody = `Your first Google post is live, ${firstName}! Your profile is already more active than most. - Chocka`;
+            smsBody = `Your first Google post is live, ${firstName}! Your profile is already more active than most. - ${t.brandName}`;
           }
           break;
 
         case 3:
-          smsBody = `Quick check-in, ${firstName}. Everything's running smoothly on your Google profile. Any questions? Just reply to this text. - Chocka`;
+          smsBody = `Quick check-in, ${firstName}. Everything's running smoothly on your Google profile. Any questions? Just reply to this text. - ${t.brandName}`;
           break;
 
         case 7:
-          smsBody = `One week with Chocka, ${firstName}! Your first stats summary is coming tomorrow morning. - Chocka`;
+          smsBody = `One week with ${t.brandName}, ${firstName}! Your first stats summary is coming tomorrow morning. - ${t.brandName}`;
           break;
 
         default:

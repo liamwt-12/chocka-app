@@ -1,17 +1,20 @@
 'use client';
 
-const V = { bg:'#F0EDE8',card:'#FAFAF8',orange:'#E8541A',orangeLight:'#FFF0EB',text:'#1A1A1A',textSoft:'#999',border:'rgba(0,0,0,0.07)',shadow:'0 2px 12px rgba(0,0,0,0.06)' };
+import { useTenant } from '@/lib/tenant-context';
+
+const V = { bg:'#F0EDE8',card:'#FAFAF8',orange:'var(--brand-strong)',orangeLight:'var(--brand-strong-light)',text:'#1A1A1A',textSoft:'#999',border:'rgba(0,0,0,0.07)',shadow:'0 2px 12px rgba(0,0,0,0.06)' };
 const sans = "'DM Sans',sans-serif";
 const mono = "'DM Mono',monospace";
 const barlow = "'Barlow Condensed',sans-serif";
 
 export default function NoProfilePage() {
+  const tenant = useTenant();
   return (
     <div style={{ minHeight:'100vh', display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', padding:'1.5rem', background:V.bg, fontFamily:sans }}>
       <div style={{ width:'100%', maxWidth:380 }}>
 
         <div style={{ marginBottom:24 }}>
-          <div style={{ fontFamily:mono, fontWeight:500, fontSize:14, letterSpacing:'0.12em', color:V.orange }}>CHOCKA</div>
+          <div style={{ fontFamily:mono, fontWeight:500, fontSize:14, letterSpacing:'0.12em', color:V.orange }}>{tenant.wordmark}</div>
         </div>
 
         <div style={{ background:V.card, borderRadius:16, padding:'28px 24px', boxShadow:V.shadow, marginBottom:16 }}>
@@ -20,7 +23,7 @@ export default function NoProfilePage() {
             No Google Business<br/>Profile found
           </h1>
           <p style={{ fontSize:14, color:V.textSoft, lineHeight:1.6, margin:'0 0 20px' }}>
-            We couldn&apos;t find a Google Business Profile linked to that account. Chocka needs a live GBP to work its magic.
+            We couldn&apos;t find a Google Business Profile linked to that account. {tenant.brandName} needs a live GBP to work its magic.
           </p>
 
           <div style={{ background:V.bg, borderRadius:12, padding:'16px', marginBottom:20 }}>
@@ -35,7 +38,7 @@ export default function NoProfilePage() {
             href="https://business.google.com/create"
             target="_blank"
             rel="noopener noreferrer"
-            style={{ display:'block', textAlign:'center', background:'#E8541A', color:'#fff', borderRadius:8, padding:'13px 20px', fontSize:14, fontWeight:600, textDecoration:'none', marginBottom:10 }}
+            style={{ display:'block', textAlign:'center', background:'var(--brand-strong)', color:'#fff', borderRadius:8, padding:'13px 20px', fontSize:14, fontWeight:600, textDecoration:'none', marginBottom:10 }}
           >
             Create a Google Business Profile →
           </a>
@@ -59,7 +62,7 @@ export default function NoProfilePage() {
 function Step({ num, text }: { num: string; text: string }) {
   return (
     <div style={{ display:'flex', gap:12, alignItems:'flex-start' }}>
-      <div style={{ width:22, height:22, borderRadius:'50%', background:'#E8541A', color:'white', fontSize:11, fontWeight:700, display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0, marginTop:1 }}>{num}</div>
+      <div style={{ width:22, height:22, borderRadius:'50%', background:'var(--brand-strong)', color:'white', fontSize:11, fontWeight:700, display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0, marginTop:1 }}>{num}</div>
       <p style={{ fontSize:13, color:'#555', lineHeight:1.5, margin:0 }}>{text}</p>
     </div>
   );

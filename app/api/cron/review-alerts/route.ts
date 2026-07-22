@@ -5,11 +5,13 @@ import { refreshAccessToken, getReviews, replyToReview, parseStarRating } from '
 import { generateReviewReply } from '@/lib/ai';
 import { sendSMS, logSMS } from '@/lib/twilio';
 import { sendEmail, reviewAlertEmail } from '@/lib/email';
+import { getTenant } from '@/lib/tenant';
 
 export async function GET(request: NextRequest) {
   if (!verifyCronSecret(request)) return unauthorizedResponse();
 
   try {
+    const t = getTenant();
     const users = await getActiveUsersWithProfiles(supabaseAdmin);
     let processed = 0;
 
@@ -84,7 +86,7 @@ export async function GET(request: NextRequest) {
               // SMS notification
               if (user.sms_enabled && user.phone_number) {
                 const firstName = reviewerName.split(' ')[0];
-                const smsBody = `New ${rating}-star review from ${firstName}! We've replied thanking them. Nice one ⭐ - Chocka`;
+                const smsBody = `New ${rating}-star review from ${firstName}! We've replied thanking them. Nice one ⭐ - ${t.brandName}`;
                 const sid = await sendSMS({ to: user.phone_number, body: smsBody });
                 await logSMS(supabaseAdmin, user.id, user.phone_number, 'review_positive', smsBody, sid);
               }
@@ -105,7 +107,7 @@ export async function GET(request: NextRequest) {
               status: 'pending',
             });
 
-            const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://app.chocka.co.uk';
+            const appUrl = t.appUrl;
             const hash = generateReviewHash(newReview.id);
             const approveUrl = `${appUrl}/api/reviews/auto-reply?action=approve&review_id=${newReview.id}&hash=${hash}`;
             const rejectUrl = `${appUrl}/api/reviews/auto-reply?action=reject&review_id=${newReview.id}&hash=${hash}`;
@@ -113,7 +115,7 @@ export async function GET(request: NextRequest) {
             // SMS alert
             if (user.sms_enabled && user.phone_number) {
               const firstName = reviewerName.split(' ')[0];
-              const smsBody = `New ${rating}-star review from ${firstName}. We've drafted a reply — check your email to approve or handle it yourself. - Chocka`;
+              const smsBody = `New ${rating}-star review from ${firstName}. We've drafted a reply — check your email to approve or handle it yourself. - ${t.brandName}`;
               const sid = await sendSMS({ to: user.phone_number, body: smsBody });
               await logSMS(supabaseAdmin, user.id, user.phone_number, 'review_negative', smsBody, sid);
             }

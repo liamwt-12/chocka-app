@@ -1,10 +1,11 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { useTenant } from '@/lib/tenant-context';
 
 const bg = '#efede4';
 const text = '#1a1a1a';
-const orange = '#E8541A';
+const orange = 'var(--brand-strong)';
 const secondary = '#4a4a4a';
 const muted = '#6b6b6b';
 const cardBg = '#f5f3eb';
@@ -18,6 +19,7 @@ const body = "'DM Sans',sans-serif";
 const caveat = "'Caveat',cursive";
 
 export default function LoginPage() {
+  const tenant = useTenant();
   const [privacyOpen, setPrivacyOpen] = useState(false);
   const [score, setScore] = useState(0);
   const [errorCode, setErrorCode] = useState<string | null>(null);
@@ -63,7 +65,7 @@ export default function LoginPage() {
         <div style={{ width:'100%',maxWidth:540 }}>
 
           {/* Wordmark */}
-          <a href="https://chocka.co.uk" style={{ display:'inline-block',fontFamily:display,fontWeight:800,fontSize:'1.25rem',color:orange,letterSpacing:'0.08em',marginBottom:'2.5rem',textDecoration:'none' }}>CHOCKA</a>
+          <a href={tenant.marketingUrl} style={{ display:'inline-block',fontFamily:display,fontWeight:800,fontSize:'1.25rem',color:orange,letterSpacing:'0.08em',marginBottom:'2.5rem',textDecoration:'none' }}>{tenant.wordmark}</a>
 
           {/* Hero */}
           <h1 style={{
@@ -92,7 +94,7 @@ export default function LoginPage() {
             borderRadius:'999px',
             marginBottom:'2rem',
           }}>
-            7,101 businesses scored across the North East
+            7,101 businesses scored across the {tenant.proofLocation}
           </div>
 
           {/* Error banner */}
@@ -107,7 +109,7 @@ export default function LoginPage() {
               color:'#7a1d11',
               lineHeight:1.5,
             }}>
-              Google didn&apos;t grant access to your Business Profile. Please try again and make sure you approve all permissions on Google&apos;s screen. If it keeps happening, email <a href="mailto:team@chocka.co.uk" style={{ color:'#7a1d11',textDecoration:'underline' }}>team@chocka.co.uk</a> and we&apos;ll help.
+              Google didn&apos;t grant access to your Business Profile. Please try again and make sure you approve all permissions on Google&apos;s screen. If it keeps happening, email <a href={`mailto:${tenant.teamEmail}`} style={{ color:'#7a1d11',textDecoration:'underline' }}>{tenant.teamEmail}</a> and we&apos;ll help.
             </div>
           )}
 
@@ -259,10 +261,10 @@ export default function LoginPage() {
               {privacyOpen && (
                 <div style={{ padding:'0 1rem 1rem',display:'flex',flexDirection:'column',gap:12 }}>
                   <p style={{ fontSize:'0.8125rem',color:secondary,margin:0,lineHeight:1.55 }}>
-                    You sign in with Google and give Chocka permission to manage your Google Business Profile, so we can actually read your score and, if you sign up later, do the work.
+                    You sign in with Google and give {tenant.brandName} permission to manage your Google Business Profile, so we can actually read your score and, if you sign up later, do the work.
                   </p>
                   <p style={{ fontSize:'0.8125rem',color:secondary,margin:0,lineHeight:1.55 }}>
-                    Chocka only gets access to your Google Business Profile. Not your Gmail, Drive, calendar, or anything else. Google enforces this.
+                    {tenant.brandName} only gets access to your Google Business Profile. Not your Gmail, Drive, calendar, or anything else. Google enforces this.
                   </p>
                   <p style={{ fontSize:'0.8125rem',color:secondary,margin:0,lineHeight:1.55 }}>
                     You can remove our access any time at{' '}
@@ -279,7 +281,7 @@ export default function LoginPage() {
           <div style={{ textAlign:'center',marginTop:'2rem' }}>
             <div style={{ fontFamily:caveat,fontSize:'2rem',color:orange }}>Liam</div>
             <p style={{ fontSize:'0.8125rem',color:muted,margin:'0.25rem 0 0' }}>
-              Built in the North East · team@chocka.co.uk
+              Built in the {tenant.proofLocation} · {tenant.teamEmail}
             </p>
             <p style={{ fontSize:'0.8125rem',color:muted,margin:'0.5rem 0 0' }}>
               <a href="/privacy" style={{ color:muted,textDecoration:'underline' }}>Privacy</a> · <a href="/terms" style={{ color:muted,textDecoration:'underline' }}>Terms</a>

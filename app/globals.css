@@ -9,17 +9,11 @@
 :root {
   --hd: 'Cabinet Grotesk', sans-serif;
   --bd: 'Inter', system-ui, sans-serif;
-  --charcoal: #2A2520;
-  --cream: #F8F6F3;
-  --orange: #D4622B;
-  --gold: #E7C36A;
-  --green: #2D8B4E;
-  --red: #D93025;
-  --grey: #A09A93;
-  --text: #5A554F;
-  --warm-bg: #F0EDE8;
   --shadow: rgba(42,37,32,.04);
   --shadow-lg: rgba(42,37,32,.1);
+  /* Color custom properties (--charcoal, --cream, --orange, --gold, --green,
+     --red, --grey, --text, --warm-bg, --brand*) are injected on :root by the
+     root layout from the resolved tenant — see lib/tenant.ts / app/layout.tsx. */
 }
 
 body {

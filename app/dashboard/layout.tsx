@@ -2,9 +2,11 @@
 
 import { usePathname } from 'next/navigation';
 import Link from 'next/link';
+import { useTenant } from '@/lib/tenant-context';
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
+  const tenant = useTenant();
 
   return (
     <div style={{ minHeight: '100vh', background: '#F0EDE8', fontFamily: "'DM Sans', sans-serif", color: '#1A1A1A' }}>
@@ -16,7 +18,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         display: 'flex', alignItems: 'center', justifyContent: 'space-between',
       }}>
         <div style={{ maxWidth: 420, width: '100%', margin: '0 auto', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 15, fontWeight: 500, letterSpacing: '0.12em', color: '#E8541A' }}>CHOCKA</span>
+          <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 15, fontWeight: 500, letterSpacing: '0.12em', color: 'var(--brand-strong)' }}>{tenant.wordmark}</span>
           <div style={{ display: 'flex', background: '#F0EDE8', borderRadius: 20, padding: 3, gap: 2 }}>
             {[{ label: 'Dashboard', href: '/dashboard' }, { label: 'Settings', href: '/settings' }].map((item) => {
               const active = pathname === item.href;

@@ -1,9 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
+import { getTenant } from '@/lib/tenant';
 import twilio from 'twilio';
 
 export async function POST(request: NextRequest) {
   try {
+    const t = getTenant();
     const formData = await request.formData();
 
     // Verify Twilio signature
@@ -59,7 +61,7 @@ export async function POST(request: NextRequest) {
         status: 'received',
       });
 
-      return twimlResponse('You\'ve been unsubscribed from Chocka texts. Reply START anytime to re-enable.');
+      return twimlResponse(`You've been unsubscribed from ${t.brandName} texts. Reply START anytime to re-enable.`);
     }
 
     // Handle START
@@ -77,7 +79,7 @@ export async function POST(request: NextRequest) {
         status: 'received',
       });
 
-      return twimlResponse('Welcome back! You\'ll receive Chocka texts again. - Chocka');
+      return twimlResponse(`Welcome back! You'll receive ${t.brandName} texts again. - ${t.brandName}`);
     }
 
     // Log any other inbound messages for future reference

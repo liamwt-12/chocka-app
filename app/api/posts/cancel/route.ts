@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
 import { generateCancelHash } from '@/lib/cron';
+import { getTenant } from '@/lib/tenant';
 
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
@@ -50,7 +51,7 @@ export async function GET(request: NextRequest) {
   const user = post.profiles?.users;
   if (user?.sms_enabled && user?.phone_number) {
     const { sendSMS, logSMS } = await import('@/lib/twilio');
-    const smsBody = `Post cancelled — nothing will be published this week. We'll try again next Sunday. - Chocka`;
+    const smsBody = `Post cancelled — nothing will be published this week. We'll try again next Sunday. - ${getTenant().brandName}`;
     const sid = await sendSMS({ to: user.phone_number, body: smsBody });
     await logSMS(supabaseAdmin, post.profiles.user_id, user.phone_number, 'post_cancelled', smsBody, sid);
   }
@@ -61,17 +62,18 @@ export async function GET(request: NextRequest) {
 }
 
 function cancelPage(title: string, message: string): string {
+  const t = getTenant();
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>${title} — Chocka</title>
+  <title>${title} — ${t.brandName}</title>
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;800&display=swap" rel="stylesheet">
   <style>
     body { font-family: 'Plus Jakarta Sans', sans-serif; display: flex; align-items: center; justify-content: center; min-height: 100vh; margin: 0; background: #f9fafb; }
     .card { text-align: center; max-width: 360px; padding: 40px; }
-    h1 { color: #FF6B35; font-size: 24px; font-weight: 800; margin-bottom: 8px; }
+    h1 { color: ${t.palette.routeAccent}; font-size: 24px; font-weight: 800; margin-bottom: 8px; }
     p { color: #6b7280; font-size: 15px; line-height: 1.6; }
   </style>
 </head>

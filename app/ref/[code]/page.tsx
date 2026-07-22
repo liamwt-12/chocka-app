@@ -3,8 +3,10 @@
 import { useEffect } from 'react';
 import { useParams } from 'next/navigation';
 import Button from '@/components/Button';
+import { useTenant } from '@/lib/tenant-context';
 
 export default function ReferralPage() {
+  const tenant = useTenant();
   const params = useParams();
   const code = params.code as string;
 
@@ -17,7 +19,7 @@ export default function ReferralPage() {
   return (
     <div className="min-h-screen flex flex-col items-center justify-center px-6 text-center">
       <div className="w-full max-w-sm">
-        <h1 className="text-3xl font-extrabold text-brand mb-2">Chocka</h1>
+        <h1 className="text-3xl font-extrabold text-brand mb-2">{tenant.brandName}</h1>
         <div className="bg-brand-light rounded-2xl p-8 mb-6">
           <div className="text-4xl mb-4">🎉</div>
           <h2 className="text-xl font-bold text-charcoal mb-2">You&apos;ve been referred!</h2>
@@ -28,7 +30,7 @@ export default function ReferralPage() {
         <Button href={`/login?ref=${code}`} size="lg" className="w-full">
           Get started — 30 seconds
         </Button>
-        <p className="text-xs text-gray-300 mt-4">£29/month · Cancel anytime</p>
+        <p className="text-xs text-gray-300 mt-4">£{tenant.priceMonthlyGbp}/month · Cancel anytime</p>
       </div>
     </div>
   );

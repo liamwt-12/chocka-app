@@ -1,7 +1,10 @@
+import { getTenant } from '@/lib/tenant';
+
 export default function TermsPage() {
+  const t = getTenant();
   return (
     <div className="max-w-2xl mx-auto px-6 py-16">
-      <a href="/" className="text-brand font-extrabold text-xl">Chocka</a>
+      <a href="/" className="text-brand font-extrabold text-xl">{t.brandName}</a>
       <h1 className="text-3xl font-extrabold text-charcoal mt-8 mb-8">Terms of Service</h1>
 
       <div className="prose prose-gray text-sm leading-relaxed text-gray-500 space-y-6">
@@ -9,7 +12,7 @@ export default function TermsPage() {
 
         <h2 className="text-lg font-bold text-charcoal mt-8">The service</h2>
         <p>
-          Chocka manages your Google Business Profile on your behalf. This includes writing and
+          {t.brandName} manages your Google Business Profile on your behalf. This includes writing and
           publishing posts, replying to reviews, and sending you performance updates via SMS and email.
           By subscribing, you authorise us to take these actions using your Google account.
         </p>
@@ -37,7 +40,7 @@ export default function TermsPage() {
 
         <h2 className="text-lg font-bold text-charcoal mt-8">Liability</h2>
         <p>
-          Chocka is provided &quot;as is&quot;. We do not guarantee specific results (e.g. ranking improvements,
+          {t.brandName} is provided &quot;as is&quot;. We do not guarantee specific results (e.g. ranking improvements,
           call volume increases). Our liability is limited to the fees you have paid in the 12 months
           prior to any claim.
         </p>
@@ -50,7 +53,7 @@ export default function TermsPage() {
 
         <h2 className="text-lg font-bold text-charcoal mt-8">Contact</h2>
         <p>
-          Useful for Humans Ltd · hello@chocka.co.uk
+          {t.legalEntity} · {t.supportEmail}
         </p>
       </div>
     </div>
