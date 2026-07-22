@@ -295,6 +295,17 @@ Replace `app/stellar/` — the hardcoded landing, `metadataBase`, scoped `.stlr`
 tenant-rendered pages (or keep `/stellar` as a redirect to the Stellar host). Delete the Tarkett/flooring
 hardcoding; it now lives in the row.
 
+*Also in slice 6 — trim the client-side tenant payload.* Observed on the slice-2 Deploy Preview: the
+`TenantProvider` (slice 1) serialises the **whole** tenant object into the RSC flight payload, so the
+rendered HTML ships `slug`, `brandName`, `wordmark`, `legalEntity`, `appHost`, `emailFrom`, `meta`, …
+to the browser (~1.9KB over the pre-slice-1 page). Harmless with one tenant — it's Chocka's own config
+on Chocka's own site — but once Stellar is real, **one tenant's config must not ship to another
+tenant's users**, and the payload is only correct as long as it happens to match the requesting host.
+Fix: split the tenant into a small client-safe subset (the visual/branding fields the client components
+actually read) and a server-only remainder (`emailFrom`, OAuth/`google_client_*`, anything operational);
+pass only the subset to `TenantProvider`. Worth an audit of `useTenant()` call sites at that point to
+see which fields genuinely need to be client-side. Blocking for slice 6, not before.
+
 **Why this order:** branding (Slice 1) is the largest, safest change and unblocks visual verification
 before any data risk. The table/middleware (2) and `tenant_id`/backfill (3) are additive and invisible
 to one tenant. RLS (4) — the one slice that can break live reads — comes only once tenant scoping is
