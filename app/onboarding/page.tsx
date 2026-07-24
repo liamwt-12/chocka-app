@@ -236,11 +236,15 @@ export default function OnboardingPage() {
       const isNotAuth = auditCode === 'not_authenticated' || auditError === 'Not authenticated';
       const isDisconnected = auditCode === 'google_disconnected' || auditError === 'Google not connected';
       const isListing = auditCode === 'listing_access_denied' || auditCode === 'listing_not_found';
+      // Any other code (google_unreachable, unknown, or an empty/legacy code) is
+      // treated as a reachable-but-failed listing: honest, retryable, with a
+      // reconnect option. The bare "Something went wrong" screen is deliberately
+      // no longer reachable.
       const heading = isNoProfile ? 'No Google Business\nProfile found'
         : isNotAuth ? 'Session\nexpired'
         : isDisconnected ? 'Reconnect\nyour Google'
         : isListing ? 'Listing access\nproblem'
-        : 'Something\nwent wrong';
+        : 'We couldn’t reach\nyour listing';
       const subtitle = isNoProfile
         ? 'We couldn\u2019t find a Google Business Profile linked to this account.'
         : isNotAuth
@@ -249,7 +253,7 @@ export default function OnboardingPage() {
         ? 'We lost the connection to your Google account.'
         : isListing
         ? 'We couldn\u2019t open the listing that\u2019s currently connected.'
-        : 'We couldn\u2019t connect to your Google profile right now. This is usually temporary.';
+        : 'We couldn\u2019t reach your Google listing right now. This is usually temporary.';
       const detail = isNoProfile
         ? `Try signing in with the Google account you use to manage your listing. Not sure which one? Email ${tenant.teamEmail} and we\u2019ll help.`
         : isNotAuth
@@ -258,7 +262,7 @@ export default function OnboardingPage() {
         ? 'Please sign in again to reconnect.'
         : isListing
         ? 'You may not have permission to manage this listing, or it\u2019s been removed. Choose a different one, or ask the owner to add you.'
-        : `Something went wrong on our end. Please try again, or email ${tenant.teamEmail}.`;
+        : `Reconnect Google or try again. If it keeps happening, email ${tenant.teamEmail}.`;
       return (
         <div style={{minHeight:'100vh',fontFamily:sans,background:V.bg,color:V.text,display:'flex',justifyContent:'center'}}>
           <div style={{width:'100%',maxWidth:460,padding:'80px 1.25rem 2rem'}}>
@@ -275,7 +279,10 @@ export default function OnboardingPage() {
               ) : (isNoProfile || isDisconnected || isNotAuth) ? (
                 <button onClick={()=>{ window.location.href='/api/auth/callback/google'; }} style={btn}>Sign In With a Different Account</button>
               ) : (
-                <button onClick={()=>{ setPhase('analysing'); setAIdx(0); setDoneSt(new Set()); runAudit(); }} style={btn}>Try Again</button>
+                <>
+                  <button onClick={()=>{ setPhase('analysing'); setAIdx(0); setDoneSt(new Set()); runAudit(); }} style={btn}>Try Again</button>
+                  <button onClick={()=>{ window.location.href='/api/auth/callback/google'; }} style={{...btnGhost,marginTop:8}}>Reconnect Google</button>
+                </>
               )}
               <button onClick={()=>setPhase('phone')} style={{...btnGhost,marginTop:8}}>Skip and continue to setup</button>
               <p style={{fontSize:11,color:V.textSoft,marginTop:8}}>We&apos;ll run your full audit once you&apos;re set up.</p>
