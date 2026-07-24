@@ -1,0 +1,148 @@
+/* Stellar Local: shared styles for the public holding site.
+   Palette: paper #FCFBF9, ink #171717, gold #B8923C. Type: Lato. */
+
+:root {
+  --paper: #FCFBF9;
+  --ink: #171717;
+  --ink-soft: #55524E;
+  --ink-faint: #8A8680;
+  --gold: #B8923C;
+  --gold-soft: #EBDFC4;
+  --line: rgba(23, 23, 23, 0.10);
+  --card: #FFFFFF;
+  --shadow: 0 1px 2px rgba(23, 23, 23, 0.04), 0 8px 30px rgba(23, 23, 23, 0.05);
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: 'Lato', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-size: 17px;
+  line-height: 1.65;
+  -webkit-font-smoothing: antialiased;
+}
+
+a { color: var(--gold); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+/* ── Star mark ── */
+.star {
+  width: 34px;
+  height: 34px;
+  display: inline-block;
+  vertical-align: middle;
+}
+.star path { fill: var(--gold); }
+
+/* ── Wordmark ── */
+.wordmark {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  font-weight: 900;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  font-size: 20px;
+  color: var(--ink);
+}
+.wordmark .by { color: var(--ink-faint); font-weight: 400; letter-spacing: 0.04em; text-transform: none; }
+
+/* ── Holding page ── */
+.hold {
+  min-height: 100vh;
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 40px 24px;
+}
+.hold .mark { margin-bottom: 28px; }
+.hold .mark .star { width: 56px; height: 56px; }
+.hold h1 {
+  font-weight: 900;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  font-size: clamp(30px, 6vw, 46px);
+  margin: 0 0 6px;
+  line-height: 1.05;
+}
+.hold .by { color: var(--ink-faint); font-size: 14px; letter-spacing: 0.06em; margin-bottom: 26px; }
+.hold p.lede {
+  max-width: 30rem;
+  color: var(--ink-soft);
+  font-size: 18px;
+  margin: 0 auto 34px;
+}
+
+/* ── Access-code gate ── */
+.gate { width: 100%; max-width: 22rem; margin: 0 auto; }
+.gate form { display: flex; gap: 8px; }
+.gate input {
+  flex: 1;
+  padding: 13px 15px;
+  font-size: 16px;
+  font-family: inherit;
+  color: var(--ink);
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  outline: none;
+}
+.gate input:focus { border-color: var(--gold); box-shadow: 0 0 0 3px var(--gold-soft); }
+.gate button {
+  padding: 13px 20px;
+  font-size: 15px;
+  font-weight: 700;
+  font-family: inherit;
+  color: var(--paper);
+  background: var(--ink);
+  border: none;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+.gate button:hover { background: #000; }
+.gate .msg { min-height: 20px; margin-top: 12px; font-size: 14px; color: var(--gold); }
+.gate .msg.error { color: #B4372B; }
+
+.hold footer {
+  margin-top: 48px;
+  font-size: 13px;
+  color: var(--ink-faint);
+}
+.hold footer a { color: var(--ink-faint); text-decoration: underline; }
+.hold footer .sep { margin: 0 10px; opacity: 0.5; }
+
+/* ── Document pages (privacy, terms) ── */
+.doc { max-width: 44rem; margin: 0 auto; padding: 48px 24px 96px; }
+.doc header { border-bottom: 1px solid var(--line); padding-bottom: 22px; margin-bottom: 34px; }
+.doc header .wordmark { font-size: 16px; }
+.doc h1 { font-size: clamp(26px, 5vw, 34px); font-weight: 900; margin: 26px 0 6px; letter-spacing: 0.01em; }
+.doc .updated { color: var(--ink-faint); font-size: 14px; margin: 0; }
+.doc h2 { font-size: 20px; font-weight: 800; margin: 40px 0 10px; }
+.doc h3 { font-size: 16px; font-weight: 800; margin: 26px 0 6px; }
+.doc p, .doc li { color: var(--ink-soft); }
+.doc strong { color: var(--ink); }
+.doc ul { padding-left: 22px; }
+.doc li { margin: 6px 0; }
+.doc table { width: 100%; border-collapse: collapse; margin: 16px 0; font-size: 15px; }
+.doc th, .doc td { text-align: left; padding: 10px 12px; border: 1px solid var(--line); vertical-align: top; }
+.doc th { background: #F5F1EA; font-weight: 700; color: var(--ink); }
+.doc .callout {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--gold);
+  border-radius: 8px;
+  padding: 16px 18px;
+  margin: 22px 0;
+  box-shadow: var(--shadow);
+}
+.doc .callout p { margin: 0; color: var(--ink); font-size: 15px; }
+.doc footer { margin-top: 56px; padding-top: 22px; border-top: 1px solid var(--line); font-size: 13px; color: var(--ink-faint); }
+.doc footer a { color: var(--ink-faint); text-decoration: underline; }
