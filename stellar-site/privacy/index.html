@@ -39,7 +39,7 @@
       <thead><tr><th>Data</th><th>Why we hold it</th></tr></thead>
       <tbody>
         <tr><td>Business name, contact name, contact email, and phone number</td><td>To set up and run the retailer's account and to contact them about the service.</td></tr>
-        <tr><td>A Google authorisation token (OAuth refresh token), <strong>encrypted at rest</strong></td><td>To act on the retailer's Google Business Profile on their behalf. It is stored encrypted and never shown to anyone.</td></tr>
+        <tr><td>A Google authorisation token (OAuth refresh token)</td><td>To act on the retailer's Google Business Profile on their behalf. It travels over encrypted connections and is held in an access-controlled database, and is never shown to anyone. Encryption at rest is being rolled out.</td></tr>
         <tr><td>Profile content from Google (business details, posts, reviews, photos)</td><td>To audit the listing, generate posts and replies, and show the retailer what has been done.</td></tr>
         <tr><td>Performance metrics from Google (how often the profile was found, calls, direction requests, review counts)</td><td>To report results to the retailer and to Tarkett at network level in aggregate.</td></tr>
         <tr><td>Customer names, email addresses, and phone numbers <em>that the retailer provides</em>, where the retailer uses our review-request feature</td><td>Only to send a review request to that customer on the retailer's behalf. See "Customer data" below.</td></tr>
