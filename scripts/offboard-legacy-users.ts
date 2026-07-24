@@ -69,7 +69,7 @@ async function revokeAtGoogle(token: string): Promise<{ ok: boolean; note: strin
 
 async function main() {
   console.log(`\n  Mode: ${COMMIT ? 'COMMIT (will mutate)' : 'DRY RUN (no changes)'}`);
-  console.log(`  Excluding: ${[...EXCLUDE_EMAILS].join(', ') || '(none)'}\n`);
+  console.log(`  Excluding: ${Array.from(EXCLUDE_EMAILS).join(', ') || '(none)'}\n`);
 
   const res = await fetch(`${REST}/users?select=id,email,name,google_refresh_token`, { headers: authHeaders });
   if (!res.ok) die(`could not read users: ${res.status} ${await res.text()}`);
