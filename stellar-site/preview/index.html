@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en-GB">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Retailer preview · Stellar Local</title>
+  <meta name="description" content="Private preview area for Stellar Local retailers." />
+  <meta name="robots" content="noindex" />
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Cpath d='M50 3 C54 40 60 46 97 50 C60 54 54 60 50 97 C46 60 40 54 3 50 C40 46 46 40 50 3 Z' fill='%23B8923C'/%3E%3C/svg%3E" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Lato:wght@400;700;900&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <main class="hold">
+    <div class="mark">
+      <svg class="star" viewBox="0 0 100 100" aria-hidden="true">
+        <path d="M50 3 C54 40 60 46 97 50 C60 54 54 60 50 97 C46 60 40 54 3 50 C40 46 46 40 50 3 Z" fill="#B8923C" />
+      </svg>
+    </div>
+    <h1>Retailer preview</h1>
+    <p class="by">Stellar Local · a brand by Tarkett</p>
+    <p class="lede">This area is a private preview for Tarkett retailers and reps. Enter your access code to continue.</p>
+
+    <div class="gate">
+      <form id="gate-form" autocomplete="off">
+        <input id="code" type="password" inputmode="text" placeholder="Access code" aria-label="Access code" />
+        <button type="submit">Enter</button>
+      </form>
+      <p class="msg" id="gate-msg" role="status" aria-live="polite"></p>
+    </div>
+
+    <footer>
+      <a href="/">Home</a>
+      <span class="sep">·</span>
+      <a href="/privacy">Privacy</a>
+      <span class="sep">·</span>
+      <a href="/terms">Terms</a>
+    </footer>
+  </main>
+
+  <script>
+    // Soft gate for a preview area, not a security control. Move server-side
+    // before anything sensitive sits behind it.
+    var ACCESS_CODE = 'floorstars26';
+    var form = document.getElementById('gate-form');
+    var input = document.getElementById('code');
+    var msg = document.getElementById('gate-msg');
+    form.addEventListener('submit', function (e) {
+      e.preventDefault();
+      var val = (input.value || '').trim().toLowerCase();
+      if (val === ACCESS_CODE) {
+        msg.classList.remove('error');
+        msg.textContent = 'You are in. The Stellar Local preview is coming soon.';
+        input.value = '';
+      } else {
+        msg.classList.add('error');
+        msg.textContent = 'That code was not recognised. Check with your Tarkett contact.';
+      }
+    });
+  </script>
+</body>
+</html>
