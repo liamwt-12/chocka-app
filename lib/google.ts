@@ -52,10 +52,19 @@ export function formatAddress(address: any): string {
   return parts.join(', ');
 }
 
-export function getGoogleAuthUrl(state?: string): string {
+// `redirectUri` overrides GOOGLE_REDIRECT_URI for callers that know their own
+// origin. One deploy serves two hosts, so the env var can only ever hold one of
+// them (Chocka's) — Stellar has to pass its own or Google would return its
+// retailers to app.chocka.co.uk. Optional so existing callers, and
+// scripts/live-matrix.ts (which forces a loopback URI through the env var),
+// keep working untouched.
+//
+// Whatever is used here MUST be passed to exchangeCodeForTokens() as well:
+// Google requires the two redirect_uri values to match exactly.
+export function getGoogleAuthUrl(state?: string, redirectUri?: string): string {
   const params = new URLSearchParams({
     client_id: process.env.GOOGLE_CLIENT_ID!,
-    redirect_uri: process.env.GOOGLE_REDIRECT_URI!,
+    redirect_uri: redirectUri || process.env.GOOGLE_REDIRECT_URI!,
     response_type: 'code',
     scope: ['openid','email','profile','https://www.googleapis.com/auth/business.manage'].join(' '),
     access_type: 'offline',
@@ -65,14 +74,17 @@ export function getGoogleAuthUrl(state?: string): string {
   return `https://accounts.google.com/o/oauth2/v2/auth?${params}`;
 }
 
-export async function exchangeCodeForTokens(code: string) {
+// `redirectUri` must be the same value passed to getGoogleAuthUrl() for this
+// authorisation — Google validates that the two match and rejects the exchange
+// otherwise. See the note there.
+export async function exchangeCodeForTokens(code: string, redirectUri?: string) {
   const res = await fetch(GOOGLE_TOKEN_URL, {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body: new URLSearchParams({
       code, client_id: process.env.GOOGLE_CLIENT_ID!,
       client_secret: process.env.GOOGLE_CLIENT_SECRET!,
-      redirect_uri: process.env.GOOGLE_REDIRECT_URI!,
+      redirect_uri: redirectUri || process.env.GOOGLE_REDIRECT_URI!,
       grant_type: 'authorization_code',
     }),
   });

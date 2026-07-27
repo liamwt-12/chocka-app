@@ -1,23 +1,41 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
 import { exchangeCodeForTokens, getManageableListings, getGoogleAuthUrl } from '@/lib/google';
+import { getTenantBySlug } from '@/lib/tenant';
 
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const code = searchParams.get('code');
   const action = searchParams.get('action');
   const plan = searchParams.get('plan') || 'monthly';
-  const baseUrl = process.env.NEXT_PUBLIC_APP_URL || request.url;
+
+  // Which brand is this retailer signing in through? Set by middleware from the
+  // Host. Both brands share one deploy, so every origin below has to be derived
+  // per request rather than read from a process-wide env var.
+  const tenant = getTenantBySlug(request.headers.get('x-tenant-slug'));
+
+  // Chocka deliberately keeps reading GOOGLE_REDIRECT_URI so its live flow is
+  // unchanged; the env var already holds its URI. Only Stellar derives one,
+  // because a single env var cannot hold both. Google requires this exact value
+  // again at token-exchange time, so it is computed once and reused below.
+  const redirectUri =
+    tenant.slug === 'stellar' ? `${tenant.appUrl}/api/auth/callback/google` : undefined;
+
+  // Where the retailer lands afterwards. Stellar uses its own origin; Chocka
+  // keeps the previous expression exactly, including the request-origin
+  // fallback that local dev relies on when NEXT_PUBLIC_APP_URL is unset.
+  const baseUrl =
+    tenant.slug === 'stellar' ? tenant.appUrl : process.env.NEXT_PUBLIC_APP_URL || request.url;
 
   // Step 1: No code yet — redirect to Google consent
   if (!code) {
     const state = JSON.stringify({ action, plan });
-    return NextResponse.redirect(getGoogleAuthUrl(state));
+    return NextResponse.redirect(getGoogleAuthUrl(state, redirectUri));
   }
 
   try {
     // Step 2: Exchange code for tokens
-    const tokens = await exchangeCodeForTokens(code);
+    const tokens = await exchangeCodeForTokens(code, redirectUri);
 
     // Verify the user actually granted the GBP scope — Google's granular consent
     // lets users uncheck individual scopes, and there's no point continuing without it.
