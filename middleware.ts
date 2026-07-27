@@ -2,11 +2,14 @@ import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 import { resolveTenantSlug } from '@/lib/tenant-registry';
 
-// Slice 2 — resolve the tenant by Host and inject `x-tenant-slug` on the request.
+// Resolve the tenant by Host and inject `x-tenant-slug` on the request.
 //
-// Deliberately INERT this slice: getTenant() does NOT read this header yet, so
-// the static/dynamic render split is unchanged and Chocka behaves exactly as
-// before. This is forward plumbing for slices 3+ (and the second tenant in 6).
+// This header is LIVE: the root layout reads it via getRequestTenant()
+// (lib/tenant-request.ts) to pick the brand. app.stellarlocal.co.uk therefore
+// renders as Stellar Local and app.chocka.co.uk as Chocka, from one deploy.
+//
+// Not yet consumed by cron, email or API routes — those still resolve to the
+// primary tenant. See the KNOWN GAP note in lib/tenant.ts.
 //
 // Fail-open: any error serves the request unchanged (i.e. as Chocka) rather than
 // taking the site down. No DB and no Node APIs — Edge-runtime safe.

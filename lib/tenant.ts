@@ -1,7 +1,24 @@
-// ── Tenant model (slice 0) ────────────────────────────────────────────────
-// Single source of truth for per-tenant brand identity. Today there is exactly
-// one tenant (Chocka), and getTenant() returns it unconditionally. Hostname →
-// tenant resolution (middleware) and a real `tenants` table arrive in slice 2+.
+// ── Tenant model ──────────────────────────────────────────────────────────
+// Single source of truth for per-tenant brand identity. There are two tenants:
+// Chocka (primary) and Stellar Local (Tarkett white-label).
+//
+// TWO RESOLUTION PATHS, deliberately kept apart:
+//
+//   getTenant()          → always Chocka. Used by cron, email and API routes,
+//                          i.e. everywhere without a per-request Host.
+//   getTenantBySlug(s)   → explicit lookup. Used by getRequestTenant() in
+//                          lib/tenant-request.ts, which reads the
+//                          `x-tenant-slug` header set by middleware.
+//
+// getTenant() is NOT host-aware on purpose. Both hosts are served by one
+// Netlify deploy, so a process-wide switch (e.g. a TENANT env var) would flip
+// live Chocka users too. Host-based resolution only works where a request
+// exists — which is why the request-scoped path lives in its own module.
+//
+// KNOWN GAP: cron and lib/email.ts still call getTenant(), so Stellar users
+// currently receive Chocka-branded email and SMS. The scheduler has no tenant
+// in its Host header, so this cannot be fixed by hostname — it needs a
+// tenant_slug column on the user row. Tracked as a later slice.
 //
 // This file is pure data + env reads — no next/headers, no 'use client' — so it
 // is safe to import from any server context (route handlers, cron, RSC). Client
@@ -91,19 +108,103 @@ const CHOCKA_BASE: Omit<Tenant, 'appUrl' | 'appHost' | 'emailFrom'> = {
   },
 };
 
+// Static brand data for Stellar Local, the Tarkett white-label.
+//
+// Colours are lifted from the live holding site (stellar-site/styles.css) so
+// the app and the marketing site cannot drift: paper #FCFBF9, ink #171717,
+// gold #B8923C, plus its --ink-soft / --ink-faint neutrals and its error red.
+// Five values have no counterpart on the static site and are derived here —
+// each is marked below.
+//
+// The palette keys are Chocka-era names (`orange`, `cream`, `charcoal`). They
+// are kept as-is because ~30 components read them; for Stellar they carry
+// Stellar values. Renaming them to neutral tokens is a separate tidy-up.
+const STELLAR_BASE: Omit<Tenant, 'appUrl' | 'appHost' | 'emailFrom'> = {
+  slug: 'stellar',
+  brandName: 'Stellar Local',
+  wordmark: 'STELLAR LOCAL',
+  legalEntity: 'Useful for Humans Ltd',
+  marketingUrl: 'https://stellarlocal.co.uk',
+  supportEmail: 'hello@stellarlocal.co.uk',
+  teamEmail: 'team@stellarlocal.co.uk',
+  privacyEmail: 'privacy@stellarlocal.co.uk',
+  // Free to the retailer — Tarkett funds the service for its network. Any
+  // price-derived copy or arithmetic must handle 0 (see app/dashboard).
+  priceMonthlyGbp: 0,
+  priceMonthlyPence: 0,
+  proofLocation: 'UK',
+  meta: {
+    title: 'Stellar Local · Get found',
+    description:
+      'Stellar Local looks after your shop\'s presence on Google so more local customers find you and call. Free — Tarkett pays for it.',
+  },
+  palette: {
+    brand: '#B8923C', // --gold
+    brandDark: '#9C7C33', // derived: --gold at 85% lightness
+    brandLight: 'rgba(184,146,60,0.06)', // derived: --gold at 6% alpha
+    brandStrong: '#B8923C', // Stellar has one accent, not Chocka's two
+    brandStrongDark: '#9C7C33', // derived
+    brandStrongLight: '#FAF5EA', // derived: pale gold wash for fills
+    routeAccent: '#B8923C', // --gold
+    charcoal: '#171717', // --ink
+    cream: '#FCFBF9', // --paper
+    orange: '#B8923C', // legacy key name; carries --gold
+    gold: '#B8923C', // --gold
+    green: '#2D8B4E', // semantic (success), shared with Chocka
+    red: '#B4372B', // stellar-site .gate .msg.error
+    grey: '#8A8680', // --ink-faint
+    text: '#55524E', // --ink-soft
+    warmBg: '#F2F0EC', // derived: --paper, one step down
+  },
+};
+
 const DEFAULT_APP_URL = 'https://app.chocka.co.uk';
 const DEFAULT_EMAIL_FROM = 'Chocka <hello@chocka.co.uk>';
 
-// Resolve the current tenant. Slice 0: always Chocka. Env reads reproduce the
-// exact fallbacks the code used before (NEXT_PUBLIC_APP_URL, RESEND_FROM).
-export function getTenant(): Tenant {
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL || DEFAULT_APP_URL;
+// Stellar's own origin and sender. These deliberately do NOT read
+// NEXT_PUBLIC_APP_URL / RESEND_FROM: on a shared deploy those hold Chocka's
+// values, so reading them would point Stellar's checkout returns, billing
+// portal and email at app.chocka.co.uk. Overridable for preview deploys.
+const STELLAR_APP_URL = 'https://app.stellarlocal.co.uk';
+const STELLAR_EMAIL_FROM = 'Stellar Local <hello@stellarlocal.co.uk>';
+
+// Overlay the env-derived fields onto static brand data.
+function hydrate(
+  base: Omit<Tenant, 'appUrl' | 'appHost' | 'emailFrom'>,
+  appUrl: string,
+  emailFrom: string,
+): Tenant {
   return {
-    ...CHOCKA_BASE,
+    ...base,
     appUrl,
     appHost: appUrl.replace(/^https?:\/\//, ''),
-    emailFrom: process.env.RESEND_FROM || DEFAULT_EMAIL_FROM,
+    emailFrom,
   };
+}
+
+// The primary tenant. Not host-aware — see the module header. Env reads
+// reproduce the exact fallbacks the code used before this file gained a second
+// tenant (NEXT_PUBLIC_APP_URL, RESEND_FROM).
+export function getTenant(): Tenant {
+  return hydrate(
+    CHOCKA_BASE,
+    process.env.NEXT_PUBLIC_APP_URL || DEFAULT_APP_URL,
+    process.env.RESEND_FROM || DEFAULT_EMAIL_FROM,
+  );
+}
+
+// Explicit lookup by slug. Unknown or missing slugs fail open to the primary
+// tenant, matching resolveTenantSlug()'s behaviour in lib/tenant-registry.ts —
+// a bad Host serves Chocka rather than erroring.
+export function getTenantBySlug(slug?: string | null): Tenant {
+  if (slug === 'stellar') {
+    return hydrate(
+      STELLAR_BASE,
+      process.env.STELLAR_APP_URL || STELLAR_APP_URL,
+      process.env.STELLAR_RESEND_FROM || STELLAR_EMAIL_FROM,
+    );
+  }
+  return getTenant();
 }
 
 // "#RRGGBB" → "R G B" channels, for Tailwind's rgb(var(--x) / <alpha>) pattern
