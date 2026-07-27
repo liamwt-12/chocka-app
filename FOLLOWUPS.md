@@ -41,11 +41,13 @@ returns the primary tenant, rather than `getRequestTenant()`. On the Stellar hos
 produces a mixed-brand page — Stellar chrome from the root layout wrapping a body that reads
 "Chocka … is operated by Useful for Humans Ltd".
 
-**Fix when picked up:** switch `app/privacy/page.tsx` and `app/terms/page.tsx` to
-`getRequestTenant()`. Both pages are already server-rendered per request, so there is no
-render-mode cost. Then re-read the prose as Stellar: the tenant fields interpolate correctly,
-but claims written for a paid Chocka subscription (billing, Stripe customer ID, cancellation)
-need checking against a service that is free to the retailer and funded by Tarkett.
+**Import fixed (2026-07-27, `0f88441`).** Both pages now use `getRequestTenant()` and render
+the correct brand, legal entity and contact addresses per host — verified live.
+
+**Still outstanding:** the prose itself. It was written for a paid Chocka subscription and
+still refers to billing, a Stripe customer ID and cancellation, none of which describe a
+service that is free to the retailer and funded by Tarkett. Needs a read-through as Stellar.
+Step 6 has to touch the privacy copy anyway (encryption-at-rest wording), so sweep it then.
 
 ### Swap `metadataBase` to the Stellar domain  [pre-pilot]
 **Context:** `app/stellar/page.tsx` sets `metadataBase` to `NEXT_PUBLIC_APP_URL`
@@ -54,13 +56,11 @@ domain, not Stellar's.
 
 **Why deferred:** the Stellar domain doesn't exist yet.
 
-**Partly done (2026-07-27).** The OAuth half is closed: `b368c83` derives the redirect URI
-per tenant, so Stellar retailers return to `app.stellarlocal.co.uk`. `metadataBase` is still
-outstanding — `app/stellar/page.tsx` reads `NEXT_PUBLIC_APP_URL`, which holds Chocka's origin
-on the shared deploy and cannot hold both.
-
-**Fix when picked up:** derive `metadataBase` from the request tenant's `appUrl` rather than
-the env var, the same way the callback route now does.
+**Closed (2026-07-27), both halves.** The OAuth redirect URI is derived per tenant in
+`b368c83`. The `metadataBase` half is moot: the only file that set it was
+`app/stellar/page.tsx`, which was retired the same day. If a future page needs an absolute
+metadata base, derive it from the request tenant's `appUrl` rather than `NEXT_PUBLIC_APP_URL`
+— that env var holds Chocka's origin and cannot hold both.
 
 ## Pre-pilot — Stellar tenancy
 
@@ -115,12 +115,50 @@ so Stellar revenue always totals zero in the admin view).
 **Fix when picked up:** treat `priceMonthlyGbp === 0` as a distinct state — "Free, funded by
 Tarkett" rather than "£0/month" — and exclude free tenants from revenue arithmetic.
 
-### Reconcile `app/stellar/` with the tenant seam  [pre-pilot]
+### Salvage from the retired `/stellar` landing page  [reference — not a task]
+`app/stellar/` was removed on 2026-07-27 (see the entry below). The route was retired
+rather than reconciled: the Stellar host's entry point is `/login`, matching the real
+retailer flow (invite → magic link → connect), and the pitch lives on stellarlocal.co.uk.
+Recorded here in case any of it is useful for the marketing site or a rep-led demo page.
+The full source is in git history at `bce00fd`.
+
+**Copy worth reusing:**
+- Headline: "Get found. Get the phone ringing. **Do nothing.**"
+- Sub: "We look after your shop's presence on Google, so more local customers find you and
+  call. It's free, because Tarkett pays for it." / "Takes two minutes. You stay in control."
+- Framing: "Most people find a flooring shop **on Google now.**" ·
+  "We run it all for you. **In your voice.**" · "Yours. **Always.**" ·
+  "The better you look, **the more you win.**"
+- Control trio: "You stay the owner." (manager, like a member of staff, removable in two
+  taps) · "Undo anything, instantly." (every change logged and reversible) ·
+  "No money, no spam, no lock-in."
+- Close: "It's free because Tarkett pays for it. **You just get found.**" /
+  "Two minutes. Your rep can do it with you."
+- Tarkett sign-off: "Beauty in detail" · "A brand by Tarkett"
+
+**Two things in there that are not recorded anywhere else:**
+- An incentive mechanic — *"Improve most in a month, win Tarkett product credit."* If that
+  is a real commitment it needs a home in the product, not just marketing copy.
+- Rep-led onboarding — *"Your rep can do it with you"* — implies a rep-assisted connect
+  flow that the app does not currently have.
+
+**Design details:** an animated presence-score card (count-up + bar fill over 1.8s, cubic
+ease, driven by IntersectionObserver and disabled under `prefers-reduced-motion`). Palette
+tokens beyond those now in `STELLAR_BASE`: `--panel #F1EFE9` (adopted as `warmBg`),
+`--gold-pale #FFDFA4`, `--gold-soft rgba(184,146,60,.12)`, `--mute #6E6E6E`,
+`--faint #AEACA6`.
+
+**Note:** `/stellar` returned 200 on both hosts until it was removed. If the URL was shared
+with Tarkett it now 404s; a redirect to the Stellar host would be a one-line fix.
+
+### Reconcile `app/stellar/` with the tenant seam  [DONE 2026-07-27 — retired]
 **Context:** `app/stellar/` (added 2026-07-15, `bce00fd`) is a standalone Stellar landing page
 with its own Lato setup, palette and metadata, predating the tenant seam. It now overlaps
 `STELLAR_BASE` in `lib/tenant.ts`, which is the single source of truth for Stellar's brand
 and takes its colours from `stellar-site/styles.css`.
 
-**Fix when picked up:** decide whether `/stellar` remains a distinct route or becomes the
-Stellar-host home page, then have it read the tenant rather than carrying its own copy of the
-palette. Do this before any further branding work so the brand is not defined twice.
+**Resolved:** retired rather than reconciled. The Stellar host's entry point is `/login`
+(`/` already 307s there), which matches the real retailer flow — invite link, magic link,
+connect — not organic homepage traffic. The pitch belongs on stellarlocal.co.uk. Route and
+component deleted; `STELLAR_BASE` in `lib/tenant.ts` is now the only definition of the
+Stellar brand. Salvaged copy is in the entry above.
