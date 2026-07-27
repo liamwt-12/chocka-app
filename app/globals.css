@@ -5,8 +5,12 @@
 @import url('https://api.fontshare.com/v2/css?f[]=cabinet-grotesk@400,500,700,800&display=swap');
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
 @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap');
+/* Stellar Local. 900 carries the letterspaced wordmark. */
+@import url('https://fonts.googleapis.com/css2?family=Lato:wght@400;700;900&display=swap');
 
 :root {
+  /* Fallbacks only — the root layout overrides --hd and --bd on :root from the
+     resolved tenant. These values are Chocka's and apply if injection fails. */
   --hd: 'Cabinet Grotesk', sans-serif;
   --bd: 'Inter', system-ui, sans-serif;
   --shadow: rgba(42,37,32,.04);

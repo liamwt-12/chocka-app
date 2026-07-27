@@ -66,6 +66,14 @@ export interface Tenant {
   priceMonthlyPence: number; // 2900
   proofLocation: string; // Chocka-specific proof copy ("North East")
   meta: { title: string; description: string };
+  // CSS font stacks injected as --hd (headings) and --bd (body). Whatever is
+  // named here must be loaded by an @import in app/globals.css.
+  fontHeading: string;
+  fontBody: string;
+  // Path to the tenant's icon, or null to serve no favicon (Chocka has never
+  // had one). Files live in public/.
+  iconSvg: string | null;
+  iconPng: string | null;
   palette: TenantPalette;
 }
 
@@ -88,6 +96,12 @@ const CHOCKA_BASE: Omit<Tenant, 'appUrl' | 'appHost' | 'emailFrom'> = {
     description:
       'We manage your Google Business Profile so you don\'t have to. Auto-posting, review replies, weekly stats. £29/month.',
   },
+  // Unchanged from the values globals.css has always set on :root.
+  fontHeading: "'Cabinet Grotesk', sans-serif",
+  fontBody: "'Inter', system-ui, sans-serif",
+  // Chocka has never shipped a favicon; keep it that way rather than inventing one.
+  iconSvg: null,
+  iconPng: null,
   palette: {
     brand: '#D4622B',
     brandDark: '#C0571F',
@@ -96,7 +110,12 @@ const CHOCKA_BASE: Omit<Tenant, 'appUrl' | 'appHost' | 'emailFrom'> = {
     brandStrongDark: '#C43E10',
     brandStrongLight: '#FFF0EB',
     routeAccent: '#FF6B35',
-    charcoal: '#2A2520',
+    // #1C2331, not the warmer #2A2520 this field used to hold. Nothing ever read
+    // --charcoal; the value that actually rendered was tailwind.config.ts's
+    // hardcoded charcoal, and `charcoal` is now sourced from here so Stellar can
+    // have its own. Using #1C2331 keeps Chocka's 24 text-charcoal elements
+    // pixel-identical. The warm #2A2520 survives in globals.css as --shadow.
+    charcoal: '#1C2331',
     cream: '#F8F6F3',
     orange: '#D4622B',
     gold: '#E7C36A',
@@ -138,6 +157,11 @@ const STELLAR_BASE: Omit<Tenant, 'appUrl' | 'appHost' | 'emailFrom'> = {
     description:
       'Stellar Local looks after your shop\'s presence on Google so more local customers find you and call. Free — Tarkett pays for it.',
   },
+  // Lato throughout, matching stellar-site/styles.css. Loaded in globals.css.
+  fontHeading: "'Lato', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
+  fontBody: "'Lato', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
+  iconSvg: '/stellar-star.svg',
+  iconPng: '/stellar-icon-512.png',
   palette: {
     brand: '#B8923C', // --gold
     brandDark: '#9C7C33', // derived: --gold at 85% lightness
@@ -154,7 +178,7 @@ const STELLAR_BASE: Omit<Tenant, 'appUrl' | 'appHost' | 'emailFrom'> = {
     red: '#B4372B', // stellar-site .gate .msg.error
     grey: '#8A8680', // --ink-faint
     text: '#55524E', // --ink-soft
-    warmBg: '#F2F0EC', // derived: --paper, one step down
+    warmBg: '#F1EFE9', // --panel from the retired /stellar page (a designed value)
   },
 };
 
@@ -221,6 +245,14 @@ function channels(hex: string): string {
 export function tenantCssVars(t: Tenant): string {
   const p = t.palette;
   return [
+    // Fonts, overriding the fallbacks globals.css sets on :root.
+    `--hd:${t.fontHeading}`,
+    `--bd:${t.fontBody}`,
+    // Channel triplets for the tokens Tailwind exposes as utilities, so opacity
+    // modifiers keep working (components/Button.tsx uses bg-charcoal/90).
+    `--charcoal-rgb:${channels(p.charcoal)}`,
+    `--cream-rgb:${channels(p.cream)}`,
+    `--gold-rgb:${channels(p.gold)}`,
     `--brand-rgb:${channels(p.brand)}`,
     `--brand-dark-rgb:${channels(p.brandDark)}`,
     `--brand-light:${p.brandLight}`,

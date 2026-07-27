@@ -14,6 +14,19 @@ export function generateMetadata(): Metadata {
   return {
     title: t.meta.title,
     description: t.meta.description,
+    // Omitted entirely for tenants without an icon, so Chocka keeps the
+    // browser default it has always had rather than inheriting Stellar's star.
+    ...(t.iconSvg && t.iconPng
+      ? {
+          icons: {
+            icon: [
+              { url: t.iconSvg, type: 'image/svg+xml' },
+              { url: t.iconPng, sizes: '512x512', type: 'image/png' },
+            ],
+            apple: [{ url: t.iconPng, sizes: '512x512' }],
+          },
+        }
+      : {}),
   };
 }
 

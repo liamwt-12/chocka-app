@@ -12,10 +12,14 @@ const config: Config = {
           dark: 'rgb(var(--brand-dark-rgb) / <alpha-value>)',
           light: 'var(--brand-light)',
         },
+        // Tenant-sourced, same channel pattern as `brand` above. These were
+        // hardcoded to Chocka's values, which meant text-charcoal rendered
+        // Chocka's ink on the Stellar host.
+        cream: 'rgb(var(--cream-rgb) / <alpha-value>)',
+        gold: 'rgb(var(--gold-rgb) / <alpha-value>)',
+        charcoal: 'rgb(var(--charcoal-rgb) / <alpha-value>)',
+        // Not tenant concepts — no usages, left as literals.
         slate: '#1C2331',
-        cream: '#F8F6F3',
-        gold: '#E7C36A',
-        charcoal: '#1C2331',
         muted: '#7A8190',
       },
       fontFamily: {
