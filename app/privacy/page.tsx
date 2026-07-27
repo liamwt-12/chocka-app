@@ -1,7 +1,9 @@
-import { getTenant } from '@/lib/tenant';
+import { getRequestTenant } from '@/lib/tenant-request';
 
+// Resolved per request, not per process: this page names the data controller a
+// retailer is consenting to, so it has to match the brand they arrived through.
 export default function PrivacyPage() {
-  const t = getTenant();
+  const t = getRequestTenant();
   return (
     <div className="max-w-2xl mx-auto px-6 py-16">
       <a href="/" className="text-brand font-extrabold text-xl">{t.brandName}</a>

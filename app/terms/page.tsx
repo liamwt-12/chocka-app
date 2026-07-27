@@ -1,7 +1,8 @@
-import { getTenant } from '@/lib/tenant';
+import { getRequestTenant } from '@/lib/tenant-request';
 
+// Resolved per request, not per process — see the note in app/privacy/page.tsx.
 export default function TermsPage() {
-  const t = getTenant();
+  const t = getRequestTenant();
   return (
     <div className="max-w-2xl mx-auto px-6 py-16">
       <a href="/" className="text-brand font-extrabold text-xl">{t.brandName}</a>
