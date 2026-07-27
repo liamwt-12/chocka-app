@@ -1,0 +1,9 @@
+# Pre-launch. The site carries Tarkett's name and is not announced yet, so
+# nothing here should be crawled. Backs up the noindex meta tag on / and
+# /preview by also covering crawlers that ignore meta tags.
+#
+# TODO(launch, week 6): relax this when the brand goes public — drop the
+# blanket Disallow and keep /preview blocked.
+
+User-agent: *
+Disallow: /
