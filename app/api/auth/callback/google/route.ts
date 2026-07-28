@@ -1,3 +1,4 @@
+import { randomUUID } from 'crypto';
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
 import { exchangeCodeForTokens, getManageableListings, getGoogleAuthUrl } from '@/lib/google';
@@ -151,12 +152,29 @@ export async function GET(request: NextRequest) {
     // Step 4: New user — create and go to onboarding
     const referralCode = generateReferralCode();
 
+    if (!tokens.refresh_token) {
+      // Same reasoning as the reconnect path: prompt=consent guarantees one, so
+      // its absence means something upstream changed. Creating the account with
+      // a null credential would leave a user who appears signed up but cannot
+      // reach their own Business Profile.
+      throw new Error('New user: Google returned no refresh_token — refusing to create a credential-less account');
+    }
+
+    // The AAD binds a ciphertext to the row it belongs to, so the id has to
+    // exist before the token can be sealed. Generating it here rather than
+    // letting Postgres default it avoids the alternative — insert first, then
+    // update with the token once the id comes back — which opens a window where
+    // a user row exists with no credential, and strands the user half-connected
+    // if that second call fails.
+    const newUserId = randomUUID();
+
     const { data: newUser, error: insertError } = await supabaseAdmin
       .from('users')
       .insert({
+        id: newUserId,
         email: userInfo.email,
         name: userInfo.name || '',
-        google_refresh_token: tokens.refresh_token,
+        google_refresh_token: encryptSecret(tokens.refresh_token, userTokenAad(newUserId)),
         referral_code: referralCode,
       })
       .select()
