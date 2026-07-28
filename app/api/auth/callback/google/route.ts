@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
 import { exchangeCodeForTokens, getManageableListings, getGoogleAuthUrl } from '@/lib/google';
 import { getTenantBySlug } from '@/lib/tenant';
+import { encryptSecret, userTokenAad } from '@/lib/secrets';
 
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
@@ -65,10 +66,21 @@ export async function GET(request: NextRequest) {
 
     if (parsedState.action === 'reconnect' && existingUser) {
       // Reconnect flow — update token
+      //
+      // getGoogleAuthUrl() always sends access_type=offline + prompt=consent, so
+      // Google returns a refresh token on every pass through this flow. If one
+      // is ever absent, something upstream has changed: fail loudly rather than
+      // writing null over a working credential while still setting
+      // token_status='valid' — that combination is exactly the "row says
+      // connected, column says nothing" state that hid four days of live tokens
+      // during the 2026-07-28 offboarding.
+      if (!tokens.refresh_token) {
+        throw new Error('Reconnect: Google returned no refresh_token — refusing to clear the stored credential');
+      }
       await supabaseAdmin
         .from('users')
         .update({
-          google_refresh_token: tokens.refresh_token,
+          google_refresh_token: encryptSecret(tokens.refresh_token, userTokenAad(existingUser.id)),
           token_status: 'valid',
           token_invalid_at: null,
           updated_at: new Date().toISOString(),
