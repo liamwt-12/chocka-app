@@ -3,6 +3,7 @@ import { supabaseAdmin } from '@/lib/supabase';
 import { refreshAccessToken, replyToReview } from '@/lib/google';
 import { generateReviewHash } from '@/lib/cron';
 import { getTenant } from '@/lib/tenant';
+import { decryptSecretAllowingPlaintext, userTokenAad } from '@/lib/secrets';
 
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
@@ -66,7 +67,9 @@ export async function GET(request: NextRequest) {
   try {
     const user = review.profiles.users;
     const profile = review.profiles;
-    const accessToken = await refreshAccessToken(user.google_refresh_token);
+    const accessToken = await refreshAccessToken(
+      decryptSecretAllowingPlaintext(user.google_refresh_token, userTokenAad(user.id)),
+    );
 
     const reviewName = `${profile.google_location_name}/reviews/${review.google_review_id}`;
     await replyToReview(accessToken, reviewName, pendingReply.reply_content);
