@@ -151,6 +151,49 @@ tokens beyond those now in `STELLAR_BASE`: `--panel #F1EFE9` (adopted as `warmBg
 **Note:** `/stellar` returned 200 on both hosts until it was removed. If the URL was shared
 with Tarkett it now 404s; a redirect to the Stellar host would be a one-line fix.
 
+## Deferred — OAuth consent screen is single-brand
+
+### A second brand needs a second GCP project  [not urgent — no live Chocka users]
+**Context:** consent-screen branding is configured per **project**, not per OAuth client or
+redirect URI, and project `map-boost-app` (number 1086354059037, console display name still
+"Chocka") holds exactly one client — "Chocka Web", created 19 Feb 2026 — serving both
+`app.chocka.co.uk` and `app.stellarlocal.co.uk`. One client cannot show two brand names.
+
+Following the appeal accepted 24 Jul 2026, that single branding config now reads: app name
+**"Stellar Local"**, Stellar gold-star logo, home/privacy/terms all pointing at
+`stellarlocal.co.uk`, authorized domains `chocka.co.uk` + `mapboost.co` + `stellarlocal.co.uk`,
+support and developer contact `liam@wearecanny.uk`. Verified and live. Publishing status is
+In production, user type External.
+
+**Why deferred:** Chocka offboarding completed **2026-07-28**, via
+`scripts/offboard-legacy-users.ts --commit` — 11 users revoked at Google and cleared in the DB,
+0 errors; `liam@wearecanny.uk` deliberately excluded and still connected. No Chocka user
+remains to see the wrong name on the consent screen. The mismatch is real but now unobserved,
+and reverting is not free — the branding is in a *verified* state, so changing it back would
+mean another verification cycle and would simply move the problem onto Stellar.
+
+**Timeline correction.** An earlier manual offboarding pass (~24 Jul) was believed complete, but
+**it never wrote to the database**: on 28 Jul all 12 rows still held a non-null
+`google_refresh_token` with `token_status='valid'` and no `token_invalid_at`. Google then
+answered `revoked` — not `already invalid` — for 10 of the 11, so those refresh tokens were
+still live, and the `/api/cron/*` jobs still held working credentials against 10 people's
+Business Profiles for those four days. Worth remembering: **offboarding is only done when the
+`users` rows say so.** `token_status` is our own column and reflects what we last wrote, not
+Google's opinion — verify at the DB, and treat a Google `revoke` response of `revoked` (rather
+than `already invalid`) as proof the credential was live until that moment.
+
+**Fix when picked up** — needed if Chocka is ever revived, or when a second brand launches:
+stand up a second GCP project with its own OAuth client and its own verified branding, one per
+brand, and store `google_client_id` / `google_client_secret` per tenant as
+`MULTI_TENANCY_PLAN.md` slice 5 describes. The app side is partly there already — the redirect
+URI is derived per tenant in `b368c83`. The cost is that a new project needs its own
+`business.manage` verification, which is presumably why one shared client existed in the first
+place. Budget for that lead time rather than discovering it at launch.
+
+**Note for whoever picks this up:** only *new* connects and re-consents ever see the consent
+screen — already-connected users are not re-prompted. So the blast radius of a wrong brand name
+is future signups, and it grows quietly rather than breaking anything visibly.
+
 ### Reconcile `app/stellar/` with the tenant seam  [DONE 2026-07-27 — retired]
 **Context:** `app/stellar/` (added 2026-07-15, `bce00fd`) is a standalone Stellar landing page
 with its own Lato setup, palette and metadata, predating the tenant seam. It now overlaps
