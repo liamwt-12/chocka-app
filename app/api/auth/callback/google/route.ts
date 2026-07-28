@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
 import { exchangeCodeForTokens, getManageableListings, getGoogleAuthUrl } from '@/lib/google';
 import { getTenantBySlug } from '@/lib/tenant';
-import { encryptSecret, userTokenAad } from '@/lib/secrets';
+import { encryptSecret, isEncrypted, userTokenAad } from '@/lib/secrets';
 
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
@@ -91,8 +91,20 @@ export async function GET(request: NextRequest) {
     }
 
     if (existingUser) {
-      // Existing user — update token
-      const freshRefreshToken = tokens.refresh_token || existingUser.google_refresh_token;
+      // Existing user — update token.
+      //
+      // The fallback is the subtle case. Once the backfill has run,
+      // existingUser.google_refresh_token is already an envelope, and sealing it
+      // a second time would produce a double-wrapped value that no later read
+      // can decrypt — a silent, permanent loss of the credential. Gate on
+      // isEncrypted(): a fresh token from Google is always plaintext and gets
+      // sealed; an existing envelope passes through untouched; and a legacy
+      // plaintext row is normalised in place, so any reconnect heals that row
+      // ahead of the backfill rather than waiting for it.
+      const aad = userTokenAad(existingUser.id);
+      const incoming = tokens.refresh_token || existingUser.google_refresh_token;
+      const freshRefreshToken =
+        incoming && !isEncrypted(incoming) ? encryptSecret(incoming, aad) : incoming;
       await supabaseAdmin
         .from('users')
         .update({
