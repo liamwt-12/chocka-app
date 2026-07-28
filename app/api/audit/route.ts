@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin as supaAdmin } from '@/lib/supabase';
 import { refreshAccessToken, getLocationFull, getGoogleUpdated, getAttributes, getMedia, getReviews, getLocalPosts, GbpError } from '@/lib/google';
 import { scoreProfile, predictedScore } from '@/lib/audit';
-import { decryptSecretAllowingPlaintext, userTokenAad } from '@/lib/secrets';
+import { decryptSecret, userTokenAad } from '@/lib/secrets';
 
 export async function POST(request: NextRequest) {
   const userId = request.cookies.get('chocka_user_id')?.value;
@@ -23,7 +23,7 @@ export async function POST(request: NextRequest) {
     let accessToken: string;
     try {
       accessToken = await refreshAccessToken(
-        decryptSecretAllowingPlaintext(userData.google_refresh_token, userTokenAad(userData.id)),
+        decryptSecret(userData.google_refresh_token, userTokenAad(userData.id)),
       );
     } catch (e: any) {
       console.error('Audit: token refresh failed for user', userId, String(e?.message).slice(0, 200));

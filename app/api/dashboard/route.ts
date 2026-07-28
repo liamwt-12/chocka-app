@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
 import { refreshAccessToken, getLocationFull, getReviews, getLocalPosts, getMedia, getPerformanceMetrics, parseStarRating, getPlaceReviews, findPlaceId } from '@/lib/google';
-import { decryptSecretAllowingPlaintext, userTokenAad } from '@/lib/secrets';
+import { decryptSecret, userTokenAad } from '@/lib/secrets';
 
 async function searchCompetitors(category: string, lat: number, lng: number) {
   const apiKey = process.env.GOOGLE_PLACES_API_KEY;
@@ -47,7 +47,7 @@ export async function GET(request: NextRequest) {
     if (user.google_refresh_token && profile?.google_location_name) {
       try {
         const accessToken = await refreshAccessToken(
-          decryptSecretAllowingPlaintext(user.google_refresh_token, userTokenAad(user.id)),
+          decryptSecret(user.google_refresh_token, userTokenAad(user.id)),
         );
         const locName = profile.google_location_name;
         const acctId = profile.google_account_id;

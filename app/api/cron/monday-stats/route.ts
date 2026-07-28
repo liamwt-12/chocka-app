@@ -4,7 +4,7 @@ import { verifyCronSecret, unauthorizedResponse, getActiveUsersWithProfiles } fr
 import { refreshAccessToken, getPerformanceMetrics } from '@/lib/google';
 import { sendSMS, logSMS } from '@/lib/twilio';
 import { getTenant } from '@/lib/tenant';
-import { decryptSecretAllowingPlaintext, userTokenAad } from '@/lib/secrets';
+import { decryptSecret, userTokenAad } from '@/lib/secrets';
 
 export async function GET(request: NextRequest) {
   if (!verifyCronSecret(request)) return unauthorizedResponse();
@@ -22,7 +22,7 @@ export async function GET(request: NextRequest) {
 
       try {
         const accessToken = await refreshAccessToken(
-          decryptSecretAllowingPlaintext(user.google_refresh_token, userTokenAad(user.id)),
+          decryptSecret(user.google_refresh_token, userTokenAad(user.id)),
         );
         // getPerformanceMetrics now returns {views, calls, directions, websiteClicks} directly
         const metrics = await getPerformanceMetrics(accessToken, profile.google_location_name);

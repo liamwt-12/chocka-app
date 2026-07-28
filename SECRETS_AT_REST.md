@@ -4,6 +4,19 @@ Spec for the work `FOLLOWUPS.md` refers to as "step 6". Companion to `MULTI_TENA
 independent of the multi-tenancy slices. Branch: `secrets-at-rest`, cut from `main` at
 `51b722c`.
 
+## Status — complete as of 2026-07-28
+
+| Step | State |
+| --- | --- |
+| 1. Expand — `lib/secrets.ts`, 13 call sites | done |
+| 2. Migrate — backfill `users.google_refresh_token` | done: 1 row encrypted and verified, 0 failed |
+| 3. Contract — strict reader, DB constraints | code done; `supabase/SECRETS_USERS_CHECK.sql` applied separately |
+
+`tenants.google_client_secret` was constrained ahead of the app work
+(`supabase/SECRETS_TENANTS_CHECK.sql`, applied 2026-07-28) while the column was still empty.
+The plaintext-tolerant reader `decryptSecretAllowingPlaintext()` has been removed; a test
+asserts it cannot come back.
+
 **Named `secrets-at-rest`, not `slice-6`, on purpose.** "Slice 6" already means the Stellar
 tenant cutover in `MULTI_TENANCY_PLAN.md`. This is a different piece of work that happens to be
 step 6 of the follow-up list.

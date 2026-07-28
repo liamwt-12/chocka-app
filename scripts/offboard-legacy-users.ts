@@ -19,11 +19,13 @@
  * ENV (same values the app uses):
  *   NEXT_PUBLIC_SUPABASE_URL       https://emilonrdyljbydtgrvof.supabase.co
  *   SUPABASE_SERVICE_ROLE_KEY      service-role key (bypasses RLS)
- *   SECRET_ENCRYPTION_KEY          required once tokens are encrypted at rest —
- *                                  a stored envelope cannot be revoked at Google
- *                                  without decrypting it first. Plaintext rows
- *                                  still work without it during the migration
- *                                  window. See SECRETS_AT_REST.md.
+ *   SECRET_ENCRYPTION_KEY          REQUIRED. Stored tokens are encrypted at
+ *                                  rest and Google's revoke endpoint takes the
+ *                                  raw value, so a token cannot be revoked
+ *                                  without decrypting it first. There is no
+ *                                  longer a plaintext fallback — the migration
+ *                                  window closed on 2026-07-28. See
+ *                                  SECRETS_AT_REST.md.
  *
  * USAGE (tsx does not read .env.local by itself):
  *   npx tsx --env-file=.env.local scripts/offboard-legacy-users.ts
@@ -32,7 +34,7 @@
  *   npx tsx scripts/offboard-legacy-users.ts --commit   # actually offboards
  */
 
-import { decryptSecretAllowingPlaintext, userTokenAad } from '../lib/secrets';
+import { decryptSecret, userTokenAad } from '../lib/secrets';
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL;
 const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -111,7 +113,7 @@ async function main() {
       // partial run is safe to repeat — users already done hold a null token and
       // report "no token, nothing to revoke" on the next pass.
       const r = await revokeAtGoogle(
-        decryptSecretAllowingPlaintext(u.google_refresh_token, userTokenAad(u.id)),
+        decryptSecret(u.google_refresh_token, userTokenAad(u.id)),
       );
       note = r.note;
       if (r.ok) revoked++; else failed++;

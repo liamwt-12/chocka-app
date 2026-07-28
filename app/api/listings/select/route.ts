@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
 import { refreshAccessToken, getManageableListings } from '@/lib/google';
-import { decryptSecretAllowingPlaintext, userTokenAad } from '@/lib/secrets';
+import { decryptSecret, userTokenAad } from '@/lib/secrets';
 
 // Bind (or re-bind) the user's single profile to a listing they chose.
 // Reached from the onboarding picker and the settings "change listing" path.
@@ -36,7 +36,7 @@ export async function POST(request: NextRequest) {
     // membership here is proof the user can manage this exact pairing — a
     // hand-crafted POST cannot bind an account/location the user doesn't hold.
     const accessToken = await refreshAccessToken(
-      decryptSecretAllowingPlaintext(user.google_refresh_token, userTokenAad(user.id)),
+      decryptSecret(user.google_refresh_token, userTokenAad(user.id)),
     );
     const listings = await getManageableListings(accessToken);
     const chosen = listings.find(

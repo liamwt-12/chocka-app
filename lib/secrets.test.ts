@@ -2,7 +2,6 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import {
   encryptSecret,
   decryptSecret,
-  decryptSecretAllowingPlaintext,
   isEncrypted,
   userTokenAad,
   tenantClientSecretAad,
@@ -151,24 +150,21 @@ describe('empty input', () => {
   });
 });
 
-describe('migration-window reader', () => {
-  it('passes plaintext through unchanged', () => {
-    expect(decryptSecretAllowingPlaintext(TOKEN, AAD)).toBe(TOKEN);
-  });
-
-  it('decrypts envelopes', () => {
-    expect(decryptSecretAllowingPlaintext(encryptSecret(TOKEN, AAD), AAD)).toBe(TOKEN);
-  });
-
-  it('still enforces integrity on values that claim to be envelopes', () => {
-    const parts = encryptSecret(TOKEN, AAD).split('.');
-    const ct = Buffer.from(parts[3], 'base64url');
-    ct[0] ^= 0xff;
-    parts[3] = ct.toString('base64url');
-    expect(() => decryptSecretAllowingPlaintext(parts.join('.'), AAD)).toThrow(/authentication failed/);
-  });
-
-  it('strict decryptSecret rejects plaintext — the contract-phase behaviour', () => {
+describe('contract phase — no plaintext tolerance', () => {
+  it('refuses a plaintext refresh token outright', () => {
     expect(() => decryptSecret(TOKEN, AAD)).toThrow(/not a v1 envelope/);
+  });
+
+  it('refuses an empty stored value rather than returning it', () => {
+    expect(() => decryptSecret('', AAD)).toThrow(/not a v1 envelope/);
+  });
+
+  it('exposes no plaintext-tolerant reader', async () => {
+    // Guards against reintroduction. The migration window is closed: every row
+    // in users.google_refresh_token is an envelope, and a plaintext value
+    // reaching a read path now means something wrote around the encryption
+    // rather than a row the backfill missed.
+    const mod = await import('./secrets');
+    expect(Object.keys(mod)).not.toContain('decryptSecretAllowingPlaintext');
   });
 });

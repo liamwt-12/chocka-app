@@ -135,17 +135,3 @@ export function decryptSecret(stored: string, aad: string): string {
     );
   }
 }
-
-/**
- * MIGRATION WINDOW ONLY — REMOVE IN THE CONTRACT PHASE (SECRETS_AT_REST.md § 3).
- *
- * Returns encrypted values decrypted and plaintext values unchanged, so reads
- * keep working between the deploy that starts encrypting writes and the
- * backfill that converts existing rows. Deliberately a separate exported
- * function rather than a flag inside decryptSecret(): removing it is then a
- * greppable code change that fails the build at every remaining call site,
- * instead of a runtime toggle someone could leave switched on indefinitely.
- */
-export function decryptSecretAllowingPlaintext(stored: string, aad: string): string {
-  return isEncrypted(stored) ? decryptSecret(stored, aad) : stored;
-}

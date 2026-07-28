@@ -6,7 +6,7 @@ import { generateReviewReply } from '@/lib/ai';
 import { sendSMS, logSMS } from '@/lib/twilio';
 import { sendEmail, reviewAlertEmail } from '@/lib/email';
 import { getTenant } from '@/lib/tenant';
-import { decryptSecretAllowingPlaintext, userTokenAad } from '@/lib/secrets';
+import { decryptSecret, userTokenAad } from '@/lib/secrets';
 
 export async function GET(request: NextRequest) {
   if (!verifyCronSecret(request)) return unauthorizedResponse();
@@ -23,7 +23,7 @@ export async function GET(request: NextRequest) {
 
       try {
         const accessToken = await refreshAccessToken(
-          decryptSecretAllowingPlaintext(user.google_refresh_token, userTokenAad(user.id)),
+          decryptSecret(user.google_refresh_token, userTokenAad(user.id)),
         );
         const reviewsData = await getReviews(accessToken, profile.google_location_name, profile.google_account_id);
 

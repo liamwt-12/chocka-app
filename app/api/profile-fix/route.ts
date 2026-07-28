@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin as supaAdmin } from '@/lib/supabase';
 import { refreshAccessToken, updateLocation, replyToReview, getReviews, parseStarRating } from '@/lib/google';
 import { generateReviewReply } from '@/lib/ai';
-import { decryptSecretAllowingPlaintext, userTokenAad } from '@/lib/secrets';
+import { decryptSecret, userTokenAad } from '@/lib/secrets';
 
 export async function POST(request: NextRequest) {
   try {
@@ -19,7 +19,7 @@ export async function POST(request: NextRequest) {
     if (!profile) return NextResponse.json({ error: 'No profile' }, { status: 400 });
 
     const accessToken = await refreshAccessToken(
-      decryptSecretAllowingPlaintext(userData.google_refresh_token, userTokenAad(userData.id)),
+      decryptSecret(userData.google_refresh_token, userTokenAad(userData.id)),
     );
     const locName = profile.google_location_name;
     const acctId = profile.google_account_id;

@@ -3,7 +3,7 @@ import { supabaseAdmin as supaAdmin } from '@/lib/supabase';
 import { refreshAccessToken, getLocationFull, getGoogleUpdated, getAttributes, getMedia, getReviews, getLocalPosts, parseStarRating } from '@/lib/google';
 import { generateDescription, generateServices, generatePost, generateReviewReply, suggestCategories } from '@/lib/ai';
 import { scoreProfile } from '@/lib/audit';
-import { decryptSecretAllowingPlaintext, userTokenAad } from '@/lib/secrets';
+import { decryptSecret, userTokenAad } from '@/lib/secrets';
 
 function getSeason(): string {
   const m = new Date().getMonth();
@@ -25,7 +25,7 @@ export async function POST(request: NextRequest) {
     if (!profile) return NextResponse.json({ error: 'No profile' }, { status: 400 });
 
     const accessToken = await refreshAccessToken(
-      decryptSecretAllowingPlaintext(userData.google_refresh_token, userTokenAad(userData.id)),
+      decryptSecret(userData.google_refresh_token, userTokenAad(userData.id)),
     );
     const locName = profile.google_location_name;
     const acctId = profile.google_account_id;

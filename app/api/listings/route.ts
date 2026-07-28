@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
 import { refreshAccessToken, getManageableListings } from '@/lib/google';
-import { decryptSecretAllowingPlaintext, userTokenAad } from '@/lib/secrets';
+import { decryptSecret, userTokenAad } from '@/lib/secrets';
 
 // Feed for the onboarding / settings listing picker. Re-enumerates live on
 // every call (no stored candidate list) and returns only what the picker
@@ -24,7 +24,7 @@ export async function GET(request: NextRequest) {
     }
 
     const accessToken = await refreshAccessToken(
-      decryptSecretAllowingPlaintext(user.google_refresh_token, userTokenAad(user.id)),
+      decryptSecret(user.google_refresh_token, userTokenAad(user.id)),
     );
     const listings = await getManageableListings(accessToken);
 

@@ -227,8 +227,4 @@ tokens at the end of a matrix run so they exist only for the duration. If they m
 reuse `lib/secrets.ts` and the same `v1.` envelope rather than inventing a second scheme, and
 note the harness would then need `SECRET_ENCRYPTION_KEY` locally.
 
-**Related:** `SECRETS_AT_REST.md` (explicitly scopes this file out), and the Netlify
-`is_secret` observation in the same spec — `CANCEL_HASH_SECRET` is **not** flagged secret in
-Netlify while `ADMIN_PASSWORD`, `ANTHROPIC_API_KEY`, `CRON_SECRET` and
-`SUPABASE_SERVICE_ROLE_KEY` are. It was exposed in a terminal on 2026-07-28 and **still needs
-rotating**; worth auditing the Stripe, Twilio and Resend keys on the same basis.
+**Related:** `SECRETS_AT_REST.md`, which explicitly scopes this file out.
