@@ -248,6 +248,41 @@ note the harness would then need `SECRET_ENCRYPTION_KEY` locally.
 
 **Related:** `SECRETS_AT_REST.md`, which explicitly scopes this file out.
 
+## Hard rule — the scored.csv baseline is not quotable yet
+
+### No mean or average from the pre-launch baseline goes to Tarkett or anywhere external  [rule — until the review bucket is resolved]
+**Set 2026-07-29, deliberately, before the import.** The 180-row `scored.csv` baseline (generated
+2026-06-21) may be imported, stored, displayed per-retailer, and used as score-history row one. What
+it may **not** do is produce an aggregate — mean, average, "X% are Strong", band breakdown — that is
+quoted to Tarkett, put in a deck, or used in any external communication, until the match-confidence
+problems below are resolved.
+
+**Why:** `match_confidence` reads like a quality gradient but is really "how many of two crude tests
+passed" — name similarity, and whether the retailer's postcode appears in the candidate's address
+(`classifyMatch` in `lib/publicAudit.ts`). Two specific defects make the aggregate untrustworthy:
+
+- **36 rows are `review`** — exactly one arm matched, and *which* arm is not recorded anywhere (not
+  in `scored.csv`, not in `.score-checkpoint.json`). "Name matched, postcode didn't" is usually the
+  right business at a moved address. "Postcode matched, name didn't" may be a *completely different
+  business* at the same postcode, scored and filed under a Tarkett retailer. These are indistinguishable
+  without re-fetching each candidate's name and address (~36 Places Details calls).
+- **Five three-letter names sit in the `high` bucket** — `AMA`, `JSR`, `MS`, `RMD`, `EBR`, all of which
+  normalise to three characters once the trade words are stripped. The name normaliser removes
+  `flooring|floors|carpet(s)`, which on a flooring-retailer list deletes most of the distinguishing
+  signal. A three-character token plus a postcode hit is weak evidence, and unlike the `review` rows
+  nothing flags it — these count at full weight.
+
+**Also known:** 8 rows are `NOT FOUND` and carry a hard 0, pulling the mean from 76.9 (found only) to
+73.5 (all). Of those, only `Elvet Flooring Solutions` has a demonstrable data defect — it is the one
+row of 180 with no postcode in source, so `postcodeMatches` returns false unconditionally and one of
+the two arms is structurally dead. The others appear to be genuine absences from Google. An earlier
+reading blamed the `Floooring` typo in `Thompsons Floooring`; that was wrong — `Hudspeth Floooring`
+carries the identical typo and scored 68 at `high`, because `classifyMatch` also passes when one
+normalised name *contains* the other.
+
+**Lifting the rule requires:** re-verifying the 36 `review` rows (record which arm matched), and
+spot-checking the five short-name `high` rows. Then the aggregate can be recomputed and quoted.
+
 ## Deferred — schema drift
 
 ### `users.tenant_id` and `profiles.tenant_id` exist in production with no migration  [latent risk — not blocking]
