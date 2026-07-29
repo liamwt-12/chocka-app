@@ -228,3 +228,62 @@ reuse `lib/secrets.ts` and the same `v1.` envelope rather than inventing a secon
 note the harness would then need `SECRET_ENCRYPTION_KEY` locally.
 
 **Related:** `SECRETS_AT_REST.md`, which explicitly scopes this file out.
+
+## Deferred — schema drift
+
+### `users.tenant_id` and `profiles.tenant_id` exist in production with no migration  [latent risk — not blocking]
+**Context:** found 2026-07-29 while planning per-user tenant resolution. Production has
+`users.tenant_id uuid` and `profiles.tenant_id uuid`, both fully populated (12/12 users and 6/6
+profiles pointing at the Chocka tenant `e4802656-…`). Neither column appears in any file under
+`supabase/migrations/` — the only migration there is `20260720000000_create_tenants.sql`, which
+creates the `tenants` table and nothing else. The columns were applied out-of-band, presumably
+through the Supabase SQL editor.
+
+**Why this matters:** `supabase/migrations/` no longer reproduces production. Anyone provisioning
+a fresh environment — a staging project, a local Supabase, a restore-and-replay — gets a schema
+without `tenant_id`, and every query written against it fails. The drift is silent: nothing warns
+you, and the production database works fine, so it will be discovered at the worst moment.
+
+**Why deferred:** production is correct and consistent right now. This is a reproducibility risk,
+not a live fault, and closing it is mechanical rather than urgent.
+
+**Fix when picked up:** write the missing migration to match what production already has —
+`alter table public.users add column if not exists tenant_id uuid references public.tenants(id)`,
+same for `profiles`, plus whatever index/FK/default production actually carries. Confirm the real
+definition first rather than assuming: read it from `information_schema.columns` and
+`pg_constraint` against the live DB, don't infer it from the column name. `if not exists` keeps it
+a no-op against production while making a fresh environment correct. Then audit for any *other*
+out-of-band change by diffing a migrations-only schema against production — this is unlikely to be
+the only one.
+
+**Related:** the per-user tenant resolution work depends on `tenant_id`, so this drift is load-bearing
+for a feature, not just tidiness.
+
+## Deferred — email/DNS infrastructure
+
+### `getmarra.com` publishes two DMARC records, so it has no DMARC policy  [deferred — unrelated domain]
+**Context:** found 2026-07-29 while setting up the Stellar Local sending domain. `_dmarc.getmarra.com`
+returns **two** TXT records:
+
+```
+"v=DMARC1; p=none; rua=mailto:hello@getmarra.com"
+"v=DMARC1; p=quarantine; adkim=r; aspf=r; rua=mailto:dmarc_rua@onsecureserver.net;"
+```
+
+Per RFC 7489 §6.6.3, a resolver that finds more than one DMARC record for a domain treats the
+domain as having **no DMARC record at all**. So getmarra.com currently has neither the `p=none`
+monitoring nor the `p=quarantine` enforcement it appears to have, and the `rua` address collects
+nothing. The second record is GoDaddy's default; the first was presumably added on top of it
+rather than replacing it.
+
+**Why deferred:** getmarra.com is a different product and nothing in this repo sends as it. No
+impact on Chocka or Stellar Local.
+
+**Fix when picked up:** delete one record — keep the one whose `rua` you actually monitor
+(`hello@getmarra.com`), drop GoDaddy's. Verify with `dig +short TXT _dmarc.getmarra.com | grep -c
+v=DMARC1` returning exactly `1`. Decide `p=` deliberately at the same time: `none` gives reports
+without enforcement, `quarantine` enforces.
+
+**Generalisable lesson:** GoDaddy ships a default DMARC record on its domains. Adding your own
+without deleting theirs silently disables DMARC rather than tightening it. `stellarlocal.co.uk`
+and `chocka.co.uk` were both checked on 2026-07-29 and have exactly one record each.
