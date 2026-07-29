@@ -3,7 +3,7 @@ import { supabaseAdmin } from '@/lib/supabase';
 import { verifyCronSecret, unauthorizedResponse, getActiveUsersWithProfiles, generateCancelHash } from '@/lib/cron';
 import { generatePost } from '@/lib/ai';
 import { sendEmail, postPreviewEmail } from '@/lib/email';
-import { getTenant } from '@/lib/tenant';
+import { getTenantForRow } from '@/lib/tenant';
 
 export async function GET(request: NextRequest) {
   if (!verifyCronSecret(request)) return unauthorizedResponse();
@@ -19,6 +19,9 @@ export async function GET(request: NextRequest) {
       if (!user.auto_post_enabled) continue;
       const profile = user.profiles?.[0];
       if (!profile) continue;
+
+      // Per user, not per run — one pass serves every tenant.
+      const t = getTenantForRow(user);
 
       try {
         // Check if a post already exists for this profile this week
@@ -67,13 +70,13 @@ export async function GET(request: NextRequest) {
 
         if (post && user.email) {
           const hash = generateCancelHash(post.id);
-          const appUrl = getTenant().appUrl;
-          const cancelUrl = `${appUrl}/api/posts/cancel?id=${post.id}&hash=${hash}`;
+          const cancelUrl = `${t.appUrl}/api/posts/cancel?id=${post.id}&hash=${hash}`;
 
           await sendEmail({
             to: user.email,
             subject: `Your Google post for this week — ${profile.business_name}`,
-            html: postPreviewEmail(profile.business_name, postContent, cancelUrl),
+            html: postPreviewEmail(profile.business_name, postContent, cancelUrl, t),
+            tenant: t,
           });
         }
 

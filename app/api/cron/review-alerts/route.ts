@@ -5,14 +5,13 @@ import { refreshAccessToken, getReviews, replyToReview, parseStarRating } from '
 import { generateReviewReply } from '@/lib/ai';
 import { sendSMS, logSMS } from '@/lib/twilio';
 import { sendEmail, reviewAlertEmail } from '@/lib/email';
-import { getTenant } from '@/lib/tenant';
+import { getTenantForRow } from '@/lib/tenant';
 import { decryptSecret, userTokenAad } from '@/lib/secrets';
 
 export async function GET(request: NextRequest) {
   if (!verifyCronSecret(request)) return unauthorizedResponse();
 
   try {
-    const t = getTenant();
     const users = await getActiveUsersWithProfiles(supabaseAdmin);
     let processed = 0;
 
@@ -20,6 +19,10 @@ export async function GET(request: NextRequest) {
       if (!user.auto_reply_enabled) continue;
       const profile = user.profiles?.[0];
       if (!profile) continue;
+
+      // Per user, not per run. t.appUrl below builds the approve/reject links,
+      // so this also keeps a Stellar retailer's action links on their own host.
+      const t = getTenantForRow(user);
 
       try {
         const accessToken = await refreshAccessToken(
@@ -136,7 +139,9 @@ export async function GET(request: NextRequest) {
                   suggestedReply: replyContent,
                   approveUrl,
                   rejectUrl,
+                  tenant: t,
                 }),
+                tenant: t,
               });
             }
           }

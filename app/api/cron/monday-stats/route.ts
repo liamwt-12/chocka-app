@@ -3,14 +3,13 @@ import { supabaseAdmin } from '@/lib/supabase';
 import { verifyCronSecret, unauthorizedResponse, getActiveUsersWithProfiles } from '@/lib/cron';
 import { refreshAccessToken, getPerformanceMetrics } from '@/lib/google';
 import { sendSMS, logSMS } from '@/lib/twilio';
-import { getTenant } from '@/lib/tenant';
+import { getTenantForRow } from '@/lib/tenant';
 import { decryptSecret, userTokenAad } from '@/lib/secrets';
 
 export async function GET(request: NextRequest) {
   if (!verifyCronSecret(request)) return unauthorizedResponse();
 
   try {
-    const t = getTenant();
     const users = await getActiveUsersWithProfiles(supabaseAdmin);
     let sent = 0;
 
@@ -19,6 +18,10 @@ export async function GET(request: NextRequest) {
     for (const user of users) {
       const profile = user.profiles?.[0];
       if (!profile || !user.sms_enabled || !user.phone_number) continue;
+
+      // Per user, not per run: one cron pass serves every tenant, so hoisting
+      // this out of the loop is what made all outbound mail Chocka-branded.
+      const t = getTenantForRow(user);
 
       try {
         const accessToken = await refreshAccessToken(

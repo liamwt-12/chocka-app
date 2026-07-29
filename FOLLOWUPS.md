@@ -77,10 +77,20 @@ wordmark, Chocka colours, a `hello@chocka.co.uk` sender — while using a Stella
 browser, so the Host header is the same for every tenant's work. There is no request to
 resolve from. This is the one gap host-based tenancy structurally cannot close.
 
-**Fix when picked up:** add a `tenant_slug` column to the users table, backfill existing rows
-to `chocka`, set it at signup from the request tenant, and have per-user work resolve the
-tenant from the row via `getTenantBySlug()`. Ties in to the Resend sending-domain work —
-a Stellar sender is only useful once the tenant is known at send time.
+**Largely closed (2026-07-29).** Done via the `users.tenant_id` column that already existed
+rather than the `tenant_slug` column originally proposed here — adding one would have put two
+tenancy columns side by side. `getTenantForRow()` resolves the tenant from a row fetched with
+`tenants ( slug )` embedded, and all six cron routes plus `app/api/posts/cancel` now resolve
+per user inside the loop instead of once per run. `lib/email.ts` takes an optional tenant
+throughout.
+
+**Still outstanding — `cancelPage()` in `app/api/posts/cancel/route.ts`.** The HTML page rendered
+after a cancel still calls `getTenant()`, so its title and accent colour are Chocka's on every
+host. Unlike the SMS beside it, this one *does* have request context and should use
+`getRequestTenant()` — but note the early-return paths (missing params, bad hash, post not found)
+render the page before any user row is loaded, so a per-user resolution is not available there.
+Same class as the `/privacy` and `/terms` fix above. Small, and only visible after a retailer
+clicks cancel.
 
 ### Dashboard ROI renders `Infinity×` for a free tenant  [pre-pilot — blocks first dashboard]
 **Context:** `app/dashboard/page.tsx:24` computes

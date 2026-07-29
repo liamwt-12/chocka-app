@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
 import { generateCancelHash } from '@/lib/cron';
-import { getTenant } from '@/lib/tenant';
+import { getTenant, getTenantForRow } from '@/lib/tenant';
 
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
@@ -25,7 +25,7 @@ export async function GET(request: NextRequest) {
   // Check post exists and is cancellable
   const { data: post } = await supabaseAdmin
     .from('scheduled_posts')
-    .select('*, profiles!inner(user_id, users:user_id(phone_number, sms_enabled))')
+    .select('*, profiles!inner(user_id, users:user_id(phone_number, sms_enabled, tenants ( slug )))')
     .eq('id', postId)
     .single();
 
@@ -51,7 +51,9 @@ export async function GET(request: NextRequest) {
   const user = post.profiles?.users;
   if (user?.sms_enabled && user?.phone_number) {
     const { sendSMS, logSMS } = await import('@/lib/twilio');
-    const smsBody = `Post cancelled — nothing will be published this week. We'll try again next Sunday. - ${getTenant().brandName}`;
+    // Resolved from the user row rather than the Host, so the brand is right
+    // even if the link is opened on the other tenant's domain.
+    const smsBody = `Post cancelled — nothing will be published this week. We'll try again next Sunday. - ${getTenantForRow(user).brandName}`;
     const sid = await sendSMS({ to: user.phone_number, body: smsBody });
     await logSMS(supabaseAdmin, post.profiles.user_id, user.phone_number, 'post_cancelled', smsBody, sid);
   }
