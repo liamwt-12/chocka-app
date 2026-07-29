@@ -248,6 +248,48 @@ note the harness would then need `SECRET_ENCRYPTION_KEY` locally.
 
 **Related:** `SECRETS_AT_REST.md`, which explicitly scopes this file out.
 
+## Deferred — Stellar retailer baseline
+
+Both deliberately left out of the 2026-07-29 import day, for stated reasons rather than time.
+
+### Badge UI — no page exists to build it against  [deferred — build on real data]
+**Context:** `lib/retailer-score.ts` resolves which score to display and which badge to show
+(`audited` for batch, `connected` for live), with `BADGE_LABEL` / `BADGE_DESCRIPTION` copy and 14
+tests. Nothing renders it. There is no retailer-facing page anywhere in this repo — `retailers` is a
+brand-new table and the app's existing pages are all for connected users looking at their own
+profile.
+
+**Why deferred:** building a page before the data exists means designing against 180 imagined rows.
+The interesting cases are concrete and only visible once imported — the 8 zero-score `Invisible`
+retailers, the 36 `review`-confidence rows that need qualifying, the three duplicate pairs that will
+appear as two near-identical entries, and eventually the first retailer holding both a batch and a
+live score at once. A layout that handles those honestly is easier to get right in front of them
+than from a description.
+
+**Fix when picked up:** build against the imported data. `resolveRetailerScore()` already returns
+everything a component needs — `score`, `band`, `source`, `badge`, `scoredAt`, `supersededBatchScore`,
+`needsVerification`. Note it deliberately exposes **no** delta or trend field, and a test asserts
+those stay absent: batch and live are different measurements and must not be drawn as one series.
+`supersededBatchScore` is there so a caller can say "previously audited at N" as a separate,
+differently-labelled statement — not as movement.
+
+### `score_source` / `scored_at` on `profiles`  [deferred — ALTER on a live table]
+**Context:** the day's scope said add `score_source` and `scored_at` to "whatever holds scores".
+That was done for the new `retailers` and `score_history` tables. It was **not** done for
+`profiles.audit_score` / `audit_score_after`, which is where the live score lives.
+
+**Why deferred:** it is an `ALTER TABLE` on a live production table carrying every connected user's
+profile, which deserves to be a deliberate act rather than a side effect of an import day. Nothing
+currently needs it: `resolveRetailerScore()` takes the live score as an argument, so precedence works
+off a join without either column existing. The only thing lost meanwhile is knowing *when* a live
+audit ran — `profiles.updated_at` is a poor proxy, since any profile write moves it.
+
+**Fix when picked up:** `alter table public.profiles add column if not exists score_source text`,
+same for `scored_at timestamptz`, written as a proper migration — and note this table is already
+part of the known drift below, so capture its real current definition from `information_schema`
+first rather than assuming. Backfill `score_source='live'` where `audit_score` is not null. Use the
+same column names as `retailers` so the precedence query reads the same against both.
+
 ## Hard rule — the scored.csv baseline is not quotable yet
 
 ### No mean or average from the pre-launch baseline goes to Tarkett or anywhere external  [rule — until the review bucket is resolved]
