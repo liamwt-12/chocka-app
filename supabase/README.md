@@ -22,6 +22,13 @@ altered (adding `tenant_id`). Until then, treat the dashboard as the source of t
   `lib/tenant.ts`, because this table has no columns for `fontHeading`, `fontBody`, `iconSvg`,
   `iconPng` or `priceMonthlyGbp`.
 
+- `20260729140000_create_retailers_and_score_history.sql` — creates `retailers` and `score_history`
+  for the Stellar pre-launch baseline. **Additive only**: two new tables plus indexes, nothing
+  existing is altered. Mirrors the `businesses`/`scores`/`score_history` design in the *chocka index*
+  project (`vxycdhyembwufoqfoqsg`) so the two stay comparable; deviations are marked `DEVIATION` in
+  the file. Note `place_id` is deliberately **not** unique — Tarkett's source list contains three
+  businesses twice under different names.
+
 ## Known drift (2026-07-29)
 
 `users.tenant_id` and `profiles.tenant_id` exist in production, fully populated, but have **no
