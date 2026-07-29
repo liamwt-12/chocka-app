@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
 import { refreshAccessToken, getManageableListings } from '@/lib/google';
+import { decryptSecret, userTokenAad } from '@/lib/secrets';
 
 // Feed for the onboarding / settings listing picker. Re-enumerates live on
 // every call (no stored candidate list) and returns only what the picker
@@ -22,7 +23,9 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Google not connected', code: 'google_disconnected' }, { status: 400 });
     }
 
-    const accessToken = await refreshAccessToken(user.google_refresh_token);
+    const accessToken = await refreshAccessToken(
+      decryptSecret(user.google_refresh_token, userTokenAad(user.id)),
+    );
     const listings = await getManageableListings(accessToken);
 
     const items = listings

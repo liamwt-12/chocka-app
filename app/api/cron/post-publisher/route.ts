@@ -4,6 +4,7 @@ import { verifyCronSecret, unauthorizedResponse } from '@/lib/cron';
 import { refreshAccessToken, createLocalPost } from '@/lib/google';
 import { sendSMS, logSMS } from '@/lib/twilio';
 import { getTenant } from '@/lib/tenant';
+import { decryptSecret, userTokenAad } from '@/lib/secrets';
 
 export async function GET(request: NextRequest) {
   if (!verifyCronSecret(request)) return unauthorizedResponse();
@@ -32,7 +33,9 @@ export async function GET(request: NextRequest) {
 
       try {
         // Refresh Google access token
-        const accessToken = await refreshAccessToken(user.google_refresh_token);
+        const accessToken = await refreshAccessToken(
+          decryptSecret(user.google_refresh_token, userTokenAad(user.id)),
+        );
 
         // Publish to GBP
         const result = await createLocalPost(accessToken, profile.google_location_name, post.content, profile.google_account_id);

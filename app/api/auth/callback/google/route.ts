@@ -1,7 +1,9 @@
+import { randomUUID } from 'crypto';
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
 import { exchangeCodeForTokens, getManageableListings, getGoogleAuthUrl } from '@/lib/google';
 import { getTenantBySlug } from '@/lib/tenant';
+import { encryptSecret, isEncrypted, userTokenAad } from '@/lib/secrets';
 
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
@@ -65,10 +67,21 @@ export async function GET(request: NextRequest) {
 
     if (parsedState.action === 'reconnect' && existingUser) {
       // Reconnect flow — update token
+      //
+      // getGoogleAuthUrl() always sends access_type=offline + prompt=consent, so
+      // Google returns a refresh token on every pass through this flow. If one
+      // is ever absent, something upstream has changed: fail loudly rather than
+      // writing null over a working credential while still setting
+      // token_status='valid' — that combination is exactly the "row says
+      // connected, column says nothing" state that hid four days of live tokens
+      // during the 2026-07-28 offboarding.
+      if (!tokens.refresh_token) {
+        throw new Error('Reconnect: Google returned no refresh_token — refusing to clear the stored credential');
+      }
       await supabaseAdmin
         .from('users')
         .update({
-          google_refresh_token: tokens.refresh_token,
+          google_refresh_token: encryptSecret(tokens.refresh_token, userTokenAad(existingUser.id)),
           token_status: 'valid',
           token_invalid_at: null,
           updated_at: new Date().toISOString(),
@@ -79,8 +92,20 @@ export async function GET(request: NextRequest) {
     }
 
     if (existingUser) {
-      // Existing user — update token
-      const freshRefreshToken = tokens.refresh_token || existingUser.google_refresh_token;
+      // Existing user — update token.
+      //
+      // The fallback is the subtle case. Once the backfill has run,
+      // existingUser.google_refresh_token is already an envelope, and sealing it
+      // a second time would produce a double-wrapped value that no later read
+      // can decrypt — a silent, permanent loss of the credential. Gate on
+      // isEncrypted(): a fresh token from Google is always plaintext and gets
+      // sealed; an existing envelope passes through untouched; and a legacy
+      // plaintext row is normalised in place, so any reconnect heals that row
+      // ahead of the backfill rather than waiting for it.
+      const aad = userTokenAad(existingUser.id);
+      const incoming = tokens.refresh_token || existingUser.google_refresh_token;
+      const freshRefreshToken =
+        incoming && !isEncrypted(incoming) ? encryptSecret(incoming, aad) : incoming;
       await supabaseAdmin
         .from('users')
         .update({
@@ -127,12 +152,29 @@ export async function GET(request: NextRequest) {
     // Step 4: New user — create and go to onboarding
     const referralCode = generateReferralCode();
 
+    if (!tokens.refresh_token) {
+      // Same reasoning as the reconnect path: prompt=consent guarantees one, so
+      // its absence means something upstream changed. Creating the account with
+      // a null credential would leave a user who appears signed up but cannot
+      // reach their own Business Profile.
+      throw new Error('New user: Google returned no refresh_token — refusing to create a credential-less account');
+    }
+
+    // The AAD binds a ciphertext to the row it belongs to, so the id has to
+    // exist before the token can be sealed. Generating it here rather than
+    // letting Postgres default it avoids the alternative — insert first, then
+    // update with the token once the id comes back — which opens a window where
+    // a user row exists with no credential, and strands the user half-connected
+    // if that second call fails.
+    const newUserId = randomUUID();
+
     const { data: newUser, error: insertError } = await supabaseAdmin
       .from('users')
       .insert({
+        id: newUserId,
         email: userInfo.email,
         name: userInfo.name || '',
-        google_refresh_token: tokens.refresh_token,
+        google_refresh_token: encryptSecret(tokens.refresh_token, userTokenAad(newUserId)),
         referral_code: referralCode,
       })
       .select()

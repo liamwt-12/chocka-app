@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin as supaAdmin } from '@/lib/supabase';
 import { refreshAccessToken, getLocationFull, getGoogleUpdated, getAttributes, getMedia, getReviews, getLocalPosts, GbpError } from '@/lib/google';
 import { scoreProfile, predictedScore } from '@/lib/audit';
+import { decryptSecret, userTokenAad } from '@/lib/secrets';
 
 export async function POST(request: NextRequest) {
   const userId = request.cookies.get('chocka_user_id')?.value;
@@ -21,7 +22,9 @@ export async function POST(request: NextRequest) {
     // instead of letting it fall through to a bare 500 ("Something went wrong").
     let accessToken: string;
     try {
-      accessToken = await refreshAccessToken(userData.google_refresh_token);
+      accessToken = await refreshAccessToken(
+        decryptSecret(userData.google_refresh_token, userTokenAad(userData.id)),
+      );
     } catch (e: any) {
       console.error('Audit: token refresh failed for user', userId, String(e?.message).slice(0, 200));
       const { error: tokErr } = await supaAdmin.from('users').update({ token_status: 'invalid', token_invalid_at: new Date().toISOString() }).eq('id', userId);

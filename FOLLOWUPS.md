@@ -151,6 +151,18 @@ tokens beyond those now in `STELLAR_BASE`: `--panel #F1EFE9` (adopted as `warmBg
 **Note:** `/stellar` returned 200 on both hosts until it was removed. If the URL was shared
 with Tarkett it now 404s; a redirect to the Stellar host would be a one-line fix.
 
+### Reconcile `app/stellar/` with the tenant seam  [DONE 2026-07-27 — retired]
+**Context:** `app/stellar/` (added 2026-07-15, `bce00fd`) is a standalone Stellar landing page
+with its own Lato setup, palette and metadata, predating the tenant seam. It now overlaps
+`STELLAR_BASE` in `lib/tenant.ts`, which is the single source of truth for Stellar's brand
+and takes its colours from `stellar-site/styles.css`.
+
+**Resolved:** retired rather than reconciled. The Stellar host's entry point is `/login`
+(`/` already 307s there), which matches the real retailer flow — invite link, magic link,
+connect — not organic homepage traffic. The pitch belongs on stellarlocal.co.uk. Route and
+component deleted; `STELLAR_BASE` in `lib/tenant.ts` is now the only definition of the
+Stellar brand. Salvaged copy is in the entry above.
+
 ## Deferred — OAuth consent screen is single-brand
 
 ### A second brand needs a second GCP project  [not urgent — no live Chocka users]
@@ -194,14 +206,25 @@ place. Budget for that lead time rather than discovering it at launch.
 screen — already-connected users are not re-prompted. So the blast radius of a wrong brand name
 is future signups, and it grows quietly rather than breaking anything visibly.
 
-### Reconcile `app/stellar/` with the tenant seam  [DONE 2026-07-27 — retired]
-**Context:** `app/stellar/` (added 2026-07-15, `bce00fd`) is a standalone Stellar landing page
-with its own Lato setup, palette and metadata, predating the tenant seam. It now overlaps
-`STELLAR_BASE` in `lib/tenant.ts`, which is the single source of truth for Stellar's brand
-and takes its colours from `stellar-site/styles.css`.
+## Deferred — secrets hygiene
 
-**Resolved:** retired rather than reconciled. The Stellar host's entry point is `/login`
-(`/` already 307s there), which matches the real retailer flow — invite link, magic link,
-connect — not organic homepage traffic. The pitch belongs on stellarlocal.co.uk. Route and
-component deleted; `STELLAR_BASE` in `lib/tenant.ts` is now the only definition of the
-Stellar brand. Salvaged copy is in the entry above.
+### `.gbp-tokens.json` stores harness refresh tokens in plaintext  [deferred — local-only, lower stakes]
+**Context:** `scripts/live-matrix.ts` captures a real Google refresh token per throwaway test
+account and writes them to `.gbp-tokens.json` at the repo root
+(`{ "<label>": { refresh_token, scope, capturedAt } }`, written at `live-matrix.ts:93`). These
+are live credentials for real Google Business Profiles — the same class of secret that
+`SECRETS_AT_REST.md` exists to protect in the database.
+
+**Why deferred (2026-07-28):** stakes are materially lower than the DB case. The file is
+gitignored (`.gitignore:8`), never leaves the machine, is not in any backup or dump, and is not
+reachable through a leaked service-role key — which is the specific threat the at-rest work
+addresses. It also does not exist on this machine at present, so there is nothing currently
+exposed.
+
+**Fix when picked up:** the cheapest correct fix is not to encrypt the file but to stop it being
+a standing artefact — `chmod 600` on write, and have `live:run` revoke and delete the captured
+tokens at the end of a matrix run so they exist only for the duration. If they must persist,
+reuse `lib/secrets.ts` and the same `v1.` envelope rather than inventing a second scheme, and
+note the harness would then need `SECRET_ENCRYPTION_KEY` locally.
+
+**Related:** `SECRETS_AT_REST.md`, which explicitly scopes this file out.

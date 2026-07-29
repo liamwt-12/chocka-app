@@ -19,12 +19,22 @@
  * ENV (same values the app uses):
  *   NEXT_PUBLIC_SUPABASE_URL       https://emilonrdyljbydtgrvof.supabase.co
  *   SUPABASE_SERVICE_ROLE_KEY      service-role key (bypasses RLS)
+ *   SECRET_ENCRYPTION_KEY          REQUIRED. Stored tokens are encrypted at
+ *                                  rest and Google's revoke endpoint takes the
+ *                                  raw value, so a token cannot be revoked
+ *                                  without decrypting it first. There is no
+ *                                  longer a plaintext fallback — the migration
+ *                                  window closed on 2026-07-28. See
+ *                                  SECRETS_AT_REST.md.
  *
- * USAGE:
+ * USAGE (tsx does not read .env.local by itself):
+ *   npx tsx --env-file=.env.local scripts/offboard-legacy-users.ts
  *   export NEXT_PUBLIC_SUPABASE_URL=...   SUPABASE_SERVICE_ROLE_KEY=...
  *   npx tsx scripts/offboard-legacy-users.ts            # dry run, prints plan
  *   npx tsx scripts/offboard-legacy-users.ts --commit   # actually offboards
  */
+
+import { decryptSecret, userTokenAad } from '../lib/secrets';
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL;
 const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -91,7 +101,20 @@ async function main() {
     // 1. Revoke at Google.
     let note = 'skipped (dry run)';
     if (COMMIT) {
-      const r = await revokeAtGoogle(u.google_refresh_token);
+      // Google's revoke endpoint takes the raw token, so a stored envelope has
+      // to be opened first.
+      //
+      // Unlike revokeAtGoogle(), which swallows its own errors and reports
+      // ok:false, a decrypt failure throws and aborts the entire run — no DB
+      // clear for this user, and no further users processed. That is the right
+      // trade here: nulling our copy without a successful revoke would leave a
+      // credential live at Google that we can no longer reach, which is exactly
+      // how 10 working tokens stayed active for four days in July 2026. A
+      // partial run is safe to repeat — users already done hold a null token and
+      // report "no token, nothing to revoke" on the next pass.
+      const r = await revokeAtGoogle(
+        decryptSecret(u.google_refresh_token, userTokenAad(u.id)),
+      );
       note = r.note;
       if (r.ok) revoked++; else failed++;
     }

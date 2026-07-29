@@ -4,6 +4,7 @@ import { verifyCronSecret, unauthorizedResponse, getActiveUsersWithProfiles } fr
 import { refreshAccessToken, getPerformanceMetrics } from '@/lib/google';
 import { sendSMS, logSMS } from '@/lib/twilio';
 import { getTenant } from '@/lib/tenant';
+import { decryptSecret, userTokenAad } from '@/lib/secrets';
 
 export async function GET(request: NextRequest) {
   if (!verifyCronSecret(request)) return unauthorizedResponse();
@@ -20,7 +21,9 @@ export async function GET(request: NextRequest) {
       if (!profile || !user.sms_enabled || !user.phone_number) continue;
 
       try {
-        const accessToken = await refreshAccessToken(user.google_refresh_token);
+        const accessToken = await refreshAccessToken(
+          decryptSecret(user.google_refresh_token, userTokenAad(user.id)),
+        );
         // getPerformanceMetrics now returns {views, calls, directions, websiteClicks} directly
         const metrics = await getPerformanceMetrics(accessToken, profile.google_location_name);
 
