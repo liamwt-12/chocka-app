@@ -17,5 +17,16 @@
     "paths": { "@/*": ["./*"] }
   },
   "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts"],
-  "exclude": ["node_modules"]
+  "exclude": [
+    "node_modules",
+    // Archived source artefacts, committed as a backup and imported by nothing.
+    // publicAudit.ts was written against the scraper's own tsconfig (which
+    // targets a later ES version) and does not compile under target es5, so
+    // including it would break `next build` for a file the app never loads.
+    // It is kept byte-identical to the original on purpose — it is a record of
+    // how the 2026-06-21 baseline was produced, and editing it to satisfy a
+    // compiler it was never written for would destroy that. See
+    // scripts/source-data/README.md.
+    "scripts/source-data"
+  ]
 }
