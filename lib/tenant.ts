@@ -231,6 +231,37 @@ export function getTenantBySlug(slug?: string | null): Tenant {
   return getTenant();
 }
 
+/**
+ * A row fetched with the tenants FK embedded — `.select('*, tenants ( slug )')`.
+ * PostgREST returns a many-to-one embed as a single object, not an array.
+ *
+ * Only the slug is read. Brand config comes from this file, not from the row:
+ * the tenants table has no columns for fontHeading, fontBody, iconSvg, iconPng
+ * or priceMonthlyGbp, so it cannot be a complete source of truth yet.
+ */
+export interface TenantEmbeddedRow {
+  tenants?: { slug?: string | null } | null;
+}
+
+/**
+ * Resolve the tenant that a per-user row belongs to.
+ *
+ * WHY THIS EXISTS: cron jobs are invoked by a scheduler, not by a retailer's
+ * browser, so there is no Host header to resolve from and getRequestTenant()
+ * throws. The tenant has to come from the data being processed instead. This is
+ * the one gap host-based tenancy structurally cannot close.
+ *
+ * FAIL-OPEN, AND THE TRAP THAT COMES WITH IT: a row whose query forgot to embed
+ * `tenants ( slug )` has no slug, so this returns the primary tenant rather than
+ * throwing — matching getTenantBySlug() and resolveTenantSlug(). That keeps a
+ * missed embed from taking a cron down, but it means the failure mode is a
+ * Stellar retailer silently receiving Chocka-branded mail. If you add a new
+ * per-user query that sends anything, embedding the slug is not optional.
+ */
+export function getTenantForRow(row: TenantEmbeddedRow | null | undefined): Tenant {
+  return getTenantBySlug(row?.tenants?.slug ?? null);
+}
+
 // "#RRGGBB" → "R G B" channels, for Tailwind's rgb(var(--x) / <alpha>) pattern
 // so opacity modifiers (bg-brand/20, ring-brand/50) keep working.
 function channels(hex: string): string {

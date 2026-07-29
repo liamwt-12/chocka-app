@@ -13,12 +13,18 @@ export function unauthorizedResponse(): NextResponse {
 }
 
 // Get all active users with profiles (used by most cron jobs)
+//
+// tenants ( slug ) is embedded via the users.tenant_id FK so callers can resolve
+// each user's tenant with getTenantForRow(). Cron has no request context, so
+// this is the only way the brand is known at send time — dropping it would not
+// break anything visibly, it would quietly send every tenant Chocka's branding.
 export async function getActiveUsersWithProfiles(supabaseAdmin: any) {
   const { data, error } = await supabaseAdmin
     .from('users')
     .select(`
       *,
-      profiles (*)
+      profiles (*),
+      tenants ( slug )
     `)
     .eq('subscription_status', 'active')
     .eq('token_status', 'valid')
