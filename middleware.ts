@@ -8,8 +8,11 @@ import { resolveTenantSlug } from '@/lib/tenant-registry';
 // (lib/tenant-request.ts) to pick the brand. app.stellarlocal.co.uk therefore
 // renders as Stellar Local and app.chocka.co.uk as Chocka, from one deploy.
 //
-// Not yet consumed by cron, email or API routes — those still resolve to the
-// primary tenant. See the KNOWN GAP note in lib/tenant.ts.
+// Cron does NOT and cannot use this header — a scheduler sends no meaningful
+// Host, so per-user work resolves the brand from users.tenant_id instead, via
+// getTenantForRow(). The OAuth callback is where the two meet: it reads this
+// header at signup and writes the resulting tenant onto the new user row, which
+// is what every later cron then reads back.
 //
 // Fail-open: any error serves the request unchanged (i.e. as Chocka) rather than
 // taking the site down. No DB and no Node APIs — Edge-runtime safe.

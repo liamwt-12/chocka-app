@@ -84,6 +84,15 @@ tenancy columns side by side. `getTenantForRow()` resolves the tenant from a row
 per user inside the loop instead of once per run. `lib/email.ts` takes an optional tenant
 throughout.
 
+**Also outstanding — `profiles.tenant_id` is never set on new rows.** All 6 existing profiles carry
+it, but neither insert site sets it: `app/api/auth/callback/google/route.ts:235` and
+`app/api/listings/select/route.ts:79`. New profiles will therefore be null while their owning user
+row is populated, so the two columns drift apart. Nothing reads `profiles.tenant_id` today — cron
+resolves through `users.tenant_id` — so this is a data-integrity issue rather than a live fault,
+but it will quietly undermine any future per-tenant query or RLS policy written against profiles.
+Fix both insert sites together; the callback already has the tenant id in hand, and the listings
+route has request context.
+
 **Still outstanding — `cancelPage()` in `app/api/posts/cancel/route.ts`.** The HTML page rendered
 after a cancel still calls `getTenant()`, so its title and accent colour are Chocka's on every
 host. Unlike the SMS beside it, this one *does* have request context and should use

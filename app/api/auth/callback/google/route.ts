@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
 import { exchangeCodeForTokens, getManageableListings, getGoogleAuthUrl } from '@/lib/google';
 import { getTenantBySlug } from '@/lib/tenant';
+import { PRIMARY_TENANT_SLUG } from '@/lib/tenant-registry';
 import { encryptSecret, isEncrypted, userTokenAad } from '@/lib/secrets';
 
 export async function GET(request: NextRequest) {
@@ -168,6 +169,31 @@ export async function GET(request: NextRequest) {
     // if that second call fails.
     const newUserId = randomUUID();
 
+    // Tag the account with the brand it signed up through.
+    //
+    // SET ONLY ON CREATION. The three paths above deliberately do not touch
+    // tenant_id: if signing in re-tagged an existing account, a retailer who
+    // opened the other brand's host once would be silently moved between brands,
+    // and every future email and text would follow. Signup is the only moment
+    // the Host legitimately decides this.
+    const { data: tenantRow } = await supabaseAdmin
+      .from('tenants')
+      .select('id')
+      .eq('slug', tenant.slug)
+      .single();
+
+    if (!tenantRow && tenant.slug !== PRIMARY_TENANT_SLUG) {
+      // A non-primary account created without a tenant_id is resolved to the
+      // primary by getTenantForRow(), so a Stellar retailer would receive Chocka
+      // branding for the life of the account with nothing in the data marking it
+      // wrong. Refusing is the recoverable option: seed the row, retailer
+      // retries. Chocka is exempt because a null already resolves to Chocka —
+      // its live flow is unchanged either way.
+      throw new Error(
+        `No tenants row for slug "${tenant.slug}" — refusing to create an account that would be silently mis-branded`,
+      );
+    }
+
     const { data: newUser, error: insertError } = await supabaseAdmin
       .from('users')
       .insert({
@@ -176,6 +202,7 @@ export async function GET(request: NextRequest) {
         name: userInfo.name || '',
         google_refresh_token: encryptSecret(tokens.refresh_token, userTokenAad(newUserId)),
         referral_code: referralCode,
+        tenant_id: tenantRow?.id ?? null,
       })
       .select()
       .single();
