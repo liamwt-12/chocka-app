@@ -16,6 +16,19 @@ altered (adding `tenant_id`). Until then, treat the dashboard as the source of t
 - `20260720000000_create_tenants.sql` — **slice 2**. Creates the `tenants` table and seeds the
   Chocka row. **Additive only**: it creates one new table and inserts one row; it does not touch
   any existing table, so it cannot affect existing data. RLS is intentionally not enabled (slice 4).
+- `20260729120000_seed_stellar_tenant.sql` — seeds the Stellar Local row. **Additive only**: one
+  `INSERT ... ON CONFLICT (slug) DO NOTHING`. Needed so a Stellar user's `users.tenant_id` has a
+  referential target. The row is *not* the authoritative brand config — that stays in
+  `lib/tenant.ts`, because this table has no columns for `fontHeading`, `fontBody`, `iconSvg`,
+  `iconPng` or `priceMonthlyGbp`.
+
+## Known drift (2026-07-29)
+
+`users.tenant_id` and `profiles.tenant_id` exist in production, fully populated, but have **no
+migration here** — the slice-3 baseline described above was never written. This directory therefore
+does not reproduce production, and a fresh environment will lack those columns. Tracked in
+`FOLLOWUPS.md` under "Deferred — schema drift". Verify against the live database before assuming
+this directory is complete.
 
 ## Applying
 
