@@ -17,6 +17,8 @@ Nothing in the running app imports from this directory.
 | `MATCH_VERIFICATION.md` | The 2026-07-30 re-verification of the 36 `review` rows and the five short-name `high` rows. |
 | `match-verification-2026-07-30.json` | Raw per-row evidence behind that record — 41 Places lookups. |
 | `verify-matches.py` | The script that produced it. Reads `GOOGLE_PLACES_API_KEY` from the environment. |
+| `rematch-2026-07-30.json` | Round two — re-match of the 8 `NOT FOUND` rows and full candidate lists for the top 4 suspects. |
+| `rematch.py` | The script for round two. Also carries validated ports of `scorePlace` and `bandFor`. |
 
 ## This repository is public
 

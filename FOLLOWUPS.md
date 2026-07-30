@@ -389,6 +389,111 @@ barely move the mean (+0.3) because they sit near it — the damage is to *per-r
 which no aggregate treatment fixes. The 8 zeros are what move the number, and Elvet is a known false
 negative among them.
 
+## Deferred — the batch matcher (`scripts/source-data/publicAudit.ts`)
+
+Found 2026-07-30 while verifying the baseline. **Recorded, deliberately not fixed.** `publicAudit.ts`
+is archived byte-identical to the original as the record of how the 2026-06-21 baseline was produced
+(see `scripts/source-data/README.md`) — editing it in place would destroy that. These fixes belong in
+a **port**, if and when the batch scorer is productised. Full evidence:
+`scripts/source-data/MATCH_VERIFICATION.md`.
+
+### `classifyMatch` has four defects, two of which produce hard false zeros  [deferred — fix in a port, not in the archived file]
+
+All four live in `classifyMatch` / `normaliseName` (`publicAudit.ts:176-227`). Ordered by damage done.
+
+**Defect 1 — an apostrophe destroys name similarity, and can produce a hard 0.** `normaliseName`
+maps `[^a-z0-9]+` to a space, so a possessive splits into a stem plus a singleton `s` that never
+intersects the unpossessed form:
+
+```
+row       'Sams Carpet and Flooring Ltd' -> 'sams and'     tokens {sams, and}
+candidate "Sam's Carpets and Flooring"   -> 'sam s and'     tokens {sam, s, and}
+intersection {and}   union {and, s, sam, sams}   jaccard 0.25   (needs 0.60)
+```
+
+This is the worst single defect found. `Sams Carpet and Flooring Ltd` (id `29932`) is at
+*Unit 5 James Watt Place, East Kilbride G74 5HQ*; the real profile is *Sam's Carpets and Flooring,
+5 James Watt Pl, East Kilbride G74 5HG* — **same street, same unit number**. The postcode arm also
+failed, on the single character `Q` vs `G`. Both arms down, so the row took `NOT FOUND` and a hard
+**0** — for a business with **4.9★ and 275 reviews** that re-scores to **98 (Strong)**. Three other
+possessive names on the list (`Ashley Cooke's …` ×2, `Steve's Carpets`) only escaped because their
+candidates carried the apostrophe too and tokenised identically.
+*Fix:* strip apostrophes before splitting (`replace(/['’]/g, '')` ahead of the `[^a-z0-9]+` pass), and
+do not let a single-character token count toward the union. Consider a fuzzy postcode compare, or
+fall back to the row's lat/lng when the postcode is one edit away.
+
+**Defect 2 — an empty normalised candidate name matches everything.** `nameStrong` at `:221` guards
+`na` (`na.length > 0`) but never `nb`:
+
+```
+row       'The Flooring and Carpet shop' -> na = 'and shop'
+candidate 'The Carpet Company'           -> nb = ''        (every token is in the strip-list)
+na.includes(nb) === 'and shop'.includes('') === true       -> nameStrong
+```
+
+`nameSimilarity` *is* guarded against this — `:193` returns 0 on an empty token set — so the two
+halves of the same test disagree. On a flooring list any candidate named purely from the strip-list
+(`The Carpet Company`, `Carpets Ltd`, `The Flooring Co`) normalises to empty and matches every row it
+is offered. Hit 1 of the 41 rows re-checked.
+*Fix:* require `nb.length > 0` in the same clause, i.e. `na && nb && (nb.includes(na) || na.includes(nb))`.
+
+**Defect 3 — the trade-word strip-list deletes the distinguishing signal on this list.** `:180`
+removes `flooring|floors|carpets?` — on a list of *flooring retailers* that is most of the name, and
+what remains is often a shared place name:
+
+```
+'Tees Valley Flooring'  -> 'tees valley'
+'Tees Valley Joinery Ltd' -> 'tees valley joinery'
+jaccard 0.67  -> passes as a STRONG name match, against a joinery
+```
+
+Note this passed the jaccard arm, not the substring fallback — so the "strong" path is not safe
+either. It also collapses distinct businesses to identical strings: `Trinity Carpets` (Cannock),
+`Trinity Carpets` (Tipton) and `Trinity Flooring` (Kent) all normalise to `trinity`.
+*Fix:* do not strip trade words for the *similarity* computation; strip them only to decide which
+tokens are low-weight. TF-IDF or IDF-style weighting over the 180-name corpus would be a better fit
+than a fixed strip-list — or require agreement on at least one non-strip-list token.
+
+**Defect 4 — the postcode arm is near-worthless on shared business-park postcodes.** `postcodeMatches`
+(`:201-205`) asks only whether the row's postcode appears in the candidate's address. On an
+industrial estate many unrelated businesses share one postcode, so the arm fires on a neighbour:
+
+- `SA7 9AH` (Swansea Enterprise Park) holds at least **two** flooring businesses — `Floor Giants
+  Swansea` (119 reviews) and `Budget Carpet & Flooring Centres ltd` (207 reviews). Row
+  `Floor Store U.K` was matched to the first at **jaccard 0.17**, scored 91, and is in neither.
+- `TS2 1RP` is shared by two rows *within the list itself* — `Tees Valley Flooring` and
+  `Wilkinsons Flooring`.
+
+*Fix:* treat a postcode hit as corroborating rather than sufficient — require some name signal too,
+or compare distance from the row's lat/lng, which the source data already carries and which
+`findPlace` already passes as a `locationBias` but never uses to verify.
+
+### Source-data defects behind three of the bad rows  [deferred — data, not code]
+
+Recorded but **not applied** to `retailers-locations.csv`, which stays byte-identical to source apart
+from the two scrubbed email cells.
+
+| id | Row | In source | Should be | Note |
+|---|---|---|---|---|
+| `29891` | Elvet Flooring Solutions | *(blank)* | `DH1 5QU` | Absent, not a typo. Three sources agree; house number 8 inferred, not PAF-verified. Tarkett's own store page has no postcode either, so the gap is upstream. |
+| `29658` | Home Carpets by Neil Mcbrearty | `CA1 25N` | `CA1 2SN` | Digit `5` typed for letter `S`. `CA1 25N` is **not a valid postcode**. `CA1 2SN` is exactly the candidate's address, so this row is a *false* `review`. |
+| `29705` | Northumbria Flooring & Furniture (North Shields) | `NE24 5 SU` | *(needs a decision)* | Valid, but `NE24` is **Blyth, Northumberland**, not North Shields. There is a **separate Blyth row** of the same name scoring 93 — the postcode looks copied from the wrong branch. |
+
+### The 180 rows are 177 distinct businesses  [deferred — affects any count quoted to Tarkett]
+
+Three pairs share a `place_id`, i.e. the same Google profile was scored twice, and each pair's score
+is double-weighted in any aggregate:
+
+| place_id | Rows | Score |
+|---|---|---|
+| `ChIJMd9zKcqbfkgR-7IbH2_YIMU` | `Burts Carpets of Darlington` + `Burts of Darlington` (both DL1 1LA) | 85 |
+| `ChIJRT9AZcKTfkgRys-1ZE2lij0` | `Flooring Developments` + `Flooring Developments LTD` (both DL1 4PH) | 68 |
+| `ChIJoUuuF3FvfkgR7-3O3kaADvY` | `Northumbria Flooring` + `Northumbria Flooring & Furniture` (both North Shields) | 63 |
+
+De-duplicating does not move the mean (73.5 either way, since each pair scores identically) but it
+does change the **count**. "We audited 180 retailers" is wrong; it is 177 distinct businesses, and
+one of those is permanently closed.
+
 ## Deferred — schema drift
 
 ### `users.tenant_id` and `profiles.tenant_id` exist in production with no migration  [latent risk — not blocking]

@@ -129,14 +129,82 @@ number being roughly right does not help.
 The 8 zeros are what actually move the aggregate, and at least one of them (Elvet) is a known
 false negative.
 
+## Round two — re-match of the 8 zeros and hand-check of the top 4 suspects
+
+Same day. `findPlace` re-run (`places:searchText`, 5km `locationBias`, `maxResultCount` 5) for the
+eight `NOT FOUND` rows with Elvet's postcode supplied, plus the full candidate list for the four
+highest-scoring suspects. Raw evidence: `rematch-2026-07-30.json`.
+
+**Important caveat on the re-scores below.** They are computed from Places data as at **2026-07-30**,
+using a validated port of `scorePlace` (verified against Hopkins Flooring's recorded 71: 29.75 rating
++ 16 reviews + 25 completeness = 70.75 → 71). The baseline was generated **2026-06-21**, six weeks
+earlier. Review counts have grown in between, so a re-score is *today's* number, **not** a restatement
+of what the baseline should have said.
+
+### The 8 zeros: 5 are real, 3 are false negatives
+
+| Row | Best candidate found | Verdict |
+|---|---|---|
+| `Sams Carpet and Flooring Ltd` | **Sam's Carpets and Flooring**, 5 James Watt Pl, East Kilbride G74 5HG — 4.9★, 275 reviews | **FALSE ZERO.** Same street, same unit number. Re-scores **98 (Strong)**. See defect 1. |
+| `Beccles Carpet Centre` | **Beccles Home & Flooring**, 1 Common Ln N, Beccles NR34 9BN — 4.7★, 126 reviews | **Probable false zero** — looks like a rename; same town, adjacent postcode. Re-scores 91. Needs one human confirmation that it is the same business. |
+| `Multisave Carpets` | **Multi-Save Capets** *(Google's own typo)*, 12 S Walk, Yate, Bristol BS37 4AP | **Probable false zero** — same business, different site (BS30 → BS37, ~8mi). Re-scores 62. |
+| `Elvet Flooring Solutions` | 5 candidates returned with `DH1 5QU` supplied — Floorcraftne, Hive Flooring, Frank's ×2, Minnikin. **None is Elvet.** | **Real zero. Resolved.** Elvet has no Google Business Profile. The missing postcode was not what caused the 0. |
+| `JL Flooring` | **Zero candidates returned at all.** | **Real zero.** |
+| `Elite Installations` | `Elite Glass And Windows` — different trade | **Real zero.** |
+| `Signature Floors Pembroke` | `O'Brien Design Floors`, Saundersfoot | **Real zero.** |
+| `Thompsons Floooring` | `Harston and Jones Flooring`, Whitfield | **Real zero.** Confirms the `Floooring` typo was never the cause. |
+
+### The top 4 suspects: 3 confirmed wrong, 1 defensible
+
+- **`Floor Store U.K` (91) — confirmed wrong.** `SA7 9AH` is Swansea Enterprise Park and holds at
+  least two flooring firms: the matched `Floor Giants Swansea` (119 reviews) and
+  `Budget Carpet & Flooring Centres ltd` (207 reviews). `Floor Store U.K` appears nowhere in the
+  results. The match was a shared-postcode coincidence at **jaccard 0.17**.
+- **`Amtico Flooring Installations Limited` (81) — confirmed wrong.** Nothing at `SW12 9AZ` in the
+  results; the nearest same-name thing is `Amtico Flooring Studio` in SE1 with 0 reviews. The 81
+  belongs to `Balham Flooring Studio`.
+- **`The Floor Studio` (78) — confirmed wrong.** Exactly one candidate returned:
+  `FloorCraft Cheshire Ltd`, a different business at the same address. `The Floor Studio` is not in
+  Places for this query, so this row is arguably a real zero.
+- **`Carpet Cuts` (77) — defensible, but the row's address is stale.** `Carpet Cuts` genuinely exists
+  (Coalville LE67 3NB, 102 reviews, jaccard 1.00) — but the business now at the row's own address,
+  *4 High St, Swadlincote DE11 8HY*, is **`Ayres flooring Ltd`**. Either Carpet Cuts moved and Ayres
+  took the premises, or the Tarkett record is out of date. The score is the right business at the
+  wrong address. A judgement call about whether the retailer relationship follows the business or the
+  site.
+
+### Revised numbers
+
+De-duplicating the three `place_id` collisions, correcting the three false zeros and handling the
+three wrong matches:
+
+| Treatment | n | Mean |
+|---|---:|---:|
+| As imported | 180 | 73.5 |
+| De-duplicated by `place_id` | 177 | 73.5 |
+| + 3 false zeros corrected | 177 | 74.9 |
+| + 3 wrong matches zeroed | 176 | 73.8 |
+| + 3 wrong matches and 1 closed dropped | 173 | **75.1** |
+
+**73.5 – 75.1**, tighter than round one's 73.5 – 77.4 — the false-zero corrections push up and the
+wrong matches push down, and they largely cancel. The count is the bigger correction: **177 distinct
+businesses, not 180**, one of them permanently closed.
+
 ## What remains before the number is quotable
 
-1. **Decide the treatment** of the 9 suspects, the 8 zeros and the 1 closed business — exclude,
-   re-match, or hand-check. This is a judgement call, not a verification gap.
-2. **Re-match Elvet** with `DH1 5QU` supplied, to find out whether its 0 is real. Same for `JL
-   Flooring` and the other six `NOT FOUND`.
-3. **Fix the two scorer defects** if the scorer is ever re-run — guard `nb` for empty, and reconsider
-   stripping trade words on a list where they carry the signal.
+1. **Confirm the two probable false zeros** — is `Beccles Home & Flooring` the renamed
+   `Beccles Carpet Centre`, and is the Yate `Multi-Save Capets` the same firm as the Bristol row?
+   Two lookups.
+2. **Decide `Carpet Cuts`** — business or site.
+3. **Decide the treatment** of the 3 confirmed-wrong rows: zero them, drop them, or re-match by
+   hand. This is a judgement call, not a verification gap.
+4. **Decide what "180" means** in anything said to Tarkett, given it is 177 distinct businesses.
+5. **Do not port the matcher as-is.** Four defects are recorded in `FOLLOWUPS.md` under
+   *Deferred — the batch matcher*; the two that produce hard false zeros (apostrophes, empty
+   normalised names) would keep producing them.
+
+The remaining five `NOT FOUND` rows are now positively verified as real absences rather than assumed
+ones, which is the part that most affects the aggregate.
 
 ## Related
 
