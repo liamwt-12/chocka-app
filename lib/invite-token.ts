@@ -76,6 +76,33 @@ export function generateInviteToken(): string {
 }
 
 /**
+ * Strip whitespace a transport inserted into a token before it is hashed.
+ *
+ * WHY THIS IS NECESSARY. base64url is `[A-Za-z0-9_-]` — it can never legitimately
+ * contain a space, tab or newline. So any whitespace in a presented token was put
+ * there in transit, not by us. On 2026-07-30 a real retailer received a link whose
+ * token had picked up three spaces near the end (`…C6ImZbYi%20%20%20KOU`), almost
+ * certainly a line-wrap artefact in whatever carried it, and got "this link is not
+ * valid" three times running while the invite itself was perfectly healthy. Email
+ * clients, chat apps, PDF viewers and terminal wrapping all do this. With 176
+ * retailers to invite it will keep happening, and every time it looks to the
+ * retailer like we sent them a broken link.
+ *
+ * WHY IT IS SAFE. Stripping whitespace cannot turn one valid token into another:
+ * valid tokens contain no whitespace, so a valid token normalises to itself, and no
+ * two distinct valid tokens differ only by whitespace. It widens what we accept
+ * without widening what matches.
+ *
+ * Deliberately NOT applied inside hashInviteToken: that function must keep refusing
+ * an empty token, and a whitespace-only input normalises to empty. Callers
+ * normalise at the edge, where an empty result is a bad request rather than a fault.
+ */
+export function normaliseInviteToken(raw: string | null | undefined): string {
+  if (typeof raw !== 'string') return '';
+  return raw.replace(/\s+/g, '');
+}
+
+/**
  * The value to store in `retailer_invites.token_hash`.
  *
  * Rejects an empty token rather than hashing it: `hashInviteToken('')` would

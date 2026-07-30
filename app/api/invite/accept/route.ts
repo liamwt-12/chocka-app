@@ -18,7 +18,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
 import { getTenantBySlug } from '@/lib/tenant';
-import { hashInviteToken, checkInviteRedeemable, signInviteRef } from '@/lib/invite-token';
+import {
+  hashInviteToken,
+  checkInviteRedeemable,
+  signInviteRef,
+  normaliseInviteToken,
+} from '@/lib/invite-token';
 
 export async function POST(request: NextRequest) {
   // Same tenant resolution as the OAuth callback: read the header middleware set
@@ -31,7 +36,11 @@ export async function POST(request: NextRequest) {
   try {
     const form = await request.formData();
     const raw = form.get('token');
-    token = typeof raw === 'string' && raw.length > 0 ? raw : null;
+    // Normalised for the same reason as the landing page: whitespace in a token was
+    // inserted in transit, and a retailer whose link got line-wrapped should not be
+    // told their invite is invalid. See normaliseInviteToken.
+    const cleaned = normaliseInviteToken(typeof raw === 'string' ? raw : null);
+    token = cleaned.length > 0 ? cleaned : null;
   } catch {
     // Not form-encoded. Only our own page posts here, so this is a hand-made
     // request rather than a retailer to be helped.

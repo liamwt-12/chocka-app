@@ -15,7 +15,7 @@
 // service-role client must never be importable from one.
 import { getRequestTenant } from '@/lib/tenant-request';
 import { supabaseAdmin } from '@/lib/supabase';
-import { hashInviteToken, checkInviteRedeemable } from '@/lib/invite-token';
+import { hashInviteToken, checkInviteRedeemable, normaliseInviteToken } from '@/lib/invite-token';
 import { resolveRetailerScore } from '@/lib/retailer-score';
 import Button from '@/components/Button';
 
@@ -106,8 +106,21 @@ function DeadEnd({ title, body, action }: { title: string; body: string; action?
 
 export default async function InvitePage({ params }: { params: { token: string } }) {
   const tenant = getRequestTenant();
-  const invite = await loadInvite(params.token);
-  const check = checkInviteRedeemable(invite, params.token);
+
+  // Next has already percent-decoded this, so `%20` arrives as a real space.
+  // Whitespace in a token was inserted in transit — see normaliseInviteToken.
+  const token = normaliseInviteToken(params.token);
+  if (!token) {
+    return (
+      <DeadEnd
+        title="This link is not valid"
+        body="The address looks incomplete. Check the link in your email, or reply to it and we will help."
+      />
+    );
+  }
+
+  const invite = await loadInvite(token);
+  const check = checkInviteRedeemable(invite, token);
 
   if (!check.redeemable) {
     if (check.reason === 'expired') {
@@ -208,8 +221,9 @@ export default async function InvitePage({ params }: { params: { token: string }
         page — by a mail scanner, a chat preview, or a retailer reloading it — can
         never spend the token. The route lands in surface 2.
       */}
+      {/* The NORMALISED token, so a mangled URL does not propagate into the POST. */}
       <form action="/api/invite/accept" method="post">
-        <input type="hidden" name="token" value={params.token} />
+        <input type="hidden" name="token" value={token} />
         <Button type="submit" size="lg" className="w-full">
           Connect my Google profile
         </Button>
