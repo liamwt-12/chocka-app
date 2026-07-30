@@ -4,6 +4,65 @@ Deferred work captured so it isn't lost. Tie-in to the Stellar Local roadmap in 
 
 ## P1
 
+### RAISE WITH TARKETT: Stellar may not lawfully cold-email most of the 174 retailers  [P1 — business relationship decision, NOT an engineering task]
+
+**This is a conversation to have with Zurida and Mikael, not a ticket to work around.** The
+sending machinery is built and tested; it is held deliberately, and nothing has been sent.
+
+**The legal position.** PECR regulation 22 splits recipients by subscriber type. **Corporate
+subscribers** — limited companies, LLPs, Scottish partnerships, public bodies — can be sent
+marketing email with no consent. **Individual subscribers** — which expressly *includes sole traders
+and unincorporated partnerships* — require consent, or the "soft opt-in".
+
+**The soft opt-in cannot apply to any of this list.** Regulation 22(3) requires all four of: details
+obtained in the course of a sale or negotiations for a sale; marketing similar products to that
+transaction; opt-out offered when the details were collected; opt-out in every message. These
+addresses were scraped from Tarkett's **public store locator**. There was no sale and no negotiation,
+so the first condition fails outright and the rest cannot rescue it.
+
+So for every retailer on the list that is a sole trader or unincorporated partnership, **there is no
+lawful route for Stellar Local to send this email at all** — not a wording problem, an absence of any
+basis.
+
+**Why it matters commercially:** flooring retailers skew heavily towards sole traders. Of 174 with a
+contact address, only 19 carry `Ltd`/`Limited`/`LLP`/`PLC` in their trading name, and a name proves
+nothing either way. A Companies House check was run to narrow this (see
+`scripts/source-data/` results and the sending PR), but it yields a *signal*, not proof: a business
+may trade under a name unlike its registered one, and a name match does not establish that the
+address belongs to that company.
+
+**The question for Tarkett:** Tarkett has an existing commercial relationship with its stockists.
+That changes the analysis completely — first contact from Tarkett, to its own stockists, about a
+service it is providing them, is a different act from a cold approach by a third party they have
+never heard of. Options to put to them:
+
+1. **Tarkett makes first contact** and Stellar follows up with those who respond. Cleanest.
+2. **Tarkett obtains consent** as part of its existing stockist communications.
+3. **Stellar emails only confirmed corporate bodies**, and the rest go via 1 or 2.
+4. **Legal sign-off** that a different basis applies. Requires an actual solicitor, not our reading.
+
+**Do not route around this.** The temptation is to send to the 19 confirmed companies and quietly
+defer the rest; that is fine as far as it goes, but it leaves the bulk of the pilot cohort
+uncontacted and the question unanswered. Tarkett's brand is on the email.
+
+**Also outstanding regardless of the above:**
+
+- **Regulation 23** applies to corporate and individual subscribers alike, solicited or not: a
+  marketing email must not conceal the sender's identity and must carry a valid address for opt-out
+  requests. The operating entity (`Useful for Humans Ltd`) is now named in the invite footer. A real
+  token-based unsubscribe with a suppression table is being built.
+- **UK GDPR Article 14.** 105 of the addresses have non-generic local parts and are therefore personal
+  data about identifiable people. Because the data was not collected from those individuals, they must
+  be told where it came from, at the latest at first contact — so the email needs a privacy-notice
+  link naming Tarkett's public store locator as the source. Legitimate interests is arguable as the
+  lawful basis but the balancing test has not been done.
+
+**Not legal advice.** This is a careful reading of ICO guidance by an engineer. The sole-trader
+exposure is material enough, with Tarkett's brand attached, to be worth real advice before sending.
+
+**Related:** `scripts/send-invites.ts` (held), `lib/email.ts` `retailerInviteEmail` (draft copy),
+[ICO — business-to-business marketing](https://ico.org.uk/for-organisations/direct-marketing-and-privacy-and-electronic-communications/business-to-business-marketing/).
+
 ### Transient-enumeration → retryable error on OAuth connect  [P1 — Retailer product / onboarding]
 **Context:** `getManageableListings` is deliberately **all-or-nothing** — if any account's
 `getLocations` fails it throws, so a partial enumeration is never treated as authoritative
