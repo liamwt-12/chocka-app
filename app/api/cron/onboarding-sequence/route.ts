@@ -3,17 +3,18 @@ import { supabaseAdmin } from '@/lib/supabase';
 import { verifyCronSecret, unauthorizedResponse } from '@/lib/cron';
 import { sendSMS, logSMS } from '@/lib/twilio';
 import { sendEmail } from '@/lib/email';
-import { getTenant } from '@/lib/tenant';
+import { getTenantForRow } from '@/lib/tenant';
 
 export async function GET(request: NextRequest) {
   if (!verifyCronSecret(request)) return unauthorizedResponse();
 
   try {
-    const t = getTenant();
     // Get users in onboarding (steps 0-7)
+    // tenants ( slug ) is embedded so each user's brand is known at send time —
+    // this route builds its own query rather than using getActiveUsersWithProfiles.
     const { data: users } = await supabaseAdmin
       .from('users')
-      .select('*, profiles(*)')
+      .select('*, profiles(*), tenants ( slug )')
       .eq('subscription_status', 'active')
       .gte('onboarding_step', 0)
       .lte('onboarding_step', 7);
@@ -23,6 +24,9 @@ export async function GET(request: NextRequest) {
     for (const user of users || []) {
       if (!user.phone_number || !user.sms_enabled) continue;
       const profile = user.profiles?.[0];
+
+      // Per user, not per run — one pass serves every tenant.
+      const t = getTenantForRow(user);
 
       const daysSinceSignup = Math.floor(
         (Date.now() - new Date(user.created_at).getTime()) / (1000 * 60 * 60 * 24)
@@ -65,6 +69,7 @@ export async function GET(request: NextRequest) {
                   <p style="color: #6b7280; font-size: 14px; margin-top: 24px;">— The ${t.brandName} team</p>
                 </div>
               `,
+              tenant: t,
             });
           }
           break;

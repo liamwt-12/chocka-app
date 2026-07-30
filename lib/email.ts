@@ -1,14 +1,29 @@
-import { getTenant } from './tenant';
+import { getTenant, type Tenant } from './tenant';
 
 const RESEND_API = 'https://api.resend.com/emails';
+
+// Every export here takes an OPTIONAL tenant and falls back to getTenant().
+//
+// Optional rather than required on purpose: this module is called from cron
+// routes, request routes and scripts, and making it required would be a
+// breaking change across all of them at once. The fallback reproduces exactly
+// the behaviour these functions had before tenancy existed, so an un-migrated
+// caller is unchanged rather than broken.
+//
+// The cost is that forgetting to pass one is silent — a Stellar retailer gets
+// Chocka's sender and wordmark. Any per-user send must pass the tenant resolved
+// from the user's row via getTenantForRow(). See FOLLOWUPS "Pre-pilot — Stellar
+// tenancy".
 
 interface SendEmailParams {
   to: string;
   subject: string;
   html: string;
+  /** Sender identity. Defaults to the primary tenant. */
+  tenant?: Tenant;
 }
 
-export async function sendEmail({ to, subject, html }: SendEmailParams): Promise<boolean> {
+export async function sendEmail({ to, subject, html, tenant }: SendEmailParams): Promise<boolean> {
   try {
     const res = await fetch(RESEND_API, {
       method: 'POST',
@@ -17,7 +32,7 @@ export async function sendEmail({ to, subject, html }: SendEmailParams): Promise
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        from: getTenant().emailFrom,
+        from: (tenant ?? getTenant()).emailFrom,
         to,
         subject,
         html,
@@ -34,8 +49,8 @@ export async function sendEmail({ to, subject, html }: SendEmailParams): Promise
   }
 }
 
-function emailWrapper(content: string): string {
-  const t = getTenant();
+function emailWrapper(content: string, tenant?: Tenant): string {
+  const t = tenant ?? getTenant();
   const brand = t.palette.brandStrong;
   const host = t.marketingUrl.replace(/^https?:\/\//, '');
   return `
@@ -49,8 +64,14 @@ function emailWrapper(content: string): string {
   `;
 }
 
-export function postPreviewEmail(businessName: string, postContent: string, cancelUrl: string): string {
-  const brand = getTenant().palette.brandStrong;
+export function postPreviewEmail(
+  businessName: string,
+  postContent: string,
+  cancelUrl: string,
+  tenant?: Tenant,
+): string {
+  const t = tenant ?? getTenant();
+  const brand = t.palette.brandStrong;
   const firstName = businessName.split(' ')[0];
   return emailWrapper(`
     <p style="font-size: 15px; line-height: 1.6; margin: 0 0 6px;">Hi ${firstName},</p>
@@ -66,7 +87,7 @@ export function postPreviewEmail(businessName: string, postContent: string, canc
     <a href="${cancelUrl}" style="display: inline-block; background: #1A1A1A; color: #fff; padding: 12px 22px; border-radius: 8px; text-decoration: none; font-size: 14px; font-weight: 600;">Cancel This Post</a>
 
     <p style="font-size: 13px; color: #bbb; margin: 20px 0 0;">If you do nothing, it goes up automatically. Sorted.</p>
-  `);
+  `, t);
 }
 
 export function reviewAlertEmail(params: {
@@ -77,8 +98,10 @@ export function reviewAlertEmail(params: {
   suggestedReply: string;
   approveUrl: string;
   rejectUrl: string;
+  tenant?: Tenant;
 }): string {
-  const brand = getTenant().palette.brandStrong;
+  const t = params.tenant ?? getTenant();
+  const brand = t.palette.brandStrong;
   const stars = '★'.repeat(params.rating) + '☆'.repeat(5 - params.rating);
   const firstName = params.businessName.split(' ')[0];
   const isPositive = params.rating >= 4;
@@ -104,7 +127,7 @@ export function reviewAlertEmail(params: {
 
     <a href="${params.approveUrl}" style="display: inline-block; background: ${brand}; color: #fff; padding: 12px 20px; border-radius: 8px; text-decoration: none; font-size: 14px; font-weight: 600; margin-right: 8px;">Publish This Reply</a>
     <a href="${params.rejectUrl}" style="display: inline-block; background: #1A1A1A; color: #fff; padding: 12px 20px; border-radius: 8px; text-decoration: none; font-size: 14px; font-weight: 600;">I'll Handle It</a>
-  `);
+  `, t);
 }
 
 export function monthlyReportEmail(params: {
@@ -114,8 +137,9 @@ export function monthlyReportEmail(params: {
   reviewsReplied: number;
   totalViews: number;
   totalCalls: number;
+  tenant?: Tenant;
 }): string {
-  const t = getTenant();
+  const t = params.tenant ?? getTenant();
   const brand = t.palette.brandStrong;
   const firstName = params.businessName.split(' ')[0];
   return emailWrapper(`
@@ -149,5 +173,5 @@ export function monthlyReportEmail(params: {
     </table>
 
     <p style="font-size: 14px; color: #555; line-height: 1.6; margin: 0;">All handled automatically. No effort from you. That's the point.</p>
-  `);
+  `, t);
 }

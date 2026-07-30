@@ -77,10 +77,29 @@ wordmark, Chocka colours, a `hello@chocka.co.uk` sender — while using a Stella
 browser, so the Host header is the same for every tenant's work. There is no request to
 resolve from. This is the one gap host-based tenancy structurally cannot close.
 
-**Fix when picked up:** add a `tenant_slug` column to the users table, backfill existing rows
-to `chocka`, set it at signup from the request tenant, and have per-user work resolve the
-tenant from the row via `getTenantBySlug()`. Ties in to the Resend sending-domain work —
-a Stellar sender is only useful once the tenant is known at send time.
+**Largely closed (2026-07-29).** Done via the `users.tenant_id` column that already existed
+rather than the `tenant_slug` column originally proposed here — adding one would have put two
+tenancy columns side by side. `getTenantForRow()` resolves the tenant from a row fetched with
+`tenants ( slug )` embedded, and all six cron routes plus `app/api/posts/cancel` now resolve
+per user inside the loop instead of once per run. `lib/email.ts` takes an optional tenant
+throughout.
+
+**Also outstanding — `profiles.tenant_id` is never set on new rows.** All 6 existing profiles carry
+it, but neither insert site sets it: `app/api/auth/callback/google/route.ts:235` and
+`app/api/listings/select/route.ts:79`. New profiles will therefore be null while their owning user
+row is populated, so the two columns drift apart. Nothing reads `profiles.tenant_id` today — cron
+resolves through `users.tenant_id` — so this is a data-integrity issue rather than a live fault,
+but it will quietly undermine any future per-tenant query or RLS policy written against profiles.
+Fix both insert sites together; the callback already has the tenant id in hand, and the listings
+route has request context.
+
+**Still outstanding — `cancelPage()` in `app/api/posts/cancel/route.ts`.** The HTML page rendered
+after a cancel still calls `getTenant()`, so its title and accent colour are Chocka's on every
+host. Unlike the SMS beside it, this one *does* have request context and should use
+`getRequestTenant()` — but note the early-return paths (missing params, bad hash, post not found)
+render the page before any user row is loaded, so a per-user resolution is not available there.
+Same class as the `/privacy` and `/terms` fix above. Small, and only visible after a retailer
+clicks cancel.
 
 ### Dashboard ROI renders `Infinity×` for a free tenant  [pre-pilot — blocks first dashboard]
 **Context:** `app/dashboard/page.tsx:24` computes
@@ -228,6 +247,318 @@ reuse `lib/secrets.ts` and the same `v1.` envelope rather than inventing a secon
 note the harness would then need `SECRET_ENCRYPTION_KEY` locally.
 
 **Related:** `SECRETS_AT_REST.md`, which explicitly scopes this file out.
+
+### Decide deliberately whether `chocka-app` should be a public repo  [deferred — decision, not a task]
+**Context:** `github.com/liamwt-12/chocka-app` is **public** (`visibility: public` from the GitHub
+API, unauthenticated). Discovered 2026-07-30 while deciding whether to commit retailer contact
+details. It was probably never a deliberate choice — quite likely a GitHub default that was never
+revisited — and it had not been factored into earlier "safe to commit?" judgements, which were made
+against an implicit private-repo standard. Nothing personal or secret is currently exposed:
+`scored.csv`, `.score-checkpoint.json` and `publicAudit.ts` were each re-checked on 2026-07-30 and
+carry no email, phone or credential, and `.env*` / `.gbp-tokens.json` are gitignored.
+
+**Why this needs a real decision rather than a reflex:** public changes the standard every future
+commit is judged against, and it changes it silently — the cost of a mistake is not a bad commit but
+a permanent disclosure that requires history rewrite, force-push, and treating the data as leaked.
+Things to weigh: whether the code is intended as a portfolio/reference artefact; that a public repo
+plus per-tenant customer data in Supabase is a combination worth thinking about explicitly; that
+`SECRETS_AT_REST.md`, `MULTI_TENANCY_PLAN.md` and this file describe the architecture, threat model
+and known weaknesses of a live product in some detail; and, on the other side, that flipping to
+private removes the backup-visibility and any incidental credibility benefit.
+
+**Not urgent because:** nothing sensitive is exposed today, and the immediate trigger (the retailer
+contacts) was resolved on its own terms — see `scripts/source-data/README.md`.
+
+**When picked up:** decide the posture first, then re-audit against whichever standard is chosen.
+If it stays public, add the "this repo is public" test to the habit for new files. If it goes
+private, note that history is already public and treat anything already pushed as disclosed
+regardless.
+
+**Related:** `scripts/source-data/README.md` (the public-repo test, and the retailer contacts
+decision that surfaced this).
+
+## Deferred — Stellar retailer baseline
+
+Both deliberately left out of the 2026-07-29 import day, for stated reasons rather than time.
+
+### Badge UI — no page exists to build it against  [deferred — build on real data]
+**Context:** `lib/retailer-score.ts` resolves which score to display and which badge to show
+(`audited` for batch, `connected` for live), with `BADGE_LABEL` / `BADGE_DESCRIPTION` copy and 14
+tests. Nothing renders it. There is no retailer-facing page anywhere in this repo — `retailers` is a
+brand-new table and the app's existing pages are all for connected users looking at their own
+profile.
+
+**Why deferred:** building a page before the data exists means designing against 180 imagined rows.
+The interesting cases are concrete and only visible once imported — the 8 zero-score `Invisible`
+retailers, the 36 `review`-confidence rows that need qualifying, the three duplicate pairs that will
+appear as two near-identical entries, and eventually the first retailer holding both a batch and a
+live score at once. A layout that handles those honestly is easier to get right in front of them
+than from a description.
+
+**Fix when picked up:** build against the imported data. `resolveRetailerScore()` already returns
+everything a component needs — `score`, `band`, `source`, `badge`, `scoredAt`, `supersededBatchScore`,
+`needsVerification`. Note it deliberately exposes **no** delta or trend field, and a test asserts
+those stay absent: batch and live are different measurements and must not be drawn as one series.
+`supersededBatchScore` is there so a caller can say "previously audited at N" as a separate,
+differently-labelled statement — not as movement.
+
+### `score_source` / `scored_at` on `profiles`  [deferred — ALTER on a live table]
+**Context:** the day's scope said add `score_source` and `scored_at` to "whatever holds scores".
+That was done for the new `retailers` and `score_history` tables. It was **not** done for
+`profiles.audit_score` / `audit_score_after`, which is where the live score lives.
+
+**Why deferred:** it is an `ALTER TABLE` on a live production table carrying every connected user's
+profile, which deserves to be a deliberate act rather than a side effect of an import day. Nothing
+currently needs it: `resolveRetailerScore()` takes the live score as an argument, so precedence works
+off a join without either column existing. The only thing lost meanwhile is knowing *when* a live
+audit ran — `profiles.updated_at` is a poor proxy, since any profile write moves it.
+
+**Fix when picked up:** `alter table public.profiles add column if not exists score_source text`,
+same for `scored_at timestamptz`, written as a proper migration — and note this table is already
+part of the known drift below, so capture its real current definition from `information_schema`
+first rather than assuming. Backfill `score_source='live'` where `audit_score` is not null. Use the
+same column names as `retailers` so the precedence query reads the same against both.
+
+## Hard rule — LIFTED 2026-07-30, with conditions
+
+### The baseline is now quotable as "mean 75.3 across 169 verified of 177 distinct retailers"  [rule — superseded, conditions below]
+
+**Lifted 2026-07-30** after the verification in `scripts/source-data/MATCH_VERIFICATION.md`. The rule
+below is kept for the reasoning; these are the terms that replace it.
+
+**What may be said externally:** mean **75.3**, median **81.0**, across **169 verified** retailers out
+of **177 distinct** businesses. Band mix 52.1% Strong, 37.9% OK, 5.9% Needs work, 0.6% At risk, 3.6%
+Invisible. Defensible band 72.3 – 75.3, so treat the mean as ±1.5.
+
+**Four conditions, all mandatory:**
+
+1. **Never say 180.** Three `place_id` duplicates mean it is **177 distinct businesses**. Both rows of
+   each pair stay in the database for traceability, but no external figure says 180.
+2. **Say 169 verified, and be able to explain the other 8** — 7 rows whose matched profile was proven
+   to be a different business and whose true score is unknown, plus 1 permanently closed. They are
+   excluded, not hidden. Zeroing them instead gives 72.3, which is the floor of the band.
+3. **Never present this number next to an in-app score.** It is `publicAudit.scorePlace` — 3 public
+   signals — and is not comparable to `lib/audit.scoreProfile` (14 signals, OAuth) or
+   `refresh-scores.calculateChockaScore` (10 signals). Three incomparable scales; see
+   `scripts/source-data/README.md`.
+4. **Date-stamp it 2026-06-21**, the baseline generation date, and note that two of the 169 scores
+   (`Sams Carpet and Flooring Ltd` 98, `Beccles Carpet Centre` 91) are 2026-07-30 re-scores after
+   correcting false zeros. Immaterial at 2/169, but say "as at" if either is quoted alone.
+
+**Known soft spot:** the 27 `review` rows judged "same business" were each confirmed from a single
+Places Details lookup, not the deep candidate-list check the 9 suspects received. Probably right, not
+checked to the same standard. Re-running all 169 would close both this and condition 4.
+
+### Known limitation — verification coverage of the 169 is uneven, and 129 rows were never re-checked  [known limitation — accepted 2026-07-30, not a task]
+**What it is.** "169 verified" describes three different standards of evidence, not one:
+
+| Standard | n | What was actually done |
+|---|---:|---|
+| **Deep** — full `searchText` candidate list | **15** | Alternatives to the matched profile were visible and compared. The 5 short-name `high` rows, the 2 retained suspects, and all 8 `NOT FOUND`. |
+| **Light** — single Places Details lookup | **25** | The matched profile's name and address were read and judged, but a *better* match the original run might have missed would not have been visible. |
+| **None** | **129** | `high` rows, trusted because both arms passed in the original run. Not re-fetched at all. |
+
+The 25 is the surviving part of the 27 `review` rows judged "same business" — one was de-duplicated
+out (`Northumbria Flooring & Furniture`, North Shields) and one is the closed business (`Winnens
+1929 ltd`).
+
+**The 129 is the larger exposure, and it is the one that was never named.** The earlier framing worried
+about the 25; the 129 is five times bigger. It rests entirely on "both arms passed" being trustworthy
+— and the defects logged under *Deferred — the batch matcher* show both arms can fail independently:
+defect 3 hands jaccard 0.67 to any `Tees Valley X Ltd`, and defect 4 fires the postcode arm on any
+neighbour sharing a business-park postcode. A row where *both* failed together would land in `high`
+and would not have been looked at.
+
+**Why it is nevertheless accepted.** Both arms agreeing is materially stronger than either alone, and
+the one deliberate probe into that population — the 5 short-name `high` rows, chosen precisely
+because they were the weakest names in it — came back **clean at jaccard 1.00 with exact postcode
+hits**. That is real evidence, but it is 5 of 134, so it bounds nothing.
+
+**Consequence for the stated confidence.** The band **72.3 – 75.3 (±1.5)** reflects the *treatment
+choice* for the 7 unverifiable rows. It does **not** quantify verification risk in the 129 or the 25,
+which is unmeasured. These are two different uncertainties and should not be conflated when the number
+is defended.
+
+**What would close it.** One pass of `searchText` over all 169 with the full candidate list — the same
+standard the 15 got. Also removes the two-date inconsistency in condition 4 above. Worth doing before
+any second baseline, or if Tarkett pushes on methodology; not required to stand behind 75.3 today.
+
+**Honest framing if it comes up:** 75.3 rests on 169 matches — 15 verified to a deep standard, 25 to a
+lighter one, and 129 inherited from the original run's both-arms-passed test. Nothing in the 154 is
+known to be wrong, and none of it has been independently confirmed either.
+
+### Superseded — no mean or average from the pre-launch baseline goes to Tarkett or anywhere external  [rule — until the review bucket is resolved]
+**Set 2026-07-29, deliberately, before the import.** The 180-row `scored.csv` baseline (generated
+2026-06-21) may be imported, stored, displayed per-retailer, and used as score-history row one. What
+it may **not** do is produce an aggregate — mean, average, "X% are Strong", band breakdown — that is
+quoted to Tarkett, put in a deck, or used in any external communication, until the match-confidence
+problems below are resolved.
+
+**Why:** `match_confidence` reads like a quality gradient but is really "how many of two crude tests
+passed" — name similarity, and whether the retailer's postcode appears in the candidate's address
+(`classifyMatch` in `lib/publicAudit.ts`). Two specific defects make the aggregate untrustworthy:
+
+- **36 rows are `review`** — exactly one arm matched, and *which* arm is not recorded anywhere (not
+  in `scored.csv`, not in `.score-checkpoint.json`). "Name matched, postcode didn't" is usually the
+  right business at a moved address. "Postcode matched, name didn't" may be a *completely different
+  business* at the same postcode, scored and filed under a Tarkett retailer. These are indistinguishable
+  without re-fetching each candidate's name and address (~36 Places Details calls).
+- **Five three-letter names sit in the `high` bucket** — `AMA`, `JSR`, `MS`, `RMD`, `EBR`, all of which
+  normalise to three characters once the trade words are stripped. The name normaliser removes
+  `flooring|floors|carpet(s)`, which on a flooring-retailer list deletes most of the distinguishing
+  signal. A three-character token plus a postcode hit is weak evidence, and unlike the `review` rows
+  nothing flags it — these count at full weight.
+
+**Also known:** 8 rows are `NOT FOUND` and carry a hard 0, pulling the mean from 76.9 (found only) to
+73.5 (all). Of those, only `Elvet Flooring Solutions` has a demonstrable data defect — it is the one
+row of 180 with no postcode in source, so `postcodeMatches` returns false unconditionally and one of
+the two arms is structurally dead. The others appear to be genuine absences from Google. An earlier
+reading blamed the `Floooring` typo in `Thompsons Floooring`; that was wrong — `Hudspeth Floooring`
+carries the identical typo and scored 68 at `high`, because `classifyMatch` also passes when one
+normalised name *contains* the other.
+
+**Lifting the rule requires:** re-verifying the 36 `review` rows (record which arm matched), and
+spot-checking the five short-name `high` rows. Then the aggregate can be recomputed and quoted.
+
+**Both were done 2026-07-30 — and the rule still stands.** Full record in
+`scripts/source-data/MATCH_VERIFICATION.md`, raw evidence in
+`scripts/source-data/match-verification-2026-07-30.json`. Summary:
+
+- **The five short names are clean.** All five matched an *exact* candidate name (jaccard 1.00), not
+  the substring fallback, with a full postcode hit and the right town. They count at full weight.
+  The worry was justified in principle — `ms` would falsely pass against `Image Flooring Chelmsford`
+  — but it did not fire.
+- **The 36 split 18 `NAME_ONLY` / 18 `POSTCODE_ONLY`, and 9 of them are probably the wrong
+  business.** Worst: `Floor Store U.K` (91, 114 reviews) is scoring `Floor Giants Swansea`;
+  `Amtico Flooring Installations` (81, 87 reviews) is scoring `Balham Flooring Studio`;
+  `Floortek Supplies` matched `Grange Farm Industrial Est`, which is not a business.
+- **The name arm is not safe either.** `Tees Valley Flooring` → `Tees Valley Joinery Ltd` passed on
+  jaccard 0.67, i.e. as a *strong* match, because stripping the trade words leaves shared place-name
+  tokens. The earlier framing treated `POSTCODE_ONLY` as the dangerous arm; both are.
+- **New defect — an empty normalised candidate name matches everything.** `publicAudit.ts:221` guards
+  `na` but not `nb`, so `na.includes('')` is always true. `The Carpet Company` strips to `''` and
+  matched `The Flooring and Carpet shop`. `nameSimilarity` guards this at `:193`; `classifyMatch`
+  does not.
+- **Three source-postcode defects.** `29891` Elvet blank → **DH1 5QU** (three sources agree; not
+  PAF-verified at house-number level, and Tarkett's own page has no postcode either). `29658`
+  `CA1 25N` is **not a valid postcode** → `CA1 2SN`, which is exactly the candidate's address, making
+  that row a *false* `review`. `29705` `NE24 5 SU` is valid but sits in Blyth, Northumberland,
+  contradicting the row's own town of North Shields. Corrections are recorded, **not applied** to
+  `retailers-locations.csv`.
+- **One row is a closed business.** `Winnens 1929 ltd` matches the right company, but
+  `businessStatus: CLOSED_PERMANENTLY`.
+
+**So the blocker changed shape.** It is no longer a missing verification; it is a decision about how
+to treat 9 suspect rows, the 8 hard zeros and 1 closed business. Treatments span **73.5 – 77.4**:
+73.5 all-180 as imported, 73.8 less the suspects, 76.9 less the zeros, 77.4 less both. The suspects
+barely move the mean (+0.3) because they sit near it — the damage is to *per-retailer* credibility,
+which no aggregate treatment fixes. The 8 zeros are what move the number, and Elvet is a known false
+negative among them.
+
+## Deferred — the batch matcher (`scripts/source-data/publicAudit.ts`)
+
+Found 2026-07-30 while verifying the baseline. **Recorded, deliberately not fixed.** `publicAudit.ts`
+is archived byte-identical to the original as the record of how the 2026-06-21 baseline was produced
+(see `scripts/source-data/README.md`) — editing it in place would destroy that. These fixes belong in
+a **port**, if and when the batch scorer is productised. Full evidence:
+`scripts/source-data/MATCH_VERIFICATION.md`.
+
+### `classifyMatch` has four defects, two of which produce hard false zeros  [deferred — fix in a port, not in the archived file]
+
+All four live in `classifyMatch` / `normaliseName` (`publicAudit.ts:176-227`). Ordered by damage done.
+
+**Defect 1 — an apostrophe destroys name similarity, and can produce a hard 0.** `normaliseName`
+maps `[^a-z0-9]+` to a space, so a possessive splits into a stem plus a singleton `s` that never
+intersects the unpossessed form:
+
+```
+row       'Sams Carpet and Flooring Ltd' -> 'sams and'     tokens {sams, and}
+candidate "Sam's Carpets and Flooring"   -> 'sam s and'     tokens {sam, s, and}
+intersection {and}   union {and, s, sam, sams}   jaccard 0.25   (needs 0.60)
+```
+
+This is the worst single defect found. `Sams Carpet and Flooring Ltd` (id `29932`) is at
+*Unit 5 James Watt Place, East Kilbride G74 5HQ*; the real profile is *Sam's Carpets and Flooring,
+5 James Watt Pl, East Kilbride G74 5HG* — **same street, same unit number**. The postcode arm also
+failed, on the single character `Q` vs `G`. Both arms down, so the row took `NOT FOUND` and a hard
+**0** — for a business with **4.9★ and 275 reviews** that re-scores to **98 (Strong)**. Three other
+possessive names on the list (`Ashley Cooke's …` ×2, `Steve's Carpets`) only escaped because their
+candidates carried the apostrophe too and tokenised identically.
+*Fix:* strip apostrophes before splitting (`replace(/['’]/g, '')` ahead of the `[^a-z0-9]+` pass), and
+do not let a single-character token count toward the union. Consider a fuzzy postcode compare, or
+fall back to the row's lat/lng when the postcode is one edit away.
+
+**Defect 2 — an empty normalised candidate name matches everything.** `nameStrong` at `:221` guards
+`na` (`na.length > 0`) but never `nb`:
+
+```
+row       'The Flooring and Carpet shop' -> na = 'and shop'
+candidate 'The Carpet Company'           -> nb = ''        (every token is in the strip-list)
+na.includes(nb) === 'and shop'.includes('') === true       -> nameStrong
+```
+
+`nameSimilarity` *is* guarded against this — `:193` returns 0 on an empty token set — so the two
+halves of the same test disagree. On a flooring list any candidate named purely from the strip-list
+(`The Carpet Company`, `Carpets Ltd`, `The Flooring Co`) normalises to empty and matches every row it
+is offered. Hit 1 of the 41 rows re-checked.
+*Fix:* require `nb.length > 0` in the same clause, i.e. `na && nb && (nb.includes(na) || na.includes(nb))`.
+
+**Defect 3 — the trade-word strip-list deletes the distinguishing signal on this list.** `:180`
+removes `flooring|floors|carpets?` — on a list of *flooring retailers* that is most of the name, and
+what remains is often a shared place name:
+
+```
+'Tees Valley Flooring'  -> 'tees valley'
+'Tees Valley Joinery Ltd' -> 'tees valley joinery'
+jaccard 0.67  -> passes as a STRONG name match, against a joinery
+```
+
+Note this passed the jaccard arm, not the substring fallback — so the "strong" path is not safe
+either. It also collapses distinct businesses to identical strings: `Trinity Carpets` (Cannock),
+`Trinity Carpets` (Tipton) and `Trinity Flooring` (Kent) all normalise to `trinity`.
+*Fix:* do not strip trade words for the *similarity* computation; strip them only to decide which
+tokens are low-weight. TF-IDF or IDF-style weighting over the 180-name corpus would be a better fit
+than a fixed strip-list — or require agreement on at least one non-strip-list token.
+
+**Defect 4 — the postcode arm is near-worthless on shared business-park postcodes.** `postcodeMatches`
+(`:201-205`) asks only whether the row's postcode appears in the candidate's address. On an
+industrial estate many unrelated businesses share one postcode, so the arm fires on a neighbour:
+
+- `SA7 9AH` (Swansea Enterprise Park) holds at least **two** flooring businesses — `Floor Giants
+  Swansea` (119 reviews) and `Budget Carpet & Flooring Centres ltd` (207 reviews). Row
+  `Floor Store U.K` was matched to the first at **jaccard 0.17**, scored 91, and is in neither.
+- `TS2 1RP` is shared by two rows *within the list itself* — `Tees Valley Flooring` and
+  `Wilkinsons Flooring`.
+
+*Fix:* treat a postcode hit as corroborating rather than sufficient — require some name signal too,
+or compare distance from the row's lat/lng, which the source data already carries and which
+`findPlace` already passes as a `locationBias` but never uses to verify.
+
+### Source-data defects behind three of the bad rows  [deferred — data, not code]
+
+Recorded but **not applied** to `retailers-locations.csv`, which stays byte-identical to source apart
+from the two scrubbed email cells.
+
+| id | Row | In source | Should be | Note |
+|---|---|---|---|---|
+| `29891` | Elvet Flooring Solutions | *(blank)* | `DH1 5QU` | Absent, not a typo. Three sources agree; house number 8 inferred, not PAF-verified. Tarkett's own store page has no postcode either, so the gap is upstream. |
+| `29658` | Home Carpets by Neil Mcbrearty | `CA1 25N` | `CA1 2SN` | Digit `5` typed for letter `S`. `CA1 25N` is **not a valid postcode**. `CA1 2SN` is exactly the candidate's address, so this row is a *false* `review`. |
+| `29705` | Northumbria Flooring & Furniture (North Shields) | `NE24 5 SU` | *(needs a decision)* | Valid, but `NE24` is **Blyth, Northumberland**, not North Shields. There is a **separate Blyth row** of the same name scoring 93 — the postcode looks copied from the wrong branch. |
+
+### The 180 rows are 177 distinct businesses  [deferred — affects any count quoted to Tarkett]
+
+Three pairs share a `place_id`, i.e. the same Google profile was scored twice, and each pair's score
+is double-weighted in any aggregate:
+
+| place_id | Rows | Score |
+|---|---|---|
+| `ChIJMd9zKcqbfkgR-7IbH2_YIMU` | `Burts Carpets of Darlington` + `Burts of Darlington` (both DL1 1LA) | 85 |
+| `ChIJRT9AZcKTfkgRys-1ZE2lij0` | `Flooring Developments` + `Flooring Developments LTD` (both DL1 4PH) | 68 |
+| `ChIJoUuuF3FvfkgR7-3O3kaADvY` | `Northumbria Flooring` + `Northumbria Flooring & Furniture` (both North Shields) | 63 |
+
+De-duplicating does not move the mean (73.5 either way, since each pair scores identically) but it
+does change the **count**. "We audited 180 retailers" is wrong; it is 177 distinct businesses, and
+one of those is permanently closed.
 
 ## Deferred — schema drift
 

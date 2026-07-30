@@ -3,14 +3,13 @@ import { supabaseAdmin } from '@/lib/supabase';
 import { verifyCronSecret, unauthorizedResponse } from '@/lib/cron';
 import { refreshAccessToken, createLocalPost } from '@/lib/google';
 import { sendSMS, logSMS } from '@/lib/twilio';
-import { getTenant } from '@/lib/tenant';
+import { getTenantForRow } from '@/lib/tenant';
 import { decryptSecret, userTokenAad } from '@/lib/secrets';
 
 export async function GET(request: NextRequest) {
   if (!verifyCronSecret(request)) return unauthorizedResponse();
 
   try {
-    const t = getTenant();
     // Get all pending posts that are due
     const { data: pendingPosts } = await supabaseAdmin
       .from('scheduled_posts')
@@ -18,7 +17,7 @@ export async function GET(request: NextRequest) {
         *,
         profiles!inner (
           *,
-          users:user_id (*)
+          users:user_id ( *, tenants ( slug ) )
         )
       `)
       .eq('status', 'pending_approval')
@@ -30,6 +29,9 @@ export async function GET(request: NextRequest) {
       const profile = post.profiles;
       const user = profile?.users;
       if (!user || !profile) continue;
+
+      // Per post, not per run — one pass serves every tenant.
+      const t = getTenantForRow(user);
 
       try {
         // Refresh Google access token

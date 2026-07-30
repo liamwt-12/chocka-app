@@ -3,13 +3,12 @@ import { supabaseAdmin } from '@/lib/supabase';
 import { verifyCronSecret, unauthorizedResponse, getActiveUsersWithProfiles } from '@/lib/cron';
 import { sendEmail, monthlyReportEmail } from '@/lib/email';
 import { sendSMS, logSMS } from '@/lib/twilio';
-import { getTenant } from '@/lib/tenant';
+import { getTenantForRow } from '@/lib/tenant';
 
 export async function GET(request: NextRequest) {
   if (!verifyCronSecret(request)) return unauthorizedResponse();
 
   try {
-    const t = getTenant();
     const users = await getActiveUsersWithProfiles(supabaseAdmin);
     const now = new Date();
     const lastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
@@ -20,6 +19,9 @@ export async function GET(request: NextRequest) {
     for (const user of users) {
       const profile = user.profiles?.[0];
       if (!profile || !user.email) continue;
+
+      // Per user, not per run — one pass serves every tenant.
+      const t = getTenantForRow(user);
 
       try {
         // Count posts published last month
@@ -61,7 +63,9 @@ export async function GET(request: NextRequest) {
             reviewsReplied: reviewsReplied || 0,
             totalViews,
             totalCalls,
+            tenant: t,
           }),
+          tenant: t,
         });
 
         // After 4+ weeks, send one-time referral nudge
