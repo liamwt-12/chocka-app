@@ -6,6 +6,8 @@ import {
   inviteExpiresAt,
   isInviteExpired,
   checkInviteRedeemable,
+  signInviteRef,
+  parseInviteRef,
   DEFAULT_TTL_DAYS,
 } from './invite-token';
 
@@ -166,6 +168,78 @@ describe('isInviteExpired', () => {
       expect(isInviteExpired(v as string, now)).toBe(true);
     },
   );
+});
+
+describe('signInviteRef / parseInviteRef', () => {
+  const ID = '3f7c1c2e-9a4b-4d1e-8c2f-0b7a6d5e4c3b';
+
+  it('round-trips an invite id', () => {
+    expect(parseInviteRef(signInviteRef(ID))).toBe(ID);
+  });
+
+  it('puts the id in front of a 64-hex signature', () => {
+    const ref = signInviteRef(ID);
+    expect(ref.startsWith(`${ID}.`)).toBe(true);
+    expect(ref.slice(ID.length + 1)).toMatch(/^[0-9a-f]{64}$/);
+  });
+
+  // The whole point of signing: a tampered id must not verify.
+  it('rejects a ref whose id was swapped for another', () => {
+    const other = '11111111-2222-3333-4444-555555555555';
+    const forged = `${other}.${signInviteRef(ID).split('.')[1]}`;
+    expect(parseInviteRef(forged)).toBeNull();
+  });
+
+  it('rejects a tampered signature', () => {
+    const ref = signInviteRef(ID);
+    const flipped = ref.slice(0, -1) + (ref.endsWith('a') ? 'b' : 'a');
+    expect(parseInviteRef(flipped)).toBeNull();
+  });
+
+  it('rejects a ref signed under a different secret', () => {
+    const ref = signInviteRef(ID);
+    process.env.CANCEL_HASH_SECRET = OTHER_SECRET;
+    expect(parseInviteRef(ref)).toBeNull();
+    process.env.CANCEL_HASH_SECRET = SECRET;
+  });
+
+  // A token hash must not verify as a ref, nor vice versa, even though one secret
+  // signs both. This is what the differing namespaces buy.
+  it('does not accept a token hash as a signature', () => {
+    const token = generateInviteToken();
+    expect(parseInviteRef(`${ID}.${hashInviteToken(token)}`)).toBeNull();
+  });
+
+  it('does not accept a ref signature as a token hash', () => {
+    const sig = signInviteRef(ID).split('.')[1];
+    expect(verifyInviteToken(ID, sig)).toBe(false);
+  });
+
+  it.each([
+    ['null', null],
+    ['undefined', undefined],
+    ['empty', ''],
+    ['no separator', 'abcdef'],
+    ['separator only', '.'],
+    ['empty id', `.${'a'.repeat(64)}`],
+    ['empty signature', `${ID}.`],
+    ['short signature', `${ID}.abc`],
+    ['non-hex signature', `${ID}.${'z'.repeat(64)}`],
+  ])('returns null for %s', (_label, ref) => {
+    expect(parseInviteRef(ref as string)).toBeNull();
+  });
+
+  it('refuses to sign an empty id, or one containing the separator', () => {
+    expect(() => signInviteRef('')).toThrow(/refusing to sign an empty invite id/);
+    expect(() => signInviteRef('has.a.dot')).toThrow(/must not contain/);
+  });
+
+  it('propagates a missing secret rather than returning null', () => {
+    const ref = signInviteRef(ID);
+    delete process.env.CANCEL_HASH_SECRET;
+    expect(() => parseInviteRef(ref)).toThrow(/CANCEL_HASH_SECRET is not set/);
+    expect(() => signInviteRef(ID)).toThrow(/CANCEL_HASH_SECRET is not set/);
+  });
 });
 
 describe('checkInviteRedeemable', () => {

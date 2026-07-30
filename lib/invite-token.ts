@@ -145,6 +145,75 @@ export function isInviteExpired(expiresAt: string | Date | null | undefined, now
   return t <= now.getTime();
 }
 
+// ── Carrying the invite through Google OAuth ─────────────────────────────────
+//
+// After acceptance the retailer is sent to Google, and something has to survive
+// that round trip so the callback knows which invite they came from. That
+// something is the OAuth `state` parameter, which lib/google.ts already accepts
+// and app/api/auth/callback/google already round-trips as `{ action, plan }`.
+//
+// WHY NOT A COOKIE. A pre-auth cookie would have to be SameSite=Lax to survive a
+// cross-site top-level redirect back from Google. That probably works — but
+// `state` is round-tripped by the OAuth spec itself, so using it removes the
+// question instead of leaving it resting on browser behaviour nobody tested.
+//
+// WHAT TRAVELS. The invite's id and an HMAC of it. NEVER the token: `state` goes
+// through Google's systems, server logs and browser history, and a token there
+// would be a credential in three places it has no business being. The id is a
+// uuid — not a secret — so the signature is doing integrity, not confidentiality:
+// without it, anyone could edit `state` to nominate a different retailer's invite
+// and have their Google account linked to it.
+//
+// The namespace differs from the token's on purpose. A token hash must not verify
+// as a ref, nor a ref as a token hash, even though one secret signs both.
+
+const REF_NAMESPACE = 'invite-ref';
+const REF_SEPARATOR = '.';
+
+function refMac(inviteId: string): string {
+  return createHmac('sha256', loadSecret()).update(`${REF_NAMESPACE}:${inviteId}`).digest('hex');
+}
+
+/** `<inviteId>.<hmac>` — safe to put in an OAuth state parameter. */
+export function signInviteRef(inviteId: string): string {
+  if (typeof inviteId !== 'string' || inviteId.length === 0) {
+    throw new Error('signInviteRef: refusing to sign an empty invite id.');
+  }
+  if (inviteId.includes(REF_SEPARATOR)) {
+    // A uuid never contains '.', so this is a bug rather than input to tolerate —
+    // and tolerating it would make the split below ambiguous.
+    throw new Error(`signInviteRef: invite id must not contain '${REF_SEPARATOR}': ${inviteId}`);
+  }
+  return `${inviteId}${REF_SEPARATOR}${refMac(inviteId)}`;
+}
+
+/**
+ * The invite id from a signed ref, or null if it is absent, malformed or the
+ * signature does not verify.
+ *
+ * Returns null rather than throwing for bad input, because this parses a value
+ * that came back through Google and is therefore attacker-influenced. A missing
+ * secret still throws, as everywhere else in this module.
+ *
+ * The caller MUST still load the invite and re-check it. A valid signature proves
+ * only that this id was issued by us, not that the invite is still pending,
+ * unexpired or unclaimed.
+ */
+export function parseInviteRef(ref: string | null | undefined): string | null {
+  if (typeof ref !== 'string' || ref.length === 0) return null;
+  const cut = ref.lastIndexOf(REF_SEPARATOR);
+  if (cut <= 0 || cut === ref.length - 1) return null;
+
+  const inviteId = ref.slice(0, cut);
+  const presented = ref.slice(cut + 1);
+  if (presented.length !== HASH_HEX_LENGTH || !/^[0-9a-f]+$/.test(presented)) return null;
+
+  const expected = Buffer.from(refMac(inviteId), 'hex');
+  const actual = Buffer.from(presented, 'hex');
+  if (expected.length !== actual.length) return null;
+  return timingSafeEqual(expected, actual) ? inviteId : null;
+}
+
 export interface InviteRedeemability {
   redeemable: boolean;
   /** Machine-readable reason when not redeemable, for logging and tests. */
