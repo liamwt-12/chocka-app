@@ -14,6 +14,9 @@ Nothing in the running app imports from this directory.
 | `.score-checkpoint.json` | The same 180 rows keyed by Tarkett's own store id. |
 | `publicAudit.ts` | The scorer that produced the CSV (`scorePlace`, `classifyMatch`). |
 | `retailers-locations.csv` | The scraper's source list, **contact details removed**. Postcodes and lat/lng for the match-verification task. See below. |
+| `MATCH_VERIFICATION.md` | The 2026-07-30 re-verification of the 36 `review` rows and the five short-name `high` rows. |
+| `match-verification-2026-07-30.json` | Raw per-row evidence behind that record — 41 Places lookups. |
+| `verify-matches.py` | The script that produced it. Reads `GOOGLE_PLACES_API_KEY` from the environment. |
 
 ## This repository is public
 
@@ -89,9 +92,19 @@ The untouched original, contact details included, is in an encrypted backup outs
 ### It is not the source for Elvet's postcode
 
 `retailers.csv` has 179 postcodes, not 180. The blank one is **`29891` Elvet Flooring Solutions,
-8 Winchester Road, Durham** — the very row the verification task needs to fix. That postcode has to
-come from somewhere else (Places lookup on `54.801440, -1.562990`, Royal Mail, or Tarkett's own
-store page). Committing the contacts would not have helped.
+8 Winchester Road, Durham** — the very row the verification task needs to fix. That postcode had to
+come from somewhere else. Committing the contacts would not have helped.
+
+**Resolved 2026-07-30: `DH1 5QU`.** OSM forward search on the road, OSM reverse geocode at the row's
+own `54.801440, -1.562990`, and streetcheck all agree, and OSM returns only one postcode for that
+road. Caveat: house number 8 is *inferred*, not PAF-verified — OSM has no house-number data for
+Winchester Road. Tarkett's own store page for `29891` carries no postcode either, so the gap
+originates upstream, not in the scrape. Do not use the Companies House registered office
+(`NE32 3DT`, Jarrow) — that is a formation agent, not the shop.
+
+Two further postcode defects turned up in the same sweep — see `MATCH_VERIFICATION.md`. None of the
+three corrections have been applied to `retailers-locations.csv`, which stays byte-identical to
+source apart from the two scrubbed email cells.
 
 ## Related
 

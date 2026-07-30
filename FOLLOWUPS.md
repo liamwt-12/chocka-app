@@ -354,6 +354,41 @@ normalised name *contains* the other.
 **Lifting the rule requires:** re-verifying the 36 `review` rows (record which arm matched), and
 spot-checking the five short-name `high` rows. Then the aggregate can be recomputed and quoted.
 
+**Both were done 2026-07-30 — and the rule still stands.** Full record in
+`scripts/source-data/MATCH_VERIFICATION.md`, raw evidence in
+`scripts/source-data/match-verification-2026-07-30.json`. Summary:
+
+- **The five short names are clean.** All five matched an *exact* candidate name (jaccard 1.00), not
+  the substring fallback, with a full postcode hit and the right town. They count at full weight.
+  The worry was justified in principle — `ms` would falsely pass against `Image Flooring Chelmsford`
+  — but it did not fire.
+- **The 36 split 18 `NAME_ONLY` / 18 `POSTCODE_ONLY`, and 9 of them are probably the wrong
+  business.** Worst: `Floor Store U.K` (91, 114 reviews) is scoring `Floor Giants Swansea`;
+  `Amtico Flooring Installations` (81, 87 reviews) is scoring `Balham Flooring Studio`;
+  `Floortek Supplies` matched `Grange Farm Industrial Est`, which is not a business.
+- **The name arm is not safe either.** `Tees Valley Flooring` → `Tees Valley Joinery Ltd` passed on
+  jaccard 0.67, i.e. as a *strong* match, because stripping the trade words leaves shared place-name
+  tokens. The earlier framing treated `POSTCODE_ONLY` as the dangerous arm; both are.
+- **New defect — an empty normalised candidate name matches everything.** `publicAudit.ts:221` guards
+  `na` but not `nb`, so `na.includes('')` is always true. `The Carpet Company` strips to `''` and
+  matched `The Flooring and Carpet shop`. `nameSimilarity` guards this at `:193`; `classifyMatch`
+  does not.
+- **Three source-postcode defects.** `29891` Elvet blank → **DH1 5QU** (three sources agree; not
+  PAF-verified at house-number level, and Tarkett's own page has no postcode either). `29658`
+  `CA1 25N` is **not a valid postcode** → `CA1 2SN`, which is exactly the candidate's address, making
+  that row a *false* `review`. `29705` `NE24 5 SU` is valid but sits in Blyth, Northumberland,
+  contradicting the row's own town of North Shields. Corrections are recorded, **not applied** to
+  `retailers-locations.csv`.
+- **One row is a closed business.** `Winnens 1929 ltd` matches the right company, but
+  `businessStatus: CLOSED_PERMANENTLY`.
+
+**So the blocker changed shape.** It is no longer a missing verification; it is a decision about how
+to treat 9 suspect rows, the 8 hard zeros and 1 closed business. Treatments span **73.5 – 77.4**:
+73.5 all-180 as imported, 73.8 less the suspects, 76.9 less the zeros, 77.4 less both. The suspects
+barely move the mean (+0.3) because they sit near it — the damage is to *per-retailer* credibility,
+which no aggregate treatment fixes. The 8 zeros are what move the number, and Elvet is a known false
+negative among them.
+
 ## Deferred — schema drift
 
 ### `users.tenant_id` and `profiles.tenant_id` exist in production with no migration  [latent risk — not blocking]
