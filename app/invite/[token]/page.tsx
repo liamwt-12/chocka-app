@@ -22,7 +22,10 @@ import Button from '@/components/Button';
 interface InviteRow {
   id: string;
   status: string | null;
+  /** "Clicked at least once" — recorded for the funnel, never a gate. */
   accepted_at: string | null;
+  /** The real "used" signal: set only once a retailer has been linked. */
+  user_id: string | null;
   expires_at: string | null;
   token_hash: string | null;
   retailers: {
@@ -50,7 +53,7 @@ async function loadInvite(token: string): Promise<InviteRow | null> {
   const { data, error } = await supabaseAdmin
     .from('retailer_invites')
     .select(
-      'id,status,accepted_at,expires_at,token_hash,' +
+      'id,status,accepted_at,user_id,expires_at,token_hash,' +
         'retailers ( name, town, score, band, scored_at, match_confidence )',
     )
     .eq('token_hash', hashInviteToken(token))
@@ -115,11 +118,14 @@ export default async function InvitePage({ params }: { params: { token: string }
         />
       );
     }
-    if (check.reason === 'already-accepted') {
+    // Reached only once a retailer has actually been linked — not merely because
+    // someone pressed the button once. An abandoned attempt at Google leaves the
+    // invite redeemable, so the retailer can simply open the link again.
+    if (check.reason === 'already-claimed') {
       return (
         <DeadEnd
           title="This invite has already been used"
-          body="If you have already connected your Google Business Profile, sign in instead."
+          body="This retailer is already connected. Sign in to pick up where you left off."
           action={
             <Button href="/login" size="lg" className="w-full">
               Sign in

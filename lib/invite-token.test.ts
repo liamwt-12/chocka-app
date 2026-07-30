@@ -247,7 +247,8 @@ describe('checkInviteRedeemable', () => {
   const token = generateInviteToken();
   const pending = () => ({
     status: 'pending',
-    accepted_at: null,
+    accepted_at: null as string | null,
+    user_id: null as string | null,
     expires_at: '2026-08-29T09:00:00.000Z',
     token_hash: hashInviteToken(token),
   });
@@ -263,12 +264,38 @@ describe('checkInviteRedeemable', () => {
     });
   });
 
-  // The single-use gate. accepted_at is checked before status so a row that was
-  // accepted but whose status update failed still cannot be replayed.
-  it('refuses an already-accepted invite even if status still says pending', () => {
+  // THE REGRESSION THIS EXISTS TO PREVENT.
+  //
+  // Gating on accepted_at burned a real invite on 2026-07-30: a retailer clicked
+  // Connect, stalled at Google's passkey prompt, never signed in, and came back to
+  // "already been used". accepted_at means "clicked at least once" and must never
+  // block a retry. Only user_id — set after an actual link — may.
+  it('STILL redeems an invite that was clicked but never completed at Google', () => {
     expect(
-      checkInviteRedeemable({ ...pending(), accepted_at: '2026-07-29T10:00:00.000Z' }, token, now),
-    ).toEqual({ redeemable: false, reason: 'already-accepted' });
+      checkInviteRedeemable({ ...pending(), accepted_at: '2026-07-30T10:47:02.000Z' }, token, now),
+    ).toEqual({ redeemable: true });
+  });
+
+  it('redeems after several abandoned attempts', () => {
+    const abandoned = { ...pending(), accepted_at: '2026-07-30T10:47:02.000Z' };
+    for (let i = 0; i < 3; i++) {
+      expect(checkInviteRedeemable(abandoned, token, now).redeemable).toBe(true);
+    }
+  });
+
+  // The real single-use gate: a retailer has been linked.
+  it('refuses an invite whose user_id is set', () => {
+    expect(
+      checkInviteRedeemable({ ...pending(), user_id: 'a-user-id' }, token, now),
+    ).toEqual({ redeemable: false, reason: 'already-claimed' });
+  });
+
+  // user_id is checked before status, so a linked invite whose status update failed
+  // still cannot be replayed.
+  it('refuses a claimed invite even if status still says pending', () => {
+    expect(
+      checkInviteRedeemable({ ...pending(), status: 'pending', user_id: 'a-user-id' }, token, now),
+    ).toEqual({ redeemable: false, reason: 'already-claimed' });
   });
 
   it('refuses a revoked invite', () => {
@@ -281,6 +308,18 @@ describe('checkInviteRedeemable', () => {
   it('refuses an expired invite', () => {
     expect(
       checkInviteRedeemable({ ...pending(), expires_at: '2026-07-01T00:00:00.000Z' }, token, now),
+    ).toEqual({ redeemable: false, reason: 'expired' });
+  });
+
+  // An abandoned attempt does NOT rescue an expired invite — the 30-day window is
+  // still the outer bound on retries.
+  it('refuses an expired invite even if it was clicked earlier', () => {
+    expect(
+      checkInviteRedeemable(
+        { ...pending(), accepted_at: '2026-07-02T00:00:00.000Z', expires_at: '2026-07-01T00:00:00.000Z' },
+        token,
+        now,
+      ),
     ).toEqual({ redeemable: false, reason: 'expired' });
   });
 
@@ -302,5 +341,15 @@ describe('checkInviteRedeemable', () => {
         now,
       ),
     ).toEqual({ redeemable: false, reason: 'expired' });
+  });
+
+  it('reports already-claimed ahead of expiry, so a used invite never reads as expired', () => {
+    expect(
+      checkInviteRedeemable(
+        { ...pending(), user_id: 'a-user-id', expires_at: '2026-07-01T00:00:00.000Z' },
+        token,
+        now,
+      ),
+    ).toEqual({ redeemable: false, reason: 'already-claimed' });
   });
 });

@@ -358,9 +358,13 @@ async function linkInviteToUser(
       return;
     }
 
+    // user_id AND status together: this is the moment the invite is genuinely used.
+    // The accept route no longer moves status — it only stamps accepted_at — because
+    // marking an invite spent at button-press burned real invites when Google was
+    // abandoned mid-flow. See lib/invite-token.
     const { error: inviteError } = await supabaseAdmin
       .from('retailer_invites')
-      .update({ user_id: userId, updated_at: new Date().toISOString() })
+      .update({ user_id: userId, status: 'accepted', updated_at: new Date().toISOString() })
       .eq('id', inviteId)
       .is('user_id', null);
 
