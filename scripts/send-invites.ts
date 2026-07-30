@@ -36,7 +36,9 @@
  *   npx tsx --env-file=.env.local scripts/send-invites.ts --source-ref 29438 --commit
  */
 import { createClient } from '@supabase/supabase-js';
-import { generateInviteToken, hashInviteToken, inviteExpiresAt, DEFAULT_TTL_DAYS } from '../lib/invite-token';
+import {
+  generateInviteToken, hashInviteToken, inviteExpiresAt, signUnsubscribeRef, DEFAULT_TTL_DAYS,
+} from '../lib/invite-token';
 import { getTenantBySlug } from '../lib/tenant';
 import { resolveRetailerScore } from '../lib/retailer-score';
 import { sendEmail, retailerInviteEmail, retailerInviteSubject } from '../lib/email';
@@ -110,6 +112,16 @@ async function main() {
     byRetailer.get(inv.retailer_id)!.push(inv);
   }
 
+  // Anyone who has opted out. Checked before anything is minted or sent — a
+  // suppression that only bites at send time still creates an invite row for
+  // someone who has said no.
+  const { data: suppressed, error: supErr } = await db
+    .from('email_suppressions')
+    .select('email');
+  if (supErr) throw new Error(`suppression query failed: ${supErr.message}`);
+  const suppressedEmails = new Set((suppressed ?? []).map((s: any) => String(s.email).toLowerCase()));
+  if (suppressedEmails.size) console.log(`suppression list      : ${suppressedEmails.size} address(es)`);
+
   const skipped: string[] = [];
   const targets: Row[] = [];
   for (const r of retailers) {
@@ -117,6 +129,7 @@ async function main() {
     if (SUPPRESSED[r.source_ref]) { skipped.push(`${r.name}: SUPPRESSED — ${SUPPRESSED[r.source_ref]}`); continue; }
     if (r.user_id) { skipped.push(`${r.name}: already connected`); continue; }
     if (!r.contact_email) { skipped.push(`${r.name}: no contact_email`); continue; }
+    if (suppressedEmails.has(r.contact_email.toLowerCase())) { skipped.push(`${r.name}: UNSUBSCRIBED`); continue; }
     if (invites.some((i) => i.sent_at)) { skipped.push(`${r.name}: already sent`); continue; }
     targets.push(r);
   }
@@ -190,7 +203,9 @@ async function main() {
       retailerName: r.name, town: r.town,
       score: showScore ? resolved.score : null,
       band: showScore ? resolved.band : null,
-      inviteUrl, tenant,
+      inviteUrl,
+      unsubscribeUrl: `${tenant.appUrl}/unsubscribe/${signUnsubscribeRef(r.id)}`,
+      tenant,
     });
 
     const ok = await sendEmail({ to: r.contact_email!, subject, html, tenant });

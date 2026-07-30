@@ -197,6 +197,8 @@ export function retailerInviteEmail(params: {
   score?: number | null;
   band?: string | null;
   inviteUrl: string;
+  /** Token-based opt-out. PECR reg 23 requires a working route, every message. */
+  unsubscribeUrl: string;
   tenant?: Tenant;
 }): string {
   const t = params.tenant ?? getTenant();
@@ -235,9 +237,9 @@ export function retailerInviteEmail(params: {
 
     <p style="font-size: 13px; color: #999; margin: 24px 0 0; line-height: 1.6;">Takes about a minute. It's free while we're piloting with Tarkett retailers. This link is just for ${params.retailerName} and works for 30 days.</p>
 
-    <p style="font-size: 13px; color: #bbb; margin: 16px 0 0; line-height: 1.6;">Not interested? Ignore this and you won't hear from us again.</p>
+    <p style="font-size: 12px; color: #bbb; margin: 24px 0 0; line-height: 1.6;">${t.brandName} is operated by ${t.legalEntity}. We got your business contact details from Tarkett's public store locator. Read how we handle them in our <a href="${t.appUrl}/privacy" style="color: #bbb; text-decoration: underline;">privacy notice</a>.</p>
 
-    <p style="font-size: 12px; color: #bbb; margin: 12px 0 0; line-height: 1.6;">${t.brandName} is operated by ${t.legalEntity}. Reply to this email to be removed from the list.</p>
+    <p style="font-size: 12px; color: #bbb; margin: 8px 0 0; line-height: 1.6;">Don't want these? <a href="${params.unsubscribeUrl}" style="color: #bbb; text-decoration: underline;">Unsubscribe</a> and we won't contact you again.</p>
   `, t);
 }
 

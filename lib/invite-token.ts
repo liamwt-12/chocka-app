@@ -322,3 +322,49 @@ export function checkInviteRedeemable(
   }
   return { redeemable: true };
 }
+
+// ── Unsubscribe ──────────────────────────────────────────────────────────────
+//
+// A signed reference to a retailer, so an unsubscribe link carries no email
+// address in the URL and cannot be edited to opt someone else out. Same HMAC
+// construction as the invite ref, with its own namespace so neither can be
+// replayed as the other.
+
+const UNSUB_NAMESPACE = 'unsubscribe-ref';
+
+function unsubMac(retailerId: string): string {
+  return createHmac('sha256', loadSecret()).update(`${UNSUB_NAMESPACE}:${retailerId}`).digest('hex');
+}
+
+/** `<retailerId>.<hmac>` — safe to put in an unsubscribe URL. */
+export function signUnsubscribeRef(retailerId: string): string {
+  if (typeof retailerId !== 'string' || retailerId.length === 0) {
+    throw new Error('signUnsubscribeRef: refusing to sign an empty retailer id.');
+  }
+  if (retailerId.includes(REF_SEPARATOR)) {
+    throw new Error(`signUnsubscribeRef: retailer id must not contain '${REF_SEPARATOR}'`);
+  }
+  return `${retailerId}${REF_SEPARATOR}${unsubMac(retailerId)}`;
+}
+
+/**
+ * The retailer id from a signed unsubscribe ref, or null if absent, malformed or
+ * unverified. Tolerates transport whitespace for the same reason the invite token
+ * does — an unsubscribe link that fails because an email client wrapped it is a
+ * link that did not work when someone was trying to say no.
+ */
+export function parseUnsubscribeRef(ref: string | null | undefined): string | null {
+  const cleaned = normaliseInviteToken(ref);
+  if (!cleaned) return null;
+  const cut = cleaned.lastIndexOf(REF_SEPARATOR);
+  if (cut <= 0 || cut === cleaned.length - 1) return null;
+
+  const retailerId = cleaned.slice(0, cut);
+  const presented = cleaned.slice(cut + 1);
+  if (presented.length !== HASH_HEX_LENGTH || !/^[0-9a-f]+$/.test(presented)) return null;
+
+  const expected = Buffer.from(unsubMac(retailerId), 'hex');
+  const actual = Buffer.from(presented, 'hex');
+  if (expected.length !== actual.length) return null;
+  return timingSafeEqual(expected, actual) ? retailerId : null;
+}
