@@ -5,6 +5,7 @@ import { exchangeCodeForTokens, getManageableListings, getGoogleAuthUrl } from '
 import { getTenantBySlug } from '@/lib/tenant';
 import { PRIMARY_TENANT_SLUG } from '@/lib/tenant-registry';
 import { encryptSecret, isEncrypted, userTokenAad } from '@/lib/secrets';
+import { parseInviteRef } from '@/lib/invite-token';
 
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
@@ -32,7 +33,16 @@ export async function GET(request: NextRequest) {
 
   // Step 1: No code yet — redirect to Google consent
   if (!code) {
-    const state = JSON.stringify({ action, plan });
+    // A retailer arriving from /api/invite/accept carries ?invite=<id>.<hmac>.
+    // Folded into state so it survives the trip to Google and back — see
+    // lib/invite-token for why state rather than a pre-auth cookie.
+    //
+    // Spread conditionally, so with no invite present the state string stays
+    // byte-identical to what every existing sign-in has always produced. This
+    // path is shared by all current users; the invite flow must add a field, not
+    // change the shape.
+    const inviteRef = searchParams.get('invite');
+    const state = JSON.stringify({ action, plan, ...(inviteRef ? { invite: inviteRef } : {}) });
     return NextResponse.redirect(getGoogleAuthUrl(state, redirectUri));
   }
 
@@ -140,6 +150,11 @@ export async function GET(request: NextRequest) {
              : '/no-profile';
       }
 
+      // A returning retailer can still be arriving from an invite — they may have
+      // signed up previously, or accepted, abandoned, and come back later. Runs
+      // after everything above has succeeded, so it cannot affect the sign-in.
+      await linkInviteToUser(parsedState.invite, existingUser.id, tenant.slug);
+
       const response = NextResponse.redirect(new URL(dest, baseUrl));
       response.cookies.set('chocka_user_id', existingUser.id, {
         httpOnly: true,
@@ -222,6 +237,10 @@ export async function GET(request: NextRequest) {
                : result === 'select' ? `/onboarding?select=1&plan=${plan}`
                : '/no-profile';
 
+    // The invited-retailer case this whole flow exists for. Last thing before the
+    // response, after the user row and the credential are safely in place.
+    await linkInviteToUser(parsedState.invite, newUser.id, tenant.slug);
+
     const response = NextResponse.redirect(new URL(dest, baseUrl));
     response.cookies.set('chocka_user_id', newUser.id, {
       httpOnly: true,
@@ -234,6 +253,180 @@ export async function GET(request: NextRequest) {
   } catch (err) {
     console.error('Auth callback error:', err);
     return NextResponse.redirect(new URL('/login?error=auth_failed', baseUrl));
+  }
+}
+
+/**
+ * Link a retailer to the user who just connected, when they arrived from an invite.
+ *
+ * NEVER THROWS. Every failure logs and returns. This runs after a sign-in has
+ * already succeeded, and an invite that fails to link is a recoverable nuisance —
+ * an account that fails to be created is not. If this returns without linking, the
+ * invite is left with accepted_at set and user_id null, which is exactly the state
+ * those two separate columns exist to express: accepted, not yet claimed. It can be
+ * reconciled later without the retailer redoing anything.
+ *
+ * WHAT IT DELIBERATELY DOES NOT DO: write users.tenant_id. The new-user path above
+ * sets that from the Host and comments emphatically that the other paths must not
+ * touch it, because re-tagging on sign-in would silently move a retailer between
+ * brands and take every future email with it. An invite always arrives on its
+ * tenant's own host, so the Host-derived value is already right; writing it again
+ * from the invite would add a second rule for the same field. A disagreement is
+ * logged loudly and otherwise ignored.
+ */
+async function linkInviteToUser(
+  inviteRef: unknown,
+  userId: string,
+  hostTenantSlug: string,
+): Promise<void> {
+  try {
+    if (typeof inviteRef !== 'string' || inviteRef.length === 0) return; // ordinary sign-in
+
+    const inviteId = parseInviteRef(inviteRef);
+    if (!inviteId) {
+      // Signature did not verify. Either tampering, or a secret rotation that
+      // invalidated refs already in flight.
+      console.error('Invite link: state carried an invite ref that failed to verify');
+      return;
+    }
+
+    const { data: invite, error } = await supabaseAdmin
+      .from('retailer_invites')
+      .select('id,retailer_id,accepted_at,user_id,status,tenants ( slug ),retailers ( name, town )')
+      .eq('id', inviteId)
+      .maybeSingle();
+
+    if (error) {
+      console.error(`Invite link: lookup failed for ${inviteId}: ${error.message}`);
+      return;
+    }
+    if (!invite) {
+      console.error(`Invite link: no invite row for ${inviteId}`);
+      return;
+    }
+
+    // Surface 2 sets accepted_at before sending the retailer to Google, so an
+    // unaccepted invite here means the accept route was bypassed.
+    if (!invite.accepted_at) {
+      console.error(`Invite link: invite ${inviteId} reached the callback without being accepted`);
+      return;
+    }
+
+    if (invite.user_id) {
+      if (invite.user_id === userId) {
+        // Replayed callback, or the retailer refreshed. Already done.
+        console.log(`Invite link: invite ${inviteId} already linked to this user`);
+      } else {
+        console.error(`Invite link: invite ${inviteId} is already claimed by another user`);
+      }
+      return;
+    }
+
+    const inviteTenantSlug = (invite as any).tenants?.slug;
+    if (inviteTenantSlug && inviteTenantSlug !== hostTenantSlug) {
+      // Not fatal, and deliberately not corrected — see the note above about
+      // tenant_id having exactly one source of truth.
+      console.error(
+        `Invite link: invite ${inviteId} belongs to tenant "${inviteTenantSlug}" but was completed on "${hostTenantSlug}"`,
+      );
+    }
+
+    // Claim the retailer FIRST. It is the scarce side — retailers.user_id carries a
+    // partial unique index where user_id is not null — so if anything is going to
+    // fail it fails here, before the invite has been marked as claimed. Doing it the
+    // other way round could leave an invite pointing at a user who owns no retailer.
+    //
+    // `.is('user_id', null)` means a retailer already claimed yields zero rows
+    // rather than being reassigned.
+    const { data: claimedRetailer, error: retailerError } = await supabaseAdmin
+      .from('retailers')
+      .update({ user_id: userId, updated_at: new Date().toISOString() })
+      .eq('id', invite.retailer_id)
+      .is('user_id', null)
+      .select('id,name,town');
+
+    if (retailerError) {
+      // The likeliest cause is the unique index: this user is already linked to a
+      // different retailer.
+      console.error(
+        `Invite link: could not claim retailer ${invite.retailer_id} for user ${userId}: ${retailerError.message}`,
+      );
+      return;
+    }
+    if (!claimedRetailer || claimedRetailer.length === 0) {
+      console.error(`Invite link: retailer ${invite.retailer_id} is already claimed by another user`);
+      return;
+    }
+
+    const { error: inviteError } = await supabaseAdmin
+      .from('retailer_invites')
+      .update({ user_id: userId, updated_at: new Date().toISOString() })
+      .eq('id', inviteId)
+      .is('user_id', null);
+
+    if (inviteError) {
+      // Retailer is linked but the invite is not. Harmless for the retailer, who is
+      // connected either way, but it breaks the funnel record — hence the shout.
+      console.error(
+        `Invite link: retailer ${invite.retailer_id} was claimed but invite ${inviteId} could not be updated: ${inviteError.message}`,
+      );
+      return;
+    }
+
+    console.log(`Invite link: retailer ${invite.retailer_id} linked to user ${userId} via invite ${inviteId}`);
+    await warnOnProfileMismatch(userId, claimedRetailer[0]);
+  } catch (err) {
+    console.error('Invite link: unexpected failure, sign-in unaffected:', err);
+  }
+}
+
+/**
+ * Log when the Google profile a retailer connected does not look like the retailer
+ * they were invited as — e.g. they accepted Elvet's invite and connected their own
+ * unrelated business.
+ *
+ * LOG ONLY, NEVER BLOCK. A retailer is not going to be turned away from their own
+ * onboarding on the strength of a string comparison. It is also genuinely weak:
+ * bindManageableListing does not store a place_id (only google_location_name,
+ * business_name, address and lat/lng), and `retailers` carries no coordinates, so
+ * name and town are all there is to compare. Storing profiles.google_place_id at
+ * bind time would make a real check possible; that touches the path every signup
+ * takes and is tracked separately rather than folded in here.
+ *
+ * Nothing to compare is not a mismatch: `select` and `no_profile` outcomes bind no
+ * profile at all, and those cases return quietly.
+ */
+async function warnOnProfileMismatch(
+  userId: string,
+  retailer: { id: string; name: string; town: string | null },
+): Promise<void> {
+  const { data: profile } = await supabaseAdmin
+    .from('profiles')
+    .select('business_name,address')
+    .eq('user_id', userId)
+    .maybeSingle();
+
+  if (!profile?.business_name) return;
+
+  const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+  // Arrays rather than Sets: this repo targets es5, where spreading a Set needs
+  // downlevelIteration. Duplicates are irrelevant to a "share any token" test.
+  // Tokens of 3+ chars only, so "of", "and" and initials cannot carry a match.
+  const tokens = (s: string) => norm(s).split(' ').filter((t) => t.length > 2);
+
+  const invited = tokens(retailer.name);
+  const connected = tokens(profile.business_name);
+  const nameLooksRight = invited.some((t) => connected.indexOf(t) !== -1);
+
+  const townLooksRight =
+    !retailer.town || norm(profile.address || '').includes(norm(retailer.town));
+
+  if (!nameLooksRight || !townLooksRight) {
+    console.error(
+      `Invite link: possible mismatch on retailer ${retailer.id} — invited as ` +
+        `"${retailer.name}" (${retailer.town ?? 'no town'}) but connected profile is ` +
+        `"${profile.business_name}" (${profile.address ?? 'no address'}). Linked anyway; review.`,
+    );
   }
 }
 
