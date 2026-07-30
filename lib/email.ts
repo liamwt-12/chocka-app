@@ -204,12 +204,18 @@ export function retailerInviteEmail(params: {
   const showScore = typeof params.score === 'number';
   const where = params.town ? ` in ${params.town}` : '';
 
+  // NO BAND LABEL, DELIBERATELY. The bands are "Strong", "OK", "Needs work" and
+  // "At risk" — every one of them is a verdict, and three of the four are a poor
+  // thing to open with in a cold email to a stranger about their own business. The
+  // number alone is a measurement; the label is a judgement. Callers may still pass
+  // `band`, and it is ignored here on purpose rather than removed from the type, so
+  // the omission reads as a decision rather than an oversight.
   const hook = showScore
     ? `
       <div style="background: #F0EDE8; border-left: 3px solid ${brand}; border-radius: 0 12px 12px 0; padding: 20px 20px 20px 18px; margin-bottom: 28px;">
         <div style="font-size: 11px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: ${brand}; margin-bottom: 10px;">Your Google presence</div>
         <div style="font-size: 40px; font-weight: 700; line-height: 1; color: #1A1A1A; margin-bottom: 6px;">${params.score}<span style="font-size: 18px; color: #999; font-weight: 400;">/100</span></div>
-        <p style="font-size: 14px; line-height: 1.6; margin: 0; color: #555;">${params.band ? `${params.band}. ` : ''}Based on what a customer searching for you right now can actually see &mdash; your rating, your reviews, and how complete your listing is.</p>
+        <p style="font-size: 14px; line-height: 1.6; margin: 0; color: #555;">That's what a customer searching for you right now can actually see &mdash; your rating, how many reviews you have, and how complete your listing is. Most of it is quick to move.</p>
       </div>`
     : `
       <div style="background: #F0EDE8; border-left: 3px solid ${brand}; border-radius: 0 12px 12px 0; padding: 20px 20px 20px 18px; margin-bottom: 28px;">
@@ -218,7 +224,7 @@ export function retailerInviteEmail(params: {
 
   return emailWrapper(`
     <p style="font-size: 15px; line-height: 1.6; margin: 0 0 6px;">Hello ${params.retailerName},</p>
-    <p style="font-size: 15px; line-height: 1.6; margin: 0 0 28px; color: #555;">You're getting this because you're a Tarkett stockist${where}. ${t.brandName} is a new service from Tarkett that helps their retailers get found on Google.</p>
+    <p style="font-size: 15px; line-height: 1.6; margin: 0 0 28px; color: #555;">You're getting this because you're a Tarkett stockist${where}. ${t.brandName} is a service Tarkett has set up for its stockists, to help them get found on Google.</p>
 
     ${hook}
 
@@ -230,6 +236,8 @@ export function retailerInviteEmail(params: {
     <p style="font-size: 13px; color: #999; margin: 24px 0 0; line-height: 1.6;">Takes about a minute. It's free while we're piloting with Tarkett retailers. This link is just for ${params.retailerName} and works for 30 days.</p>
 
     <p style="font-size: 13px; color: #bbb; margin: 16px 0 0; line-height: 1.6;">Not interested? Ignore this and you won't hear from us again.</p>
+
+    <p style="font-size: 12px; color: #bbb; margin: 12px 0 0; line-height: 1.6;">${t.brandName} is operated by ${t.legalEntity}. Reply to this email to be removed from the list.</p>
   `, t);
 }
 

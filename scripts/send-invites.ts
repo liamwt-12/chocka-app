@@ -42,6 +42,22 @@ import { resolveRetailerScore } from '../lib/retailer-score';
 import { sendEmail, retailerInviteEmail, retailerInviteSubject } from '../lib/email';
 
 const TENANT_SLUG = 'stellar';
+
+/**
+ * Retailers excluded from sending, by source_ref, with the reason.
+ *
+ * Not a config file and not a database column on purpose: each entry is a specific
+ * factual problem with that row, and it should be read — and argued with — by
+ * whoever next runs this.
+ */
+const SUPPRESSED: Record<string, string> = {
+  // Two independent signals say this row does not describe the business it names.
+  // Its Places match was Balham Flooring Studio, an unrelated firm sharing the
+  // SW12 9AZ postcode (2026-07-30 verification), AND Tarkett's own contact_email
+  // for the row is balhamflooringstudio@gmail.com. Emailing it would cold-contact
+  // the wrong company about a score that is not theirs.
+  '30261': 'Amtico Flooring Installations Limited — row describes/contacts a different business',
+};
 /** ~1.7 sends/sec, under Resend's ~2/sec. 176 retailers ≈ 105 seconds. */
 const PAUSE_MS = 600;
 
@@ -98,6 +114,7 @@ async function main() {
   const targets: Row[] = [];
   for (const r of retailers) {
     const invites = byRetailer.get(r.id) ?? [];
+    if (SUPPRESSED[r.source_ref]) { skipped.push(`${r.name}: SUPPRESSED — ${SUPPRESSED[r.source_ref]}`); continue; }
     if (r.user_id) { skipped.push(`${r.name}: already connected`); continue; }
     if (!r.contact_email) { skipped.push(`${r.name}: no contact_email`); continue; }
     if (invites.some((i) => i.sent_at)) { skipped.push(`${r.name}: already sent`); continue; }
