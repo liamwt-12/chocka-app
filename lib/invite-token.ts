@@ -99,7 +99,25 @@ export function generateInviteToken(): string {
  */
 export function normaliseInviteToken(raw: string | null | undefined): string {
   if (typeof raw !== 'string') return '';
-  return raw.replace(/\s+/g, '');
+
+  // Percent-decode FIRST. Next's App Router does not decode dynamic route params,
+  // so a wrapped link arrives as the literal text "%20" rather than a space — and
+  // stripping /\s+/ from that does nothing at all. Stripping whitespace alone was
+  // shipped on 2026-07-30 and did not fix the reported failure for exactly this
+  // reason.
+  //
+  // A valid base64url token contains no '%', so decoding is a no-op for clean
+  // input. decodeURIComponent throws on a malformed escape (a bare '%'), which is
+  // untrusted input rather than a fault, so fall back to the raw string and let the
+  // hash comparison reject it.
+  let s = raw;
+  try {
+    s = decodeURIComponent(s);
+  } catch {
+    s = raw;
+  }
+
+  return s.replace(/\s+/g, '');
 }
 
 /**

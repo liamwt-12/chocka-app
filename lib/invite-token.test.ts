@@ -45,12 +45,48 @@ describe('normaliseInviteToken', () => {
   // The exact shape that locked a real retailer out on 2026-07-30: three spaces
   // injected before the last three characters, almost certainly a line wrap in
   // whatever carried the link. 46 characters instead of 43.
+  const GOOD = 'NBHSflj6rekbVDytKXNMMU4rOl4JZqs4C6ImZbYiKOU';
+
   it('recovers the real-world failure: three spaces injected near the end', () => {
-    const good = 'NBHSflj6rekbVDytKXNMMU4rOl4JZqs4C6ImZbYiKOU';
     const mangled = 'NBHSflj6rekbVDytKXNMMU4rOl4JZqs4C6ImZbYi   KOU';
     expect(mangled).toHaveLength(46);
-    expect(normaliseInviteToken(mangled)).toBe(good);
+    expect(normaliseInviteToken(mangled)).toBe(GOOD);
     expect(normaliseInviteToken(mangled)).toHaveLength(43);
+  });
+
+  // THE CASE THE FIRST FIX MISSED.
+  //
+  // Next's App Router hands dynamic route params over still percent-encoded, so the
+  // page received the literal text "%20%20%20" — and stripping /\s+/ from that is a
+  // no-op. Shipping the whitespace strip alone did not fix the reported failure.
+  // Decoding has to happen first.
+  it('recovers the SAME failure when it arrives still percent-encoded', () => {
+    const encoded = 'NBHSflj6rekbVDytKXNMMU4rOl4JZqs4C6ImZbYi%20%20%20KOU';
+    expect(encoded).toContain('%20');
+    expect(normaliseInviteToken(encoded)).toBe(GOOD);
+  });
+
+  it.each([
+    ['encoded space', '%20'],
+    ['encoded tab', '%09'],
+    ['encoded newline', '%0A'],
+    ['encoded CRLF', '%0D%0A'],
+  ])('strips an %s', (_label, esc) => {
+    expect(normaliseInviteToken(`${GOOD.slice(0, 20)}${esc}${GOOD.slice(20)}`)).toBe(GOOD);
+  });
+
+  // A bare '%' makes decodeURIComponent throw. That is untrusted input, not a
+  // fault: fall back to the raw string and let the hash comparison reject it.
+  it('does not throw on a malformed percent escape', () => {
+    expect(() => normaliseInviteToken('abc%zz')).not.toThrow();
+    expect(() => normaliseInviteToken('100%')).not.toThrow();
+    expect(normaliseInviteToken('100%')).toBe('100%');
+  });
+
+  it('leaves a clean token untouched even though it now decodes first', () => {
+    expect(normaliseInviteToken(GOOD)).toBe(GOOD);
+    // base64url includes '-' and '_', neither of which percent-decoding touches.
+    expect(normaliseInviteToken('a-b_c')).toBe('a-b_c');
   });
 
   it.each([
