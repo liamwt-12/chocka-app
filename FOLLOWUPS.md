@@ -621,6 +621,65 @@ one of those is permanently closed.
 
 ## Deferred — retailer invite flow
 
+### The generic `/login` route is open on the Stellar host and produces an unlinked account  [deferred — decide before the pilot]
+**What it is.** There are two ways into Stellar Local today, not one. The invite link
+(`/invite/<token>`, delivered by email or handed over by a rep) is the intended route. But
+`app.stellarlocal.co.uk/login` also carries a live "Connect Google — see your score" button, which
+fires `/api/auth/callback/google?action=login&plan=…` with no token and no invite. It works: real
+OAuth, real Stellar-branded account.
+
+**Why that matters.** `linkInviteToUser` is the *only* code anywhere that sets `retailers.user_id`,
+and it runs only when a signed invite ref arrives in the OAuth `state`. There is no fallback matching
+— nothing reconciles a signup against `retailers` by email, `place_id` or business name. So the two
+routes produce materially different things:
+
+| Route | Result |
+|---|---|
+| `/invite/<token>` | account **+ retailer linked** + 2026-06-21 baseline score attached |
+| `/login` | account only — `retailers.user_id` stays null, baseline score not connected |
+
+The end state is a Stellar user and an unclaimed retailer row for the same business, with nothing
+joining them. The baseline the whole 2026-07-30 verification exists to defend is simply not attached
+to that retailer.
+
+**How reachable is it today:** `stellarlocal.co.uk` is live but contains **no link to the app** — no
+CTA, no "get started", no mention of invites. So the route is reachable only by someone who knows or
+guesses the app hostname. Not advertised, but not gated either. It matters for the rep-in-person
+case: a rep who hands over "stellarlocal.co.uk" rather than a minted invite link gets the retailer in
+by the wrong door.
+
+**Options when picked up:** gate `/login` on the Stellar host behind "you need an invite" with a
+contact route; or leave it open and rely on post-hoc linking below; or leave it open deliberately for
+self-serve retailers outside the Tarkett cohort, which is a positioning decision rather than a
+technical one.
+
+**Cheaper now than later.** Deciding this after fifty retailers have signed up by the wrong route
+means reconciling fifty accounts by hand.
+
+### Post-hoc linking, to rescue signups that arrive without an invite  [deferred — build eventually]
+**What it is.** A mechanism to attach an already-created user to their unclaimed `retailers` row when
+they did not come through an invite. Without it, any such signup is stranded: they have an account,
+we have their baseline score, and nothing connects the two.
+
+**Two candidate keys, both imperfect:**
+
+- **`place_id`** — the strongest signal, because it identifies the actual Google listing rather than a
+  name. Blocked on `profiles.google_place_id` being populated at bind time, which is its own deferred
+  decision above. 8 of 180 retailers have no `place_id` at all, so it can never be the only key.
+- **`contact_email`** vs the signup's Google account email — cheap, and works when a retailer signs up
+  with the same address Tarkett holds. Weak on its own: 71 of the addresses are role accounts
+  (`info@`, `sales@`) which one person may hold across several businesses, and 4 retailers have no
+  address at all.
+
+**Guardrails it will need:** the same `.is('user_id', null)` conditional claim the invite path uses, so
+a match cannot steal a retailer already linked; and the partial unique index on `retailers.user_id`
+already stops one user holding two retailers. A wrong automatic link is worse than no link — it
+attaches someone else's score and history to a real business — so anything below high confidence
+should queue for review rather than write.
+
+**Related:** `app/api/auth/callback/google/route.ts` (`linkInviteToUser`), and the
+`profiles.google_place_id` decision above, which unblocks the better of the two keys.
+
 ### Store `profiles.google_place_id` at bind time, so the invite mismatch check can be real  [deferred — decision, touches every signup]
 **Context:** `warnOnProfileMismatch` in `app/api/auth/callback/google/route.ts` exists to catch the
 case where a retailer accepts one invite and connects a different business — they open Elvet's invite
