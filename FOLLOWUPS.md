@@ -560,6 +560,53 @@ De-duplicating does not move the mean (73.5 either way, since each pair scores i
 does change the **count**. "We audited 180 retailers" is wrong; it is 177 distinct businesses, and
 one of those is permanently closed.
 
+## Deferred — retailer invite flow
+
+### Store `profiles.google_place_id` at bind time, so the invite mismatch check can be real  [deferred — decision, touches every signup]
+**Context:** `warnOnProfileMismatch` in `app/api/auth/callback/google/route.ts` exists to catch the
+case where a retailer accepts one invite and connects a different business — they open Elvet's invite
+and connect their own unrelated profile. The check it can actually perform is weak: it compares name
+tokens and town, because those are the only overlapping fields that exist.
+
+The check it *should* perform — does the connected profile's `place_id` match `retailers.place_id` — is
+not possible **at bind time**. `bindManageableListing` (same file) writes `google_account_id`,
+`google_location_name`, `business_name`, `category`, `address`, `latitude` and `longitude`, but not
+`google_place_id`. And `retailers` carries no coordinates — the lat/lng stayed in
+`scripts/source-data/retailers-locations.csv` and was never imported — so a geographic comparison is
+not available either.
+
+**The capability already exists elsewhere, which is the useful part.**
+`app/api/dashboard/route.ts:69-76` resolves a place id two ways — a regex over
+`location.metadata.mapsUri`, falling back to `findPlaceId(business_name, address)` from
+`lib/google.ts:383` — and caches the result onto `profiles.google_place_id`. So nothing new has to be
+invented; the resolution is written and working.
+
+What limits it is *when* it runs: that block is inside the dashboard's `revList.length === 0` fallback,
+so it only fires for profiles whose reviews did not come back from the Business Profile API. Verified
+2026-07-30: **1 of 6 production profiles has `google_place_id` set** (`Twenty First Century Herbs`),
+which is consistent with it being a conditional fallback rather than a standard part of onboarding.
+
+**Two ways to pick this up, and they differ in cost:**
+
+1. **Resolve at bind time** — call `findPlaceId` inside `bindManageableListing`. Gives a real mismatch
+   check at exactly the moment the invite flow wants one. Costs one extra Places call per signup, on a
+   path **every** signup takes, Chocka and Stellar alike. That blast radius is why it was not folded
+   into the invite commit.
+2. **Defer the check** — leave binding alone and re-run the mismatch comparison whenever
+   `google_place_id` later becomes known. No new cost, but the warning arrives after the retailer has
+   already onboarded, which may be too late to be worth much.
+
+If (1) turns out to need more than one call, or `findPlaceId` proves unreliable on retailer-style
+names, the name/town check may simply be the right permanent answer — in which case close this and
+record that.
+
+**Also worth deciding at the same time:** whether to import lat/lng onto `retailers` from
+`retailers-locations.csv`. It would give a distance check as a second signal, and 180 rows already have
+coordinates sitting in the repo unused.
+
+**Related:** `app/api/auth/callback/google/route.ts` (`warnOnProfileMismatch`, and the comment there
+saying the same thing), `scripts/source-data/retailers-locations.csv`.
+
 ## Deferred — schema drift
 
 ### `users.tenant_id` and `profiles.tenant_id` exist in production with no migration  [latent risk — partly resolved 2026-07-30]
