@@ -6,6 +6,7 @@ import {
   inviteExpiresAt,
   isInviteExpired,
   checkInviteRedeemable,
+  normaliseInviteToken,
   signInviteRef,
   parseInviteRef,
   DEFAULT_TTL_DAYS,
@@ -37,6 +38,52 @@ describe('generateInviteToken', () => {
   it('does not repeat', () => {
     const seen = new Set(Array.from({ length: 500 }, () => generateInviteToken()));
     expect(seen.size).toBe(500);
+  });
+});
+
+describe('normaliseInviteToken', () => {
+  // The exact shape that locked a real retailer out on 2026-07-30: three spaces
+  // injected before the last three characters, almost certainly a line wrap in
+  // whatever carried the link. 46 characters instead of 43.
+  it('recovers the real-world failure: three spaces injected near the end', () => {
+    const good = 'NBHSflj6rekbVDytKXNMMU4rOl4JZqs4C6ImZbYiKOU';
+    const mangled = 'NBHSflj6rekbVDytKXNMMU4rOl4JZqs4C6ImZbYi   KOU';
+    expect(mangled).toHaveLength(46);
+    expect(normaliseInviteToken(mangled)).toBe(good);
+    expect(normaliseInviteToken(mangled)).toHaveLength(43);
+  });
+
+  it.each([
+    ['leading space', ' abc'],
+    ['trailing space', 'abc '],
+    ['internal space', 'a bc'],
+    ['tab', 'a\tbc'],
+    ['newline', 'a\nbc'],
+    ['carriage return', 'a\r\nbc'],
+    ['non-breaking-ish run', 'a  \t\n bc'],
+  ])('strips %s', (_label, raw) => {
+    expect(normaliseInviteToken(raw)).toBe('abc');
+  });
+
+  it('leaves a clean token untouched, so normalising is idempotent', () => {
+    const t = generateInviteToken();
+    expect(normaliseInviteToken(t)).toBe(t);
+    expect(normaliseInviteToken(normaliseInviteToken(t))).toBe(t);
+  });
+
+  it('returns empty for nothing usable, rather than throwing', () => {
+    for (const v of [null, undefined, '', '   ', '\t\n']) {
+      expect(normaliseInviteToken(v as string)).toBe('');
+    }
+  });
+
+  // The safety argument: widening what we accept must not widen what matches.
+  it('a mangled token still verifies against the real hash, and a wrong one does not', () => {
+    const t = generateInviteToken();
+    const h = hashInviteToken(t);
+    const mangled = `${t.slice(0, 10)}  \n ${t.slice(10)}`;
+    expect(verifyInviteToken(normaliseInviteToken(mangled), h)).toBe(true);
+    expect(verifyInviteToken(normaliseInviteToken(`  ${generateInviteToken()}  `), h)).toBe(false);
   });
 });
 
