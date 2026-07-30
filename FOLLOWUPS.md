@@ -349,6 +349,44 @@ Invisible. Defensible band 72.3 – 75.3, so treat the mean as ±1.5.
 Places Details lookup, not the deep candidate-list check the 9 suspects received. Probably right, not
 checked to the same standard. Re-running all 169 would close both this and condition 4.
 
+### Known limitation — verification coverage of the 169 is uneven, and 129 rows were never re-checked  [known limitation — accepted 2026-07-30, not a task]
+**What it is.** "169 verified" describes three different standards of evidence, not one:
+
+| Standard | n | What was actually done |
+|---|---:|---|
+| **Deep** — full `searchText` candidate list | **15** | Alternatives to the matched profile were visible and compared. The 5 short-name `high` rows, the 2 retained suspects, and all 8 `NOT FOUND`. |
+| **Light** — single Places Details lookup | **25** | The matched profile's name and address were read and judged, but a *better* match the original run might have missed would not have been visible. |
+| **None** | **129** | `high` rows, trusted because both arms passed in the original run. Not re-fetched at all. |
+
+The 25 is the surviving part of the 27 `review` rows judged "same business" — one was de-duplicated
+out (`Northumbria Flooring & Furniture`, North Shields) and one is the closed business (`Winnens
+1929 ltd`).
+
+**The 129 is the larger exposure, and it is the one that was never named.** The earlier framing worried
+about the 25; the 129 is five times bigger. It rests entirely on "both arms passed" being trustworthy
+— and the defects logged under *Deferred — the batch matcher* show both arms can fail independently:
+defect 3 hands jaccard 0.67 to any `Tees Valley X Ltd`, and defect 4 fires the postcode arm on any
+neighbour sharing a business-park postcode. A row where *both* failed together would land in `high`
+and would not have been looked at.
+
+**Why it is nevertheless accepted.** Both arms agreeing is materially stronger than either alone, and
+the one deliberate probe into that population — the 5 short-name `high` rows, chosen precisely
+because they were the weakest names in it — came back **clean at jaccard 1.00 with exact postcode
+hits**. That is real evidence, but it is 5 of 134, so it bounds nothing.
+
+**Consequence for the stated confidence.** The band **72.3 – 75.3 (±1.5)** reflects the *treatment
+choice* for the 7 unverifiable rows. It does **not** quantify verification risk in the 129 or the 25,
+which is unmeasured. These are two different uncertainties and should not be conflated when the number
+is defended.
+
+**What would close it.** One pass of `searchText` over all 169 with the full candidate list — the same
+standard the 15 got. Also removes the two-date inconsistency in condition 4 above. Worth doing before
+any second baseline, or if Tarkett pushes on methodology; not required to stand behind 75.3 today.
+
+**Honest framing if it comes up:** 75.3 rests on 169 matches — 15 verified to a deep standard, 25 to a
+lighter one, and 129 inherited from the original run's both-arms-passed test. Nothing in the 154 is
+known to be wrong, and none of it has been independently confirmed either.
+
 ### Superseded — no mean or average from the pre-launch baseline goes to Tarkett or anywhere external  [rule — until the review bucket is resolved]
 **Set 2026-07-29, deliberately, before the import.** The 180-row `scored.csv` baseline (generated
 2026-06-21) may be imported, stored, displayed per-retailer, and used as score-history row one. What
