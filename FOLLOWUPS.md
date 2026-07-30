@@ -562,7 +562,23 @@ one of those is permanently closed.
 
 ## Deferred — schema drift
 
-### `users.tenant_id` and `profiles.tenant_id` exist in production with no migration  [latent risk — not blocking]
+### `users.tenant_id` and `profiles.tenant_id` exist in production with no migration  [latent risk — partly resolved 2026-07-30]
+**Update 2026-07-30 — the drift was wider than recorded, and the tracking half of it is now fixed.**
+`retailers` and `score_history` were also live in production with 180 rows each while their migration
+existed only on an unmerged branch, and the remote migration history table was **completely empty** —
+all four local migrations showed a blank `Remote` column. So `supabase db push` would have attempted
+every migration rather than the newest.
+
+Repaired with `supabase migration repair --status applied` for the three already-live versions, after
+which a `--dry-run` confirmed only `20260730120000` was pending. History now matches reality and
+`db push` is trustworthy. See `supabase/README.md` → "Migration history was repaired".
+
+**What is still outstanding:** the *schema* drift itself. `users.tenant_id` and `profiles.tenant_id`
+remain uncaptured by any migration, so this directory still does not reproduce production and a fresh
+environment will lack those columns. The repair fixed the bookkeeping, not the missing baseline.
+Writing that baseline is the remaining task.
+
+
 **Context:** found 2026-07-29 while planning per-user tenant resolution. Production has
 `users.tenant_id uuid` and `profiles.tenant_id uuid`, both fully populated (12/12 users and 6/6
 profiles pointing at the Chocka tenant `e4802656-…`). Neither column appears in any file under

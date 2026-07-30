@@ -114,6 +114,31 @@ create index if not exists retailer_invites_pending_expiry_idx
   on public.retailer_invites (expires_at)
   where status = 'pending';
 
+-- The retailer's contact address, as scraped from Tarkett's public store locator.
+--
+-- WHY THIS IS HERE AND NOT ONLY ON retailer_invites. An invite row cannot exist
+-- without a token_hash and an expires_at, so using retailer_invites.email as the
+-- store for 180 contacts would mean minting 180 tokens and starting 180 thirty-day
+-- clocks before a single email had been sent — which defeats retailer_invites.sent_at
+-- being nullable for exactly the prepare-then-review-then-send case. The two columns
+-- have genuinely different jobs:
+--
+--   retailers.contact_email      — where this retailer can be reached, now.
+--   retailer_invites.email       — the address an invite WAS sent to, frozen at
+--                                  send time even if the above changes later.
+--
+-- Nullable: 4 of the 180 source records have no email at all, and 2 more carry
+-- theirs misfiled into the source's `website` field (ids 29463 and 29690, both
+-- recovered on load — see scripts/source-data/README.md). A retailer without a
+-- contact is a real state, not an error, and must not need a sentinel.
+--
+-- This and retailer_invites.email are the only Tarkett retailer contact data in
+-- this database. Holding it in a private table for product operation is a
+-- different decision from committing it to the public repo, which was declined —
+-- see scripts/source-data/README.md for why the repo copy is stripped.
+alter table public.retailers
+  add column if not exists contact_email text;
+
 -- The retailer↔user link, set by the OAuth callback and not before. Nullable
 -- with no default, so every existing row is unaffected and an unclaimed
 -- retailer is simply null rather than needing a sentinel.
