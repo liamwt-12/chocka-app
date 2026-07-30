@@ -53,9 +53,30 @@ export async function GET(request: NextRequest) {
     // Verify the user actually granted the GBP scope — Google's granular consent
     // lets users uncheck individual scopes, and there's no point continuing without it.
     if (!tokens.scope || !tokens.scope.includes('business.manage')) {
-      console.log('OAuth granted scopes missing business.manage — redirecting to scope error');
+      // Log what Google ACTUALLY returned, not just that it was wrong.
+      //
+      // A real retailer hit this twice on 2026-07-30 and the previous one-line log
+      // could not distinguish "she left the Business Profile checkbox unticked" from
+      // "the scope was withheld for some other reason" — the two need completely
+      // different responses, and there was nothing recorded to tell them apart.
+      //
+      // Safe to log: a scope list is a set of permission URLs, not a credential.
+      // The access and refresh tokens are deliberately NOT logged, here or anywhere.
+      const granted = (tokens.scope || '').split(' ').filter(Boolean);
+      const field =
+        tokens.scope === undefined || tokens.scope === null ? 'ABSENT' : tokens.scope === '' ? 'EMPTY' : 'present';
+      console.error(
+        `[auth] business.manage NOT granted — sending to scope_missing. ` +
+          `scope field ${field}; ${granted.length} scope(s) granted: ${JSON.stringify(granted)}; ` +
+          `tenant=${tenant.slug}; state=${searchParams.get('state') ? 'present' : 'absent'}`,
+      );
       return NextResponse.redirect(new URL('/login?error=scope_missing', baseUrl));
     }
+
+    // The positive counterpart. Cheap, and it means a live log stream shows the
+    // gate being passed rather than only ever showing failures — otherwise silence
+    // is ambiguous between "not reached" and "passed quietly".
+    console.log(`[auth] business.manage granted; tenant=${tenant.slug}`);
 
     // Get user info from Google
     const userInfoRes = await fetch('https://www.googleapis.com/oauth2/v2/userinfo', {
@@ -452,6 +473,11 @@ type BindResult = 'onboarding' | 'select' | 'no_profile';
 //   'no_profile' — nothing manageable, show the no-profile screen
 async function bindManageableListing(userId: string, accessToken: string): Promise<BindResult> {
   const listings = await getManageableListings(accessToken);
+  // Says which of the three outcomes was taken and why. Without it, /no-profile and
+  // /onboarding are indistinguishable in the logs from a failure earlier in the
+  // flow, which is exactly the ambiguity that made the 2026-07-30 scope failure
+  // take three attempts to characterise.
+  console.log(`[auth] manageable listings found: ${listings.length}`);
   if (listings.length === 0) return 'no_profile';
   if (listings.length > 1) return 'select';
 
