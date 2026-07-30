@@ -190,21 +190,120 @@ three wrong matches:
 wrong matches push down, and they largely cancel. The count is the bigger correction: **177 distinct
 businesses, not 180**, one of them permanently closed.
 
-## What remains before the number is quotable
+## Round three — the two lookups, the remaining 5 suspects, and the final number
 
-1. **Confirm the two probable false zeros** — is `Beccles Home & Flooring` the renamed
-   `Beccles Carpet Centre`, and is the Yate `Multi-Save Capets` the same firm as the Bristol row?
-   Two lookups.
-2. **Decide `Carpet Cuts`** — business or site.
-3. **Decide the treatment** of the 3 confirmed-wrong rows: zero them, drop them, or re-match by
-   hand. This is a judgement call, not a verification gap.
-4. **Decide what "180" means** in anything said to Tarkett, given it is 177 distinct businesses.
-5. **Do not port the matcher as-is.** Four defects are recorded in `FOLLOWUPS.md` under
-   *Deferred — the batch matcher*; the two that produce hard false zeros (apostrophes, empty
-   normalised names) would keep producing them.
+### `Beccles Carpet Centre` — confirmed false zero
 
-The remaining five `NOT FOUND` rows are now positively verified as real absences rather than assumed
-ones, which is the part that most affects the aggregate.
+Decisive: a Places query on the business's *original* trading name returns the new profile as the
+only result.
+
+```
+"Beccles Carpet & Rug Centre, Beccles"  ->  Beccles Home & Flooring, 1 Common Ln N, NR34 9BN
+                                            4.7*, 126 reviews, OPERATIONAL
+```
+
+Local press confirms the Gosford Road shop moved to Common Lane North (opposite Lidl) and amalgamated
+with the neighbouring `Beccles Home Interiors`. The Tarkett row's `Gosford Road, NR34 9QP` is the
+pre-move address. Same business, renamed and relocated. **0 → 91.**
+
+### `Multisave Carpets` — the zero is CORRECT
+
+This reverses the round-two call. Three separate queries at `BS30 7DA` return `Tapi Carpets & Floors`
+and `The Carpet Barn` — nothing named Multisave. Independent web sources firmly place
+`Multisave Carpets` at *Unit 9d, Aldermoor Way, Longwell Green, Bristol BS30 7DA*, trading since 1986
+with a live website and published opening hours. The `Multi-Save Capets` listing found in round two is
+in **Yate, BS37 4AP**, about 9 miles away, and is not that shop.
+
+So the business is real and trading but **has no Google Business Profile at its own address** — which
+is precisely what the score is measuring. Assigning it the Yate listing's 62 would have been wrong.
+**Stays 0.**
+
+### The remaining 5 suspects — 1 reversal, 4 confirmed wrong
+
+`Flooring Storage UK` (76) — **reversed to a correct match.** Its matched candidate
+`Flooring Supplies UK.com` is at *Unit 9 The, Summit Centre, Summit Rd, Potters Bar EN6 3QW* — the
+row's address string, unit for unit — and is the only result returned. `Storage` vs `Supplies` looks
+like a transcription slip in Tarkett's list. Same business. **Score stands.**
+
+| Row | Score | Finding |
+|---|---:|---|
+| `The Flooring and Carpet shop` | 77 | Nothing at the row's `DT1 3SF`. Matched `The Carpet Company` at a different Poundbury address, via the empty-normalisation bug (jaccard 0.00). **Wrong.** |
+| `Hughes Flooring` | 59 | An exact-name `Hughes Flooring` exists — in **Cheltenham GL51**, ~90mi from the row's Pontypridd. The Pontypridd match is `Hughes Forrest`, a different firm. **Wrong on both counts.** |
+| `Floortek Supplies` | 37 | Nothing named Floortek at `OX25 3PD`. The 37 is the industrial estate's own listing. **Wrong.** |
+| `Tees Valley Flooring` | 33 | `Tees Valley Refurbishments Ltd` *also* scores jaccard 0.67 — the normaliser gives 0.67 to any `Tees Valley X Ltd`. No flooring business at the row's address. **Wrong.** |
+
+### Final tally on the 9 suspects
+
+**2 keep, 7 unverifiable.** `Carpet Cuts` (right business, stale address — retained by decision, address
+flagged) and `Flooring Storage UK` (correct match) stay. The other seven scored a different business
+and their true score is unknown.
+
+### The final defensible baseline
+
+De-duplicated to distinct businesses; two confirmed false zeros corrected; seven unverifiable rows and
+one closed business excluded.
+
+| Treatment | n | Mean |
+|---|---:|---:|
+| A. Status quo, de-duplicated only | 177 | 73.5 |
+| B. + 2 confirmed false zeros corrected | 177 | 74.6 |
+| **C. + 7 unverifiable and 1 closed excluded** | **169** | **75.3** |
+| D. As C but unverifiable zeroed instead (worst case) | 176 | 72.3 |
+
+**Headline: mean 75.3 across 169 verified retailers, median 81.0.** Defensible band **72.3 – 75.3**,
+i.e. the number is good to roughly **±1.5 points**.
+
+Band mix under treatment C:
+
+| Band | n | % |
+|---|---:|---:|
+| Strong | 88 | 52.1% |
+| OK | 64 | 37.9% |
+| Needs work | 10 | 5.9% |
+| At risk | 1 | 0.6% |
+| Invisible | 6 | 3.6% |
+
+The 6 remaining `Invisible` rows — Elvet, `JL Flooring`, `Elite Installations`,
+`Signature Floors Pembroke`, `Thompsons Floooring`, `Multisave Carpets` — are now **positively
+verified** real absences from Google rather than assumed ones. That is the strongest part of the set.
+
+### Four caveats that bound the confidence
+
+1. **Two scores are from a different date.** 167 of the 169 come from the 2026-06-21 baseline; `Sams`
+   (98) and `Beccles` (91) are 2026-07-30 values. Review counts grow, so those two are mildly
+   inflated relative to the rest. Immaterial at 2/169, but say "as at" if either is quoted
+   individually. Re-running all 169 today would remove the inconsistency.
+2. **The 27 "same business" `review` rows are the softest part.** Each was confirmed from a single
+   Places Details lookup by name/address judgement, not the deep candidate-list check the 9 suspects
+   received. They are probably right; they have not been checked to the same standard.
+3. **"177" is the honest count, not 180.** Three `place_id` duplicates; both rows stay in the
+   database for traceability, but no external figure should say 180.
+4. **This score is not the in-app score.** It is `publicAudit.scorePlace` — 3 public signals
+   (rating, reviews, completeness) — and is not comparable to `lib/audit.scoreProfile`, the live
+   14-signal OAuth audit, or to `refresh-scores.calculateChockaScore`. Never present this number
+   alongside in-app scores as if they were the same metric. See `README.md`.
+
+## Status — resolved
+
+All the checks the rule required are done, and the decisions it was waiting on have been taken:
+
+- ✅ 36 `review` rows re-verified, which arm matched now recorded
+- ✅ 5 short-name `high` rows spot-checked — all clean
+- ✅ 8 `NOT FOUND` rows re-matched — 2 false zeros corrected, 6 positively verified as real
+- ✅ All 9 suspects hand-checked — 2 retained, 7 excluded as unverifiable
+- ✅ `Carpet Cuts` decided: right business, stale address, retained with the address flagged
+- ✅ De-duplication decided: 177 distinct businesses is the external count, both rows stay in the DB
+
+**Quotable, with the four caveats above:** mean **75.3** across **169 verified** of **177 distinct**
+Tarkett retailers, median 81.0, band **72.3 – 75.3**.
+
+Still outstanding, neither blocking:
+
+1. **Do not port the matcher as-is.** Four defects are recorded in `FOLLOWUPS.md` under
+   *Deferred — the batch matcher*; the two that produce hard false zeros (apostrophe tokenisation,
+   empty normalised candidate names) would keep producing them.
+2. **Optionally re-run all 169 today** to remove the two-date inconsistency in caveat 1, and to
+   check the 27 softer `review` rows to the same standard as the suspects.
 
 ## Related
 

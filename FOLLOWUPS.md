@@ -319,9 +319,37 @@ part of the known drift below, so capture its real current definition from `info
 first rather than assuming. Backfill `score_source='live'` where `audit_score` is not null. Use the
 same column names as `retailers` so the precedence query reads the same against both.
 
-## Hard rule — the scored.csv baseline is not quotable yet
+## Hard rule — LIFTED 2026-07-30, with conditions
 
-### No mean or average from the pre-launch baseline goes to Tarkett or anywhere external  [rule — until the review bucket is resolved]
+### The baseline is now quotable as "mean 75.3 across 169 verified of 177 distinct retailers"  [rule — superseded, conditions below]
+
+**Lifted 2026-07-30** after the verification in `scripts/source-data/MATCH_VERIFICATION.md`. The rule
+below is kept for the reasoning; these are the terms that replace it.
+
+**What may be said externally:** mean **75.3**, median **81.0**, across **169 verified** retailers out
+of **177 distinct** businesses. Band mix 52.1% Strong, 37.9% OK, 5.9% Needs work, 0.6% At risk, 3.6%
+Invisible. Defensible band 72.3 – 75.3, so treat the mean as ±1.5.
+
+**Four conditions, all mandatory:**
+
+1. **Never say 180.** Three `place_id` duplicates mean it is **177 distinct businesses**. Both rows of
+   each pair stay in the database for traceability, but no external figure says 180.
+2. **Say 169 verified, and be able to explain the other 8** — 7 rows whose matched profile was proven
+   to be a different business and whose true score is unknown, plus 1 permanently closed. They are
+   excluded, not hidden. Zeroing them instead gives 72.3, which is the floor of the band.
+3. **Never present this number next to an in-app score.** It is `publicAudit.scorePlace` — 3 public
+   signals — and is not comparable to `lib/audit.scoreProfile` (14 signals, OAuth) or
+   `refresh-scores.calculateChockaScore` (10 signals). Three incomparable scales; see
+   `scripts/source-data/README.md`.
+4. **Date-stamp it 2026-06-21**, the baseline generation date, and note that two of the 169 scores
+   (`Sams Carpet and Flooring Ltd` 98, `Beccles Carpet Centre` 91) are 2026-07-30 re-scores after
+   correcting false zeros. Immaterial at 2/169, but say "as at" if either is quoted alone.
+
+**Known soft spot:** the 27 `review` rows judged "same business" were each confirmed from a single
+Places Details lookup, not the deep candidate-list check the 9 suspects received. Probably right, not
+checked to the same standard. Re-running all 169 would close both this and condition 4.
+
+### Superseded — no mean or average from the pre-launch baseline goes to Tarkett or anywhere external  [rule — until the review bucket is resolved]
 **Set 2026-07-29, deliberately, before the import.** The 180-row `scored.csv` baseline (generated
 2026-06-21) may be imported, stored, displayed per-retailer, and used as score-history row one. What
 it may **not** do is produce an aggregate — mean, average, "X% are Strong", band breakdown — that is
