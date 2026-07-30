@@ -248,6 +248,35 @@ note the harness would then need `SECRET_ENCRYPTION_KEY` locally.
 
 **Related:** `SECRETS_AT_REST.md`, which explicitly scopes this file out.
 
+### Decide deliberately whether `chocka-app` should be a public repo  [deferred — decision, not a task]
+**Context:** `github.com/liamwt-12/chocka-app` is **public** (`visibility: public` from the GitHub
+API, unauthenticated). Discovered 2026-07-30 while deciding whether to commit retailer contact
+details. It was probably never a deliberate choice — quite likely a GitHub default that was never
+revisited — and it had not been factored into earlier "safe to commit?" judgements, which were made
+against an implicit private-repo standard. Nothing personal or secret is currently exposed:
+`scored.csv`, `.score-checkpoint.json` and `publicAudit.ts` were each re-checked on 2026-07-30 and
+carry no email, phone or credential, and `.env*` / `.gbp-tokens.json` are gitignored.
+
+**Why this needs a real decision rather than a reflex:** public changes the standard every future
+commit is judged against, and it changes it silently — the cost of a mistake is not a bad commit but
+a permanent disclosure that requires history rewrite, force-push, and treating the data as leaked.
+Things to weigh: whether the code is intended as a portfolio/reference artefact; that a public repo
+plus per-tenant customer data in Supabase is a combination worth thinking about explicitly; that
+`SECRETS_AT_REST.md`, `MULTI_TENANCY_PLAN.md` and this file describe the architecture, threat model
+and known weaknesses of a live product in some detail; and, on the other side, that flipping to
+private removes the backup-visibility and any incidental credibility benefit.
+
+**Not urgent because:** nothing sensitive is exposed today, and the immediate trigger (the retailer
+contacts) was resolved on its own terms — see `scripts/source-data/README.md`.
+
+**When picked up:** decide the posture first, then re-audit against whichever standard is chosen.
+If it stays public, add the "this repo is public" test to the habit for new files. If it goes
+private, note that history is already public and treat anything already pushed as disclosed
+regardless.
+
+**Related:** `scripts/source-data/README.md` (the public-repo test, and the retailer contacts
+decision that surfaced this).
+
 ## Deferred — Stellar retailer baseline
 
 Both deliberately left out of the 2026-07-29 import day, for stated reasons rather than time.

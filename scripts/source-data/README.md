@@ -13,6 +13,14 @@ Nothing in the running app imports from this directory.
 | `scored.csv` | 180 scored Tarkett retailers. **Generated 2026-06-21T12:04:47.808Z** — the baseline date. |
 | `.score-checkpoint.json` | The same 180 rows keyed by Tarkett's own store id. |
 | `publicAudit.ts` | The scorer that produced the CSV (`scorePlace`, `classifyMatch`). |
+| `retailers-locations.csv` | The scraper's source list, **contact details removed**. Postcodes and lat/lng for the match-verification task. See below. |
+
+## This repository is public
+
+`github.com/liamwt-12/chocka-app` is public. Committing a file here publishes it
+to the open internet, permanently and forkably. Everything in this directory has been
+checked against that standard, not against a private-repo standard. Apply the same test
+before adding anything else.
 
 The dotfile name on the checkpoint is deliberate: `scripts/import-scored-csv.ts` looks for
 `.score-checkpoint.json` **beside the CSV it is given**, so keeping both here means the import can
@@ -40,13 +48,50 @@ If the batch scorer is ever productised as a re-running job, port **`publicAudit
 
 This file reads `GOOGLE_PLACES_API_KEY` from the environment; it contains no credentials.
 
-## Not copied here
+## `retailers-locations.csv` — what was removed, and why
 
-`retailers.csv` (the source list, in the same Downloads folder) holds postcodes, lat/lng and Tarkett
-store URLs — **and retailer email addresses and phone numbers**. It is the only source of the
-postcodes the match-verification task needs, but committing 180 businesses' contact details to a git
-repo is a privacy decision that has not been taken. It remains at risk in `~/Downloads/`. Decide
-deliberately before that task starts.
+The scraper's source list, `retailers.csv`, holds postcodes, lat/lng and Tarkett store URLs —
+**and 176 retailer email addresses plus 180 phone numbers**. Roughly 103 of the emails have
+non-generic local parts (given names), so for sole traders and small partnerships they are personal
+data under UK GDPR, not merely business contact data. Tarkett does publish the same details on each
+store's public locator page, but republishing them here as a single bulk list is a different act
+from 180 separate pages a human has to visit — and this repo is public.
+
+**Decision, 2026-07-30:** commit a stripped derivative; keep the original out.
+
+`retailers-locations.csv` is `retailers.csv` with:
+
+- the `phone` and `email` columns dropped wholesale, and
+- any remaining cell matching an email pattern blanked — which caught **ids `29463` (Bespoke
+  Flooring) and `29690` (Lewis Carpets)**, both of which had an email misfiled into the `website`
+  column while their `email` column was empty. A column-name-based drop alone would have leaked
+  them, one being a named individual. Filter on the value shape, not the column heading.
+
+All 180 rows, all 15 remaining columns byte-identical to the source, `id` still joining
+`.score-checkpoint.json` 180/180. Regenerate with:
+
+```
+python3 -c "
+import csv, re
+SRC='~/Downloads/chocka-app/tarkett-scraper/retailers.csv'
+DST='scripts/source-data/retailers-locations.csv'
+EMAIL=re.compile(r'[^\s,@]+@[^\s,@]+\.[^\s,@]+')
+rows=list(csv.DictReader(open(SRC, encoding='utf-8')))
+cols=[c for c in rows[0] if c not in ('phone','email')]
+w=csv.DictWriter(open(DST,'w',newline='',encoding='utf-8'), fieldnames=cols); w.writeheader()
+for r in rows: w.writerow({c: ('' if EMAIL.search(r[c]) else r[c]) for c in cols})
+"
+```
+
+The untouched original, contact details included, is in an encrypted backup outside the repo. It is
+**not** needed for the match-verification task, which needs postcode and lat/lng only.
+
+### It is not the source for Elvet's postcode
+
+`retailers.csv` has 179 postcodes, not 180. The blank one is **`29891` Elvet Flooring Solutions,
+8 Winchester Road, Durham** — the very row the verification task needs to fix. That postcode has to
+come from somewhere else (Places lookup on `54.801440, -1.562990`, Royal Mail, or Tarkett's own
+store page). Committing the contacts would not have helped.
 
 ## Related
 
