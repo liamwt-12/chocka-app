@@ -175,3 +175,67 @@ export function monthlyReportEmail(params: {
     <p style="font-size: 14px; color: #555; line-height: 1.6; margin: 0;">All handled automatically. No effort from you. That's the point.</p>
   `, t);
 }
+
+/**
+ * Cold invite to a Tarkett retailer — the first thing they ever hear from us.
+ *
+ * DRAFT COPY, NOT APPROVED. Reviewed and edited by a human before any real send.
+ *
+ * THE SCORE IS OPTIONAL, AND THAT IS THE IMPORTANT PART. `score` must be omitted
+ * for any retailer whose batch score rests on an unverified scrape match — the
+ * 2026-07-30 verification found seven rows scoring a DIFFERENT business (Floor
+ * Store U.K's 91 belonged to a neighbour on the same industrial estate). Telling a
+ * retailer "your Google presence scored 91" when the 91 is someone else's is worse
+ * than saying nothing, and it is the kind of error that ends a pilot. Callers get
+ * this right by passing resolveRetailerScore(...).needsVerification through, never
+ * by reading `retailers.score` directly. See scripts/source-data/MATCH_VERIFICATION.md.
+ */
+export function retailerInviteEmail(params: {
+  retailerName: string;
+  town?: string | null;
+  /** Omit entirely when the match is unverified — see above. */
+  score?: number | null;
+  band?: string | null;
+  inviteUrl: string;
+  tenant?: Tenant;
+}): string {
+  const t = params.tenant ?? getTenant();
+  const brand = t.palette.brandStrong;
+  const showScore = typeof params.score === 'number';
+  const where = params.town ? ` in ${params.town}` : '';
+
+  const hook = showScore
+    ? `
+      <div style="background: #F0EDE8; border-left: 3px solid ${brand}; border-radius: 0 12px 12px 0; padding: 20px 20px 20px 18px; margin-bottom: 28px;">
+        <div style="font-size: 11px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: ${brand}; margin-bottom: 10px;">Your Google presence</div>
+        <div style="font-size: 40px; font-weight: 700; line-height: 1; color: #1A1A1A; margin-bottom: 6px;">${params.score}<span style="font-size: 18px; color: #999; font-weight: 400;">/100</span></div>
+        <p style="font-size: 14px; line-height: 1.6; margin: 0; color: #555;">${params.band ? `${params.band}. ` : ''}Based on what a customer searching for you right now can actually see &mdash; your rating, your reviews, and how complete your listing is.</p>
+      </div>`
+    : `
+      <div style="background: #F0EDE8; border-left: 3px solid ${brand}; border-radius: 0 12px 12px 0; padding: 20px 20px 20px 18px; margin-bottom: 28px;">
+        <p style="font-size: 15px; line-height: 1.65; margin: 0; color: #1A1A1A;">We've been looking at how Tarkett retailers show up on Google &mdash; the rating, the reviews, how complete the listing is. Connect your profile and we'll show you exactly where yours stands.</p>
+      </div>`;
+
+  return emailWrapper(`
+    <p style="font-size: 15px; line-height: 1.6; margin: 0 0 6px;">Hello ${params.retailerName},</p>
+    <p style="font-size: 15px; line-height: 1.6; margin: 0 0 28px; color: #555;">You're getting this because you're a Tarkett stockist${where}. ${t.brandName} is a new service from Tarkett that helps their retailers get found on Google.</p>
+
+    ${hook}
+
+    <p style="font-size: 15px; line-height: 1.6; margin: 0 0 12px; color: #1A1A1A;">Most flooring customers start on Google. If your listing is thin, out of date, or quiet on reviews, you lose them before they ever ring you &mdash; and you never know it happened.</p>
+    <p style="font-size: 15px; line-height: 1.6; margin: 0 0 28px; color: #555;">${t.brandName} keeps your Google Business Profile working: posts going up, reviews answered, details right. You carry on fitting floors.</p>
+
+    <a href="${params.inviteUrl}" style="display: inline-block; background: ${brand}; color: #fff; padding: 14px 26px; border-radius: 8px; text-decoration: none; font-size: 15px; font-weight: 600;">See your profile &rarr;</a>
+
+    <p style="font-size: 13px; color: #999; margin: 24px 0 0; line-height: 1.6;">Takes about a minute. It's free while we're piloting with Tarkett retailers. This link is just for ${params.retailerName} and works for 30 days.</p>
+
+    <p style="font-size: 13px; color: #bbb; margin: 16px 0 0; line-height: 1.6;">Not interested? Ignore this and you won't hear from us again.</p>
+  `, t);
+}
+
+/** Subject line for the invite. Kept beside the body so the two stay consistent. */
+export function retailerInviteSubject(retailerName: string, score?: number | null): string {
+  return typeof score === 'number'
+    ? `${retailerName} — your Google presence scores ${score}/100`
+    : `${retailerName} — how you show up on Google`;
+}
