@@ -51,7 +51,7 @@ export async function POST(request: NextRequest) {
 
   const { data: invite, error } = await supabaseAdmin
     .from('retailer_invites')
-    .select('id,status,accepted_at,expires_at,token_hash,retailer_id')
+    .select('id,status,accepted_at,user_id,expires_at,token_hash,retailer_id')
     .eq('token_hash', hashInviteToken(token))
     .maybeSingle();
 
@@ -68,30 +68,37 @@ export async function POST(request: NextRequest) {
     return backToInvite();
   }
 
-  // Claim it. `.is('accepted_at', null)` is the single-use gate, enforced by the
-  // database rather than by the check above: two concurrent submissions both pass
-  // checkInviteRedeemable, and this is what makes exactly one of them win. The
-  // loser gets zero rows back and is sent to the landing page, which will now say
-  // the invite has already been used.
+  // Record the FIRST click, and nothing more.
   //
-  // status moves to 'accepted' as well, which releases the partial unique index on
-  // (retailer_id) where status='pending' — so a retailer who accepts but abandons
-  // before connecting Google can be re-invited without first revoking anything.
+  // This used to be the single-use gate — `accepted_at` was set here and
+  // checkInviteRedeemable rejected on it, so one click spent the token whether or
+  // not Google ever completed. A retailer who stalled at Google's passkey prompt
+  // came back to "already been used" without ever having signed in. Every ordinary
+  // interruption did the same. See lib/invite-token for the full note.
+  //
+  // Now `accepted_at` is a funnel timestamp: when did this retailer first try. It
+  // is written only when still null, so retries do not overwrite the original, and
+  // the row count is deliberately ignored — a second attempt updating zero rows is
+  // the normal case, not a failure.
+  //
+  // status stays 'pending' until the callback links a user. Leaving it pending also
+  // keeps the partial unique index on (retailer_id) where status='pending' held, so
+  // a half-finished invite cannot be shadowed by a second one minted alongside it.
+  //
+  // Single-use now lives in the callback, which claims retailers.user_id and
+  // retailer_invites.user_id with conditional updates. That is where it belongs:
+  // an invite is used when a retailer is linked, not when a button is pressed.
   const now = new Date().toISOString();
-  const { data: claimed, error: claimError } = await supabaseAdmin
+  const { error: stampError } = await supabaseAdmin
     .from('retailer_invites')
-    .update({ accepted_at: now, status: 'accepted', updated_at: now })
+    .update({ accepted_at: now, updated_at: now })
     .eq('id', invite!.id)
-    .is('accepted_at', null)
-    .select('id');
+    .is('accepted_at', null);
 
-  if (claimError) {
-    console.error('Invite claim failed:', claimError.message);
-    return NextResponse.json({ error: 'Could not process this invite' }, { status: 500 });
-  }
-  if (!claimed || claimed.length === 0) {
-    console.log(`Invite ${invite!.id} was already claimed concurrently`);
-    return backToInvite();
+  if (stampError) {
+    // Not fatal to the retailer's journey — the timestamp is for us, not them — but
+    // it should not pass silently.
+    console.error(`Invite ${invite!.id}: could not stamp accepted_at: ${stampError.message}`);
   }
 
   // Hand off to the OAuth initiator. `invite` is a signed reference to the row,

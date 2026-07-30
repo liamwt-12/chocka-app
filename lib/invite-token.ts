@@ -217,7 +217,7 @@ export function parseInviteRef(ref: string | null | undefined): string | null {
 export interface InviteRedeemability {
   redeemable: boolean;
   /** Machine-readable reason when not redeemable, for logging and tests. */
-  reason?: 'not-pending' | 'already-accepted' | 'expired' | 'bad-token';
+  reason?: 'not-pending' | 'already-claimed' | 'expired' | 'bad-token';
 }
 
 /**
@@ -227,14 +227,49 @@ export interface InviteRedeemability {
  * are enumerated in one testable function. Order matters: the token is checked
  * last so that a caller cannot use response timing to learn whether a given
  * retailer has a pending invite before proving they hold its token.
+ *
+ * WHAT COUNTS AS USED: `user_id`, not `accepted_at`.
+ *
+ * This was the wrong way round until 2026-07-30 and it burned a real invite. The
+ * accept route sets `accepted_at` before handing the retailer to Google, so gating
+ * on it meant a single click spent the token whether or not Google ever completed.
+ * A retailer who stalled at Google's passkey prompt — which is exactly what
+ * happened — came back to "this invite has already been used" having never signed
+ * in, with no way through short of an admin re-issue. Every ordinary interruption
+ * did the same: wrong account, closed tab, back button, dropped connection.
+ *
+ * `user_id` is the honest signal. It is set only by the OAuth callback, only after
+ * a credential exists and the retailer has actually been linked. `accepted_at`
+ * means no more than "clicked at least once", which is worth recording for the
+ * funnel and worthless as a gate. So a retailer may now fail at Google as often as
+ * they like inside the 30-day window and their link keeps working.
+ *
+ * Single-use is not weakened, only moved to where it belongs. The callback claims
+ * both `retailers.user_id` and `retailer_invites.user_id` with `.is('user_id', null)`
+ * conditional updates, so concurrent completions still leave exactly one winner —
+ * enforced by the database rather than by this pre-check, which is what made the
+ * 8-way concurrent test pass in the first place.
  */
 export function checkInviteRedeemable(
-  invite: { status?: string | null; accepted_at?: string | Date | null; expires_at?: string | Date | null; token_hash?: string | null } | null | undefined,
+  invite:
+    | {
+        status?: string | null;
+        user_id?: string | null;
+        expires_at?: string | Date | null;
+        token_hash?: string | null;
+        /**
+         * Accepted here so callers can pass a whole row, but deliberately NOT
+         * consulted. See the note above — gating on this is the bug.
+         */
+        accepted_at?: string | Date | null;
+      }
+    | null
+    | undefined,
   presentedToken: string | null | undefined,
   now: Date = new Date(),
 ): InviteRedeemability {
   if (!invite) return { redeemable: false, reason: 'bad-token' };
-  if (invite.accepted_at) return { redeemable: false, reason: 'already-accepted' };
+  if (invite.user_id) return { redeemable: false, reason: 'already-claimed' };
   if (invite.status !== 'pending') return { redeemable: false, reason: 'not-pending' };
   if (isInviteExpired(invite.expires_at, now)) return { redeemable: false, reason: 'expired' };
   if (!verifyInviteToken(presentedToken, invite.token_hash)) {
