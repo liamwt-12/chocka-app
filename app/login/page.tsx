@@ -32,7 +32,8 @@ export default function LoginPage() {
   }, []);
 
   useEffect(() => {
-    const target = 84;
+    const target = tenant.loginCopy.avgScoreAfter8Weeks;
+    if (target === null) return; // no claim for this brand, so nothing to animate
     const duration = 1500;
     const start = performance.now();
     let raf = 0;
@@ -44,7 +45,7 @@ export default function LoginPage() {
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
-  }, []);
+  }, [tenant.loginCopy.avgScoreAfter8Weeks]);
 
   const handleGoogleLogin = () => {
     const params = new URLSearchParams(window.location.search);
@@ -77,25 +78,29 @@ export default function LoginPage() {
             margin:'0 0 1rem',
             color:text,
           }}>
-            SEE YOUR<br/>GOOGLE PROFILE<br/>SCORE.
+            {tenant.loginCopy.headline.map((line, i) => (
+              <span key={line}>{i > 0 && <br/>}{line}</span>
+            ))}
           </h1>
 
           <p style={{ fontSize:'1.125rem',color:secondary,lineHeight:1.5,margin:'0 0 0.75rem',maxWidth:440 }}>
-            Find out what&apos;s hurting your visibility and what to fix first. Takes 30 seconds.
+            {tenant.loginCopy.sub}
           </p>
 
-          {/* Social proof */}
-          <div style={{
-            display:'inline-block',
-            fontSize:'0.8125rem',
-            color:muted,
-            background:'rgba(0,0,0,0.03)',
-            padding:'0.3rem 0.7rem',
-            borderRadius:'999px',
-            marginBottom:'2rem',
-          }}>
-            7,101 businesses scored across the {tenant.proofLocation}
-          </div>
+          {/* Social proof — each brand states its own, or none. */}
+          {tenant.loginCopy.proofClaim && (
+            <div style={{
+              display:'inline-block',
+              fontSize:'0.8125rem',
+              color:muted,
+              background:'rgba(0,0,0,0.03)',
+              padding:'0.3rem 0.7rem',
+              borderRadius:'999px',
+              marginBottom:'2rem',
+            }}>
+              {tenant.loginCopy.proofClaim}
+            </div>
+          )}
 
           {/* Error banner */}
           {errorCode === 'invite_required' && (
@@ -138,33 +143,37 @@ export default function LoginPage() {
             padding:'2rem 1.5rem',
           }}>
 
-            {/* Score ring */}
-            <div style={{ display:'flex',flexDirection:'column',alignItems:'center',marginBottom:'1.5rem' }}>
-              <div style={{ position:'relative',width:80,height:80 }}>
-                <svg width="80" height="80" viewBox="0 0 80 80" style={{ transform:'rotate(-90deg)' }}>
-                  <circle cx="40" cy="40" r={radius} fill="none" stroke={ringTrack} strokeWidth="8" />
-                  <circle
-                    cx="40" cy="40" r={radius}
-                    fill="none"
-                    stroke={ringProgress}
-                    strokeWidth="8"
-                    strokeLinecap="round"
-                    strokeDasharray={circumference}
-                    strokeDashoffset={dashoffset}
-                  />
-                </svg>
-                <div style={{
-                  position:'absolute',inset:0,
-                  display:'flex',alignItems:'center',justifyContent:'center',
-                  fontFamily:body,fontWeight:700,fontSize:'1.375rem',color:text,
-                }}>
-                  {score}
+            {/* Score ring — a results claim, so it renders only for a brand that
+                has results. There is no Stellar cohort yet, so Stellar shows no
+                number rather than borrowing Chocka's. */}
+            {tenant.loginCopy.avgScoreAfter8Weeks !== null && (
+              <div style={{ display:'flex',flexDirection:'column',alignItems:'center',marginBottom:'1.5rem' }}>
+                <div style={{ position:'relative',width:80,height:80 }}>
+                  <svg width="80" height="80" viewBox="0 0 80 80" style={{ transform:'rotate(-90deg)' }}>
+                    <circle cx="40" cy="40" r={radius} fill="none" stroke={ringTrack} strokeWidth="8" />
+                    <circle
+                      cx="40" cy="40" r={radius}
+                      fill="none"
+                      stroke={ringProgress}
+                      strokeWidth="8"
+                      strokeLinecap="round"
+                      strokeDasharray={circumference}
+                      strokeDashoffset={dashoffset}
+                    />
+                  </svg>
+                  <div style={{
+                    position:'absolute',inset:0,
+                    display:'flex',alignItems:'center',justifyContent:'center',
+                    fontFamily:body,fontWeight:700,fontSize:'1.375rem',color:text,
+                  }}>
+                    {score}
+                  </div>
+                </div>
+                <div style={{ fontSize:'0.75rem',color:muted,marginTop:'0.5rem' }}>
+                  Average score after 8 weeks
                 </div>
               </div>
-              <div style={{ fontSize:'0.75rem',color:muted,marginTop:'0.5rem' }}>
-                Average score after 8 weeks
-              </div>
-            </div>
+            )}
 
             {/* Label */}
             <div style={{

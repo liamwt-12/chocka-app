@@ -4,6 +4,11 @@ import { getRequestTenant } from '@/lib/tenant-request';
 // retailer is consenting to, so it has to match the brand they arrived through.
 export default function PrivacyPage() {
   const t = getRequestTenant();
+  // This policy was written for a paid subscription. On a free tenant the
+  // billing passages are not merely irrelevant, they are inaccurate: there is no
+  // Stripe customer, no payment processing and no billing record, so naming
+  // Stripe as a processor tells a retailer their data goes somewhere it does not.
+  const paid = t.priceMonthlyGbp > 0;
   return (
     <div className="max-w-2xl mx-auto px-6 py-16">
       <a href="/" className="text-brand font-extrabold text-xl">{t.brandName}</a>
@@ -21,7 +26,8 @@ export default function PrivacyPage() {
         <p>
           When you sign up, we collect your name, email address, and phone number via Google OAuth.
           We access your Google Business Profile data (business name, address, reviews, performance metrics)
-          to provide our service. We store your Stripe customer ID for billing.
+          to provide our service.{paid && ' We store your Stripe customer ID for billing.'}
+          {!paid && ` ${t.brandName} is free to you${t.fundedBy ? `, funded by ${t.fundedBy}` : ''}, so we hold no payment details of any kind.`}
         </p>
 
         <h2 className="text-lg font-bold text-charcoal mt-8">How we use your data</h2>
@@ -33,7 +39,7 @@ export default function PrivacyPage() {
 
         <h2 className="text-lg font-bold text-charcoal mt-8">Third-party services</h2>
         <p>
-          We use Supabase (database), Stripe (payments), Twilio (SMS), Resend (email), Google APIs
+          We use Supabase (database), {paid && 'Stripe (payments), '}Twilio (SMS), Resend (email), Google APIs
           (business profile management), and Anthropic (AI-generated content). Each processes data
           according to their own privacy policies.
         </p>
@@ -41,8 +47,7 @@ export default function PrivacyPage() {
         <h2 className="text-lg font-bold text-charcoal mt-8">Data retention</h2>
         <p>
           We retain your data while your account is active. When you delete your account, all your
-          data is permanently removed within 30 days. Stripe may retain billing records as required
-          by law.
+          data is permanently removed within 30 days.{paid && ' Stripe may retain billing records as required by law.'}
         </p>
 
         <h2 className="text-lg font-bold text-charcoal mt-8">Your rights</h2>

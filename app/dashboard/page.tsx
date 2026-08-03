@@ -21,7 +21,17 @@ export default function DashboardPage() {
 
   const p=d.profile, g=d.google, hasScore=p?.audit_score!=null;
   const sc=(s:number)=>s>=76?V.green:s>=56?V.amber:s>=31?V.orange:'#E05050';
-  const estCalls=g?.metrics?.calls||0, avgJob=180, estValue=estCalls*avgJob, roi=estValue>0?Math.round(estValue/tenant.priceMonthlyGbp):0;
+  // A return-on-spend ratio needs a spend. On a free tenant priceMonthlyGbp is 0,
+  // so this divided by zero and rendered a literal "Infinity× — return on £0/mo"
+  // as the largest tile on the page, the moment a retailer had a single call.
+  //
+  // Not clamped, because 0× is just as meaningless as Infinity×. For a service
+  // that is free to the retailer the honest metric is the absolute one — the
+  // £ figure already shown beside it — so the ratio is dropped entirely rather
+  // than given a fake denominator.
+  const estCalls=g?.metrics?.calls||0, avgJob=180, estValue=estCalls*avgJob;
+  const showRoi=tenant.priceMonthlyGbp>0;
+  const roi=showRoi&&estValue>0?Math.round(estValue/tenant.priceMonthlyGbp):0;
   const totalActions=(p?.total_posts||0)+(p?.total_replies||0);
   const timeSaved=((p?.total_posts||0)*0.25+(p?.total_replies||0)*0.08+((p?.streak_weeks||0)*0.5)).toFixed(1);
   const comps=g?.competitors;
@@ -63,7 +73,9 @@ export default function DashboardPage() {
           <div style={{fontSize:28,fontWeight:600,fontFamily:mono,color:'#fff'}}>£{estValue.toLocaleString()}</div>
           <div style={{fontSize:11,opacity:.4,marginTop:2,fontFamily:sans}}>Based on {estCalls} calls × £{avgJob} avg job</div>
         </div>
-        <div style={{textAlign:'right'}}><div style={{fontSize:22,fontWeight:600,fontFamily:mono,color:'#7DFF9B'}}>{roi}×</div><div style={{fontSize:10,opacity:.4,textTransform:'uppercase',letterSpacing:'0.06em',fontFamily:sans}}>return on £{tenant.priceMonthlyGbp}/mo</div></div>
+        {showRoi
+          ? <div style={{textAlign:'right'}}><div style={{fontSize:22,fontWeight:600,fontFamily:mono,color:'#7DFF9B'}}>{roi}×</div><div style={{fontSize:10,opacity:.4,textTransform:'uppercase',letterSpacing:'0.06em',fontFamily:sans}}>return on £{tenant.priceMonthlyGbp}/mo</div></div>
+          : <div style={{textAlign:'right'}}><div style={{fontSize:22,fontWeight:600,fontFamily:mono,color:'#7DFF9B'}}>Free</div><div style={{fontSize:10,opacity:.4,textTransform:'uppercase',letterSpacing:'0.06em',fontFamily:sans}}>{tenant.fundedBy?`paid for by ${tenant.fundedBy}`:'no cost to you'}</div></div>}
       </div>)}
 
       {/* Google Stats */}

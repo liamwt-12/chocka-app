@@ -105,7 +105,14 @@ export default function AdminPage() {
           <div>
             <div style={{ fontSize:11, opacity:.4, textTransform:'uppercase', letterSpacing:'0.08em', marginBottom:4, fontFamily:sans }}>Monthly Recurring Revenue</div>
             <div style={{ fontSize:36, fontWeight:700, fontFamily:mono, color:'#fff' }}>£{s?.mrr?.toLocaleString() || 0}</div>
-            <div style={{ fontSize:11, opacity:.35, marginTop:2, fontFamily:sans }}>{s?.activeSubscribers || 0} active × £{tenant.priceMonthlyGbp}/mo</div>
+            {/* A free tenant has no MRR to report and never will — showing
+                "N active × £0/mo" makes a real cohort look like a revenue
+                failure rather than a funded one. */}
+            <div style={{ fontSize:11, opacity:.35, marginTop:2, fontFamily:sans }}>
+              {tenant.priceMonthlyGbp > 0
+                ? `${s?.activeSubscribers || 0} active × £${tenant.priceMonthlyGbp}/mo`
+                : `${s?.activeSubscribers || 0} active · free tenant${tenant.fundedBy ? `, funded by ${tenant.fundedBy}` : ''}`}
+            </div>
           </div>
           <div style={{ textAlign:'right' }}>
             <div style={{ fontSize:22, fontWeight:600, fontFamily:mono, color:'#7DFF9B' }}>{s?.signupsThisMonth || 0}</div>

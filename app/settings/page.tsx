@@ -75,7 +75,18 @@ export default function SettingsPage() {
         <InfoRow label="Business" value={d.profile?.business_name || '—'} />
         <InfoRow label="Email" value={d.user.email || '—'} />
         <InfoRow label="Phone" value={d.user.phone || '—'} />
-        <InfoRow label="Plan" value={d.user.subscription_status === 'active' ? `£${tenant.priceMonthlyGbp}/month` : 'No active plan'} />
+        {/* "No active plan" is accurate for Chocka and alarming nonsense for a
+            free retailer, whose subscription_status is 'none' permanently and by
+            design — they were told the service is free, then told they have no
+            plan. A zero-price tenant states the arrangement instead. */}
+        <InfoRow
+          label="Plan"
+          value={
+            tenant.priceMonthlyGbp === 0
+              ? (tenant.fundedBy ? `Free · funded by ${tenant.fundedBy}` : 'Free')
+              : d.user.subscription_status === 'active' ? `£${tenant.priceMonthlyGbp}/month` : 'No active plan'
+          }
+        />
         <InfoRow label="Member since" value={d.profile?.streak_weeks ? `${d.profile.streak_weeks} weeks` : 'New'} />
       </div>
 
@@ -105,18 +116,30 @@ export default function SettingsPage() {
         <Toggle label="SMS notifications" desc="Monday stats, review alerts, and post confirmations" enabled={smsEnabled} loading={saving==='sms_enabled'} onChange={v=>{setSmsEnabled(v);save('sms_enabled',v)}} />
       </div>
 
-      {/* Billing */}
+      {/* Billing. On a free tenant there is no subscription to manage: the
+          retailer has no Stripe customer, so "Manage Billing" opened a portal
+          that could only fail. The section stays — silently dropping it would
+          leave a retailer wondering whether they are being charged — but it
+          states the arrangement instead of offering a control that does nothing. */}
       <div style={{...card,animation:'fadeUp .5s .2s ease both'}}>
-        <div style={lbl}>Subscription</div>
+        <div style={lbl}>{tenant.priceMonthlyGbp>0?'Subscription':'Cost'}</div>
         <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:8}}>
           <div>
-            <div style={{fontSize:14,fontWeight:600,fontFamily:sans}}>{tenant.brandName} · £{tenant.priceMonthlyGbp}/month</div>
-            <div style={{fontSize:11,color:V.textSoft,marginTop:2,fontFamily:sans}}>Cancel anytime · No contract</div>
+            <div style={{fontSize:14,fontWeight:600,fontFamily:sans}}>
+              {tenant.priceMonthlyGbp>0 ? `${tenant.brandName} · £${tenant.priceMonthlyGbp}/month` : `${tenant.brandName} · Free`}
+            </div>
+            <div style={{fontSize:11,color:V.textSoft,marginTop:2,fontFamily:sans}}>
+              {tenant.priceMonthlyGbp>0
+                ? 'Cancel anytime · No contract'
+                : `${tenant.fundedBy?`Paid for by ${tenant.fundedBy}`:'No cost to you'} · No card, no contract`}
+            </div>
           </div>
         </div>
-        <button onClick={handleBilling} disabled={saving==='billing'} style={{background:V.text,color:'white',border:'none',borderRadius:10,padding:'9px 16px',fontSize:13,fontWeight:500,cursor:'pointer',fontFamily:sans,width:'100%',opacity:saving==='billing'?.5:1}}>
-          {saving==='billing'?'Opening...':'Manage Billing'}
-        </button>
+        {tenant.priceMonthlyGbp>0 && (
+          <button onClick={handleBilling} disabled={saving==='billing'} style={{background:V.text,color:'white',border:'none',borderRadius:10,padding:'9px 16px',fontSize:13,fontWeight:500,cursor:'pointer',fontFamily:sans,width:'100%',opacity:saving==='billing'?.5:1}}>
+            {saving==='billing'?'Opening...':'Manage Billing'}
+          </button>
+        )}
       </div>
 
       {/* Danger zone */}
