@@ -65,6 +65,24 @@ supabase db push
 The history now reflects reality, so `db push` is trustworthy from here. **Keep it that way** — apply
 schema changes through a migration, not the dashboard, or the next person inherits the same problem.
 
+- `20260730150000_create_email_suppressions.sql` — creates `email_suppressions` for the unsubscribe
+  mechanism. **Additive only**: one new table plus two indexes, nothing existing is altered. Keyed on
+  the lower-cased **address** and not the retailer, because someone who opts out is opting the address
+  out — Tarkett's list contains the same business twice under different names, and a retailer-keyed
+  suppression would let the duplicate row keep emailing a person who has already said no.
+  Suppression is **per-tenant**: a Chocka customer has not opted out of Stellar.
+
+  **NOT APPLIED TO PRODUCTION — and deliberately so.** Verified 2026-08-03: the table is absent from
+  `information_schema.tables`, and `20260730150000` is absent from the recorded migration history. The
+  two agree, which is the correct state for a migration on an unmerged branch. It is unapplied for the
+  same reason the branch is unmerged — see the `RAISE WITH TARKETT` entry in `FOLLOWUPS.md`. There is
+  nothing to repair here; **do not** `migration repair` this version.
+
+  **When this branch merges:** `supabase db push --dry-run` should name this file and only this file.
+  If it names any other version, stop — that means something else drifted in the meantime. Apply, then
+  replace this paragraph with an "Applied to production &lt;date&gt;" note and the verified row counts,
+  matching the four entries above.
+
 ## Checking migration history without the DB password
 
 `supabase migration list` and `supabase migration repair` both open a direct database connection and
