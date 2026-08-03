@@ -65,13 +65,65 @@ supabase db push
 The history now reflects reality, so `db push` is trustworthy from here. **Keep it that way** — apply
 schema changes through a migration, not the dashboard, or the next person inherits the same problem.
 
-## Known drift (2026-07-29, partly resolved 2026-07-30)
+## Checking migration history without the DB password
+
+`supabase migration list` and `supabase migration repair` both open a direct database connection and
+so **block on an interactive password prompt** — which makes them useless in a script, in CI, or in
+any automated check. That is a large part of why the history went unverified for as long as it did.
+
+The history is readable without that password. The Supabase **Management API** authenticates with the
+personal access token the CLI already stores in the macOS keychain (service `Supabase CLI`, stored
+base64-wrapped by `go-keyring`), and will run read-only SQL:
+
+```bash
+TOKEN=$(security find-generic-password -s "Supabase CLI" -w | sed 's/^go-keyring-base64://' | base64 -d)
+REF=emilonrdyljbydtgrvof
+
+curl -s -X POST "https://api.supabase.com/v1/projects/$REF/database/query" \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"query":"select version, name from supabase_migrations.schema_migrations order by version;"}'
+```
+
+Two things this is the *only* convenient way to check:
+
+- **`supabase_migrations` is not exposed through PostgREST.** Only `public` and `graphql_public` are,
+  so the service-role key cannot reach the history table — you get `PGRST106 Invalid schema`.
+- **Whether a table actually exists.** Query `information_schema.tables` here rather than probing
+  through the REST API, because that probe is easy to misread — see the warning below.
+
+### Do not test for a table with `head: true` and an exact count
+
+`supabase-js` does not surface a missing table as an error on a HEAD request:
+
+```js
+// MISLEADING — returns { error: null, count: null } when the table DOES NOT EXIST
+await db.from('email_suppressions').select('*', { count: 'exact', head: true });
+```
+
+A table that exists and is empty returns `count: 0`; one that does not exist returns `count: null`
+with **no error**. The two are one keystroke apart when read quickly, and reading `null` as "present
+and empty" is exactly the wrong direction — it invents drift that is not there. Verified 2026-08-03:
+the same table returns a plain `404 PGRST205` on a raw REST `GET`, and is absent from
+`information_schema.tables`. Use either of those, or the Management API above.
+
+## Known drift (2026-07-29, partly resolved 2026-07-30, re-verified 2026-08-03)
 
 `users.tenant_id` and `profiles.tenant_id` exist in production, fully populated, but have **no
 migration here** — the slice-3 baseline described above was never written. This directory therefore
 does not reproduce production, and a fresh environment will lack those columns. Tracked in
 `FOLLOWUPS.md` under "Deferred — schema drift". Verify against the live database before assuming
 this directory is complete.
+
+**Re-verified 2026-08-03 and this is still the only drift.** The recorded history holds exactly the
+four versions above — `20260720000000`, `20260729120000`, `20260729140000`, `20260730120000` — which
+matches the four migration files on `main` one-for-one. Nothing has been applied out-of-band since the
+repair, and no migration file is unapplied. **`supabase db push` is trustworthy as of this date.**
+
+Production `public` tables at that check, for comparison against a future one: `activity_log`,
+`competitors`, `found_alerts`, `optimizations`, `posts`, `profile_analysis`, `profiles`, `referrals`,
+`retailer_invites`, `retailers`, `review_replies`, `reviews`, `scheduled_posts`, `score_history`,
+`sms_log`, `tenants`, `users`, `weekly_stats`. Note how many of those have no migration here — the
+drift section above understates the gap by naming only the two `tenant_id` columns.
 
 ## Applying
 
