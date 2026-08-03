@@ -614,7 +614,7 @@ export default function OnboardingPage() {
                 </button>
               ))}
               <p style={{fontSize:12,color:V.textSoft,margin:'8px 0 0'}}>
-                It&apos;s free — {tenant.brandName} is paid for by Tarkett. You stay the owner of your profile.
+                It&apos;s free{tenant.fundedBy ? ` — ${tenant.brandName} is paid for by ${tenant.fundedBy}` : ''}. You stay the owner of your profile.
               </p>
             </div>
           ) : (

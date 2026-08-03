@@ -140,12 +140,13 @@ that were false for a free retailer — Stripe, billing, "no active plan", payme
 liability limitation is a different act, and inventing one would be worse than leaving the current
 text visible and flagged.
 
-### `fundedBy` is not used by the onboarding opt-in card  [small — an artefact of merge order]
-`STELLAR_BASE.fundedBy` (added by the copy sweep) is the single source for "who pays" everywhere
-except one place: the automation opt-in card in `app/onboarding/page.tsx` says **"paid for by
-Tarkett"** as a literal, because `fundedBy` did not exist on the branch where that card was written.
-Both landed on main on 2026-08-03, so the fix is now a one-line substitution to `tenant.fundedBy`.
-Harmless while Stellar is the only free tenant; wrong the moment there is a second.
+### `fundedBy` is not used by the onboarding opt-in card  [CLOSED 2026-08-03]
+`STELLAR_BASE.fundedBy` (added by the copy sweep) is the single source for "who pays". The automation
+opt-in card in `app/onboarding/page.tsx` said **"paid for by Tarkett"** as a literal, because
+`fundedBy` did not exist on the branch where that card was written — an artefact of merge order, not
+a decision. Substituted once both had landed on main. The funder's name now appears in exactly one
+place in the codebase, and a free tenant with no `fundedBy` set degrades to a plain "It's free."
+rather than naming someone else's sponsor.
 
 ## Pre-pilot — Stellar landing (`/stellar`)
 

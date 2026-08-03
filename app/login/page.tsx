@@ -239,7 +239,7 @@ export default function LoginPage() {
                   {tenant.brandName} is invite-only
                 </div>
                 <p style={{ fontSize:'0.875rem',color:secondary,lineHeight:1.5,margin:0 }}>
-                  Your Tarkett rep can set you up, or email{' '}
+                  {tenant.fundedBy ? `Your ${tenant.fundedBy} rep can set you up, or email ` : 'Ask whoever invited you, or email '}
                   <a href={`mailto:${tenant.teamEmail}`} style={{ color:orange,textDecoration:'underline' }}>{tenant.teamEmail}</a>{' '}
                   and we&apos;ll send you a link.
                 </p>
