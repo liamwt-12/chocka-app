@@ -83,6 +83,28 @@ empty manageable set. Isolated to the two catch blocks in the callback plus one 
 branch in `app/onboarding/page.tsx`. Optionally add a short low-level retry inside
 `getManageableListings` for transient 5xx before giving up.
 
+### `needsVerification` tests `=== 'review'`, so any other value reads as trustworthy  [latent — fixed by data today, not by code]
+**What it is.** `lib/retailer-score.ts` computes `needsVerification: retailer?.match_confidence === 'review'`.
+That is an equality test, not `!== 'high'`. Every value that is not literally `'review'` — including
+`'not_found'`, `null`, and anything a future import invents — resolves to **needsVerification: false**,
+i.e. "this score is trustworthy, quote it".
+
+**What that did.** The 8 `not_found` rows carry **score 0, band "Invisible"**. `send-invites.ts` gates
+on `resolved.score !== null && !resolved.needsVerification`, and 0 is not null, so those 8 rows passed
+the gate. Had sending been unblocked, **8 real businesses would have been cold-emailed to tell them
+they scored 0 out of 100**, badged "Audited", with no qualification — including `Sams Carpet and
+Flooring Ltd`, which has 4.9 stars, 275 reviews and genuinely scores 98. The guard that exists to
+prevent exactly this did not cover the case, because it was written against the `review` bucket.
+
+**Why it is not live today.** The 2026-08-03 apply moved every non-CONFIRMED row to `'review'`, so
+there are now **zero** `not_found` rows and the trusted set has a minimum score of 44. The defect is
+closed *by the data*, which is the weaker of the two ways to close it.
+
+**Fix when picked up:** invert the test — `needsVerification: retailer?.match_confidence !== 'high'` —
+so trust is opt-in rather than opt-out. Note `lib/retailer-score.ts` has 14 tests asserting current
+behaviour, and at least one will need updating; that is the point of the change, not an obstacle to
+it. Until then, any future import that writes `'not_found'` reintroduces the defect silently.
+
 ## Deferred — entitlement and billing
 
 ### Split entitlement from billing status properly  [deferred — the clean version of the 2026-08-03 cron fix]

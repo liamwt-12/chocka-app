@@ -1,0 +1,1086 @@
+{
+  "taken_before": "scripts/apply-verification.ts --commit",
+  "source": "tarkett-scraper",
+  "rows": [
+    {
+      "id": "e2d2e249-6c5a-4455-b18b-0ed43eedd767",
+      "source_ref": "30178",
+      "name": "Archer Flooring Ltd",
+      "match_confidence": "high"
+    },
+    {
+      "id": "1cc26ae4-7885-4591-9d8c-485781e65b1e",
+      "source_ref": "29709",
+      "name": "Banks Flooring Solutions ltd",
+      "match_confidence": "high"
+    },
+    {
+      "id": "4066e5a1-ab89-4abb-9f7f-5dc94ecd9996",
+      "source_ref": "29862",
+      "name": "Bradbeers",
+      "match_confidence": "high"
+    },
+    {
+      "id": "d5355214-cad4-4a53-a6ea-7342d9caaebe",
+      "source_ref": "30257",
+      "name": "Burts of Darlington",
+      "match_confidence": "high"
+    },
+    {
+      "id": "0cf5e71e-6b86-40ff-95ad-b7f4e5409cde",
+      "source_ref": "29471",
+      "name": "Carpet Cuts",
+      "match_confidence": "review"
+    },
+    {
+      "id": "d690dc72-66f1-439b-b4a8-eca506e3a98e",
+      "source_ref": "29743",
+      "name": "Carpet GIANT Maidstone",
+      "match_confidence": "high"
+    },
+    {
+      "id": "c63e6967-1e03-4ecf-943c-83007e1d0ca9",
+      "source_ref": "30244",
+      "name": "Carpet Next Day Maidstone",
+      "match_confidence": "high"
+    },
+    {
+      "id": "5756fefc-a9cc-4f52-8e22-2beadb886fc5",
+      "source_ref": "29763",
+      "name": "Clarkes Floors And Furniture",
+      "match_confidence": "high"
+    },
+    {
+      "id": "bfeddede-d3bf-4888-b729-c4b6dad130d3",
+      "source_ref": "29740",
+      "name": "Crawley Carpet Warehouse",
+      "match_confidence": "high"
+    },
+    {
+      "id": "059dc6ca-9ee3-47ec-8d2c-e99756c76afd",
+      "source_ref": "29891",
+      "name": "Elvet Flooring Solutions",
+      "match_confidence": "not_found"
+    },
+    {
+      "id": "6e759875-b19d-460d-bceb-8f945fbeb57d",
+      "source_ref": "30465",
+      "name": "Flooring Worx",
+      "match_confidence": "high"
+    },
+    {
+      "id": "855df05c-f55f-4450-bc51-e6af0662263e",
+      "source_ref": "29866",
+      "name": "Floorscope",
+      "match_confidence": "high"
+    },
+    {
+      "id": "201a9690-d30a-467c-8a1a-b319f4461cea",
+      "source_ref": "29429",
+      "name": "Hopkins Flooring",
+      "match_confidence": "review"
+    },
+    {
+      "id": "d9e40cbf-f857-4398-a5ba-294c8a440745",
+      "source_ref": "29937",
+      "name": "Islandwide Carpets",
+      "match_confidence": "high"
+    },
+    {
+      "id": "8de915b5-34cd-4df6-b516-1323a6cec823",
+      "source_ref": "29690",
+      "name": "Lewis Carpets",
+      "match_confidence": "high"
+    },
+    {
+      "id": "b0623dfd-c2c3-4b76-afba-de31a7c2b153",
+      "source_ref": "29921",
+      "name": "Northumbria Flooring",
+      "match_confidence": "high"
+    },
+    {
+      "id": "f5b8264b-1ac3-440e-ab67-1eda48819f57",
+      "source_ref": "29715",
+      "name": "Optimum Flooring Solutions",
+      "match_confidence": "high"
+    },
+    {
+      "id": "cc55bfae-d178-4715-8ac9-41060dbea08b",
+      "source_ref": "29915",
+      "name": "Regency Flooring",
+      "match_confidence": "high"
+    },
+    {
+      "id": "0d6c8345-2ef0-46bd-9fd0-464ae340fd67",
+      "source_ref": "29864",
+      "name": "Simon Davis Flooring",
+      "match_confidence": "high"
+    },
+    {
+      "id": "9040e94d-3a11-4fdb-b8b0-2da2ff0c0167",
+      "source_ref": "30176",
+      "name": "T&B CARPETS",
+      "match_confidence": "high"
+    },
+    {
+      "id": "3c301546-fe22-4737-804a-f336fa07748c",
+      "source_ref": "30190",
+      "name": "Thomas Hearn Furnishings",
+      "match_confidence": "high"
+    },
+    {
+      "id": "5539c668-51ac-4b24-a5d6-64ef3ec98aab",
+      "source_ref": "30265",
+      "name": "Trade Carpet London",
+      "match_confidence": "high"
+    },
+    {
+      "id": "77e48e88-5768-418e-9e67-9d08b9f8b871",
+      "source_ref": "29840",
+      "name": "Walker Flooring",
+      "match_confidence": "review"
+    },
+    {
+      "id": "45077a34-c3b6-4870-b8cd-38d994adf0a4",
+      "source_ref": "29905",
+      "name": "Wilkinsons Flooring",
+      "match_confidence": "review"
+    },
+    {
+      "id": "48c2b12a-8523-46ca-90aa-e1c4183aa940",
+      "source_ref": "29753",
+      "name": "Dallas Carpets Scotland Ltd",
+      "match_confidence": "review"
+    },
+    {
+      "id": "0c8b82f3-14e3-41bc-bd89-f4e21d5fac53",
+      "source_ref": "29850",
+      "name": "Forth Furnishing",
+      "match_confidence": "high"
+    },
+    {
+      "id": "148d16e2-3cdc-40ea-884f-745a41e57e1f",
+      "source_ref": "30264",
+      "name": "Arbons Carpet & Flooring",
+      "match_confidence": "high"
+    },
+    {
+      "id": "bf8c6cdd-a9f8-4461-b991-9af82d2e0be5",
+      "source_ref": "29742",
+      "name": "Carpet GIANT Croydon",
+      "match_confidence": "high"
+    },
+    {
+      "id": "a91b4373-b3bc-4fd4-ab1e-367f7f0eff3d",
+      "source_ref": "30080",
+      "name": "AMA Flooring",
+      "match_confidence": "high"
+    },
+    {
+      "id": "5a7c18fd-f5c1-4f2c-8203-5c5c5b53865f",
+      "source_ref": "30261",
+      "name": "Amtico Flooring Installations Limited",
+      "match_confidence": "review"
+    },
+    {
+      "id": "5d249c4c-7dec-4a91-92ba-abc1b9afa500",
+      "source_ref": "29438",
+      "name": "A Wood Idea",
+      "match_confidence": "high"
+    },
+    {
+      "id": "57d97291-6f19-4c67-ad10-f3720034becd",
+      "source_ref": "29904",
+      "name": "Ashford Trade Flooring",
+      "match_confidence": "high"
+    },
+    {
+      "id": "85c98436-1034-4927-918f-b89a48099de3",
+      "source_ref": "30174",
+      "name": "Ashley Cooke's Carpet & Flooring",
+      "match_confidence": "high"
+    },
+    {
+      "id": "060dd058-1926-4bac-acac-7d075b9acd99",
+      "source_ref": "30175",
+      "name": "Ashley Cooke's Carpets & Flooring Scarborough Ltd",
+      "match_confidence": "high"
+    },
+    {
+      "id": "0a6e6845-d191-4e59-8be8-d6aa9c91cf56",
+      "source_ref": "29731",
+      "name": "Avana flooring",
+      "match_confidence": "high"
+    },
+    {
+      "id": "b0725edc-8ea0-4df2-ad24-17a533fa5c0f",
+      "source_ref": "29730",
+      "name": "Avonvale carpets",
+      "match_confidence": "high"
+    },
+    {
+      "id": "a6cd1f37-ce21-4763-bbe9-3599618eb74d",
+      "source_ref": "29888",
+      "name": "Bainton Flooring",
+      "match_confidence": "high"
+    },
+    {
+      "id": "4200cba1-af81-4c8a-b3ff-d653825be5e3",
+      "source_ref": "29865",
+      "name": "Bartram Flooring Services",
+      "match_confidence": "high"
+    },
+    {
+      "id": "04093e11-745b-4887-b7e2-de709d436901",
+      "source_ref": "29734",
+      "name": "Beccles Carpet Centre",
+      "match_confidence": "not_found"
+    },
+    {
+      "id": "797f039a-900d-42c3-ad27-6810dcfdbd4d",
+      "source_ref": "29463",
+      "name": "Bespoke Flooring",
+      "match_confidence": "high"
+    },
+    {
+      "id": "b35d582e-234e-4a2f-b9c6-2028fd4d550a",
+      "source_ref": "29747",
+      "name": "Bespoke flooring Of Oxted",
+      "match_confidence": "review"
+    },
+    {
+      "id": "8a123c1d-6583-434f-ae73-e1f022c5c09e",
+      "source_ref": "29711",
+      "name": "Blackberry Hill Carpets & Flooring",
+      "match_confidence": "high"
+    },
+    {
+      "id": "c9450426-d0f4-4286-8681-0d4460e91f7e",
+      "source_ref": "29686",
+      "name": "Bo-Hus",
+      "match_confidence": "high"
+    },
+    {
+      "id": "61d4f09f-1bc0-4409-a527-0cb78b6d1dc8",
+      "source_ref": "29696",
+      "name": "Bredon Hill Flooring",
+      "match_confidence": "high"
+    },
+    {
+      "id": "0ce6e0e1-450a-4531-9bcf-4057c6b5e82c",
+      "source_ref": "29667",
+      "name": "Browns Carpets and Flooring",
+      "match_confidence": "high"
+    },
+    {
+      "id": "b108cfab-45cc-407f-993a-2355717cb0eb",
+      "source_ref": "30193",
+      "name": "Burgess Flooring and Blinds",
+      "match_confidence": "review"
+    },
+    {
+      "id": "48d59da8-07b3-413b-9387-e21db4cdab21",
+      "source_ref": "30180",
+      "name": "Burnley Carpets & Interiors",
+      "match_confidence": "high"
+    },
+    {
+      "id": "4ad86411-5c65-45f7-9760-c71ca716b011",
+      "source_ref": "30184",
+      "name": "Burts Carpets of Darlington",
+      "match_confidence": "high"
+    },
+    {
+      "id": "15188281-1874-48a2-aef6-62454198146e",
+      "source_ref": "29762",
+      "name": "C&M Flooring",
+      "match_confidence": "high"
+    },
+    {
+      "id": "f274d48e-e575-484f-98b7-b7f9f7082e8f",
+      "source_ref": "29760",
+      "name": "Calder Valley Flooring",
+      "match_confidence": "high"
+    },
+    {
+      "id": "d0c5d01a-2541-4a1e-9384-7d28f8101a04",
+      "source_ref": "29701",
+      "name": "Carpet and Furniture Supplies",
+      "match_confidence": "high"
+    },
+    {
+      "id": "91a279b6-1f92-4512-b133-f34b3518adf0",
+      "source_ref": "29919",
+      "name": "Carpet and Vinyl Warehouse",
+      "match_confidence": "high"
+    },
+    {
+      "id": "28439956-0c22-4849-afec-4fd12f5169b9",
+      "source_ref": "29688",
+      "name": "Carpet Connection",
+      "match_confidence": "high"
+    },
+    {
+      "id": "b4f80554-ee07-46fa-9ad8-fda48118e2ef",
+      "source_ref": "29849",
+      "name": "Carpet Creations",
+      "match_confidence": "high"
+    },
+    {
+      "id": "e93adfca-2f8f-4fdf-bc4f-1a6a58f6d7e2",
+      "source_ref": "29878",
+      "name": "Carpet Cuts Loughborough",
+      "match_confidence": "high"
+    },
+    {
+      "id": "461d11ef-78bb-4ffb-ab5c-fd51f8749551",
+      "source_ref": "29744",
+      "name": "Carpet GIANT Charton",
+      "match_confidence": "review"
+    },
+    {
+      "id": "77070157-f764-4eb2-a9f9-2ca7426a3aae",
+      "source_ref": "29741",
+      "name": "Carpet GIANT Orpingdon",
+      "match_confidence": "high"
+    },
+    {
+      "id": "528c3f7d-95e2-4ad7-973b-d8285ae2245e",
+      "source_ref": "29892",
+      "name": "Carpet Options",
+      "match_confidence": "high"
+    },
+    {
+      "id": "f3aba6e0-905f-402b-8588-25b6ea1d1f9e",
+      "source_ref": "29674",
+      "name": "Carpets 2 You",
+      "match_confidence": "high"
+    },
+    {
+      "id": "8ca41e78-0d2e-4989-a2bd-b02b50ba8ac8",
+      "source_ref": "30085",
+      "name": "Carpets Direct Bristol",
+      "match_confidence": "high"
+    },
+    {
+      "id": "5428adef-7c28-476d-ae45-a6faa0632c94",
+      "source_ref": "29745",
+      "name": "Castle Carpets - Malton",
+      "match_confidence": "high"
+    },
+    {
+      "id": "c4a2ffee-12a5-4747-b073-a08a6455a018",
+      "source_ref": "29842",
+      "name": "Chadwick Carpets Ltd",
+      "match_confidence": "high"
+    },
+    {
+      "id": "43268a2f-7048-48ee-90d0-2a2a43145991",
+      "source_ref": "30252",
+      "name": "Cheam Flooring",
+      "match_confidence": "high"
+    },
+    {
+      "id": "ecb15f1d-5395-4d04-aae1-049f5c1cc652",
+      "source_ref": "30088",
+      "name": "CM Flooring",
+      "match_confidence": "review"
+    },
+    {
+      "id": "0cd9a0cb-58df-44be-942f-ccdc9f9fcaa5",
+      "source_ref": "29858",
+      "name": "Coldbath Flooring",
+      "match_confidence": "high"
+    },
+    {
+      "id": "720e93ed-325e-47bb-a4d7-2637c5acbac8",
+      "source_ref": "29738",
+      "name": "Contract Flooring Holdings Ltd",
+      "match_confidence": "high"
+    },
+    {
+      "id": "fc1cf3c5-1057-4b49-8654-8e6f4950b976",
+      "source_ref": "29907",
+      "name": "Corraff Carpets",
+      "match_confidence": "review"
+    },
+    {
+      "id": "ab3a48b2-a8cb-47e1-b836-11be60c9b4e0",
+      "source_ref": "30186",
+      "name": "County Carpets",
+      "match_confidence": "high"
+    },
+    {
+      "id": "eaf87272-5112-4b23-8ae1-fcad48234afd",
+      "source_ref": "29722",
+      "name": "County Flooring & Supplies",
+      "match_confidence": "high"
+    },
+    {
+      "id": "53823901-a5d7-42e7-90ef-05a55d1ae175",
+      "source_ref": "29886",
+      "name": "Custom Flooring Ltd",
+      "match_confidence": "review"
+    },
+    {
+      "id": "041421c9-14dc-494c-839b-934c405cb9e1",
+      "source_ref": "30087",
+      "name": "Cut Price Carpets & Flooring",
+      "match_confidence": "high"
+    },
+    {
+      "id": "ac890acb-c10c-4eae-8b19-385512bfaf22",
+      "source_ref": "29890",
+      "name": "DGN Interiors",
+      "match_confidence": "high"
+    },
+    {
+      "id": "16ba7548-8860-451f-b6f9-f075aec5145a",
+      "source_ref": "29669",
+      "name": "Drapers Carpets",
+      "match_confidence": "high"
+    },
+    {
+      "id": "cfad94e4-c4fb-437c-9351-19c660c6a863",
+      "source_ref": "29914",
+      "name": "Eclipse Flooring",
+      "match_confidence": "high"
+    },
+    {
+      "id": "258e4437-4aa1-4f09-bca9-4ed994907500",
+      "source_ref": "29859",
+      "name": "Elite Installations",
+      "match_confidence": "not_found"
+    },
+    {
+      "id": "9002b9e5-e37d-4242-a97c-e77ab25ef1f0",
+      "source_ref": "30182",
+      "name": "Endurance Carpets",
+      "match_confidence": "high"
+    },
+    {
+      "id": "39e97e7a-d472-4416-9d92-560cdc1b8711",
+      "source_ref": "29663",
+      "name": "Floor Depot",
+      "match_confidence": "high"
+    },
+    {
+      "id": "d10f98b5-f4a7-4436-afaf-dc3f31e9c939",
+      "source_ref": "30247",
+      "name": "Floor Designs",
+      "match_confidence": "high"
+    },
+    {
+      "id": "f4e9de21-896c-4f11-b2e1-4e0cdfdee233",
+      "source_ref": "30259",
+      "name": "Flooring Developments",
+      "match_confidence": "high"
+    },
+    {
+      "id": "400078f4-6747-4437-8d48-95c8a1c84ab5",
+      "source_ref": "30185",
+      "name": "Flooring Developments LTD",
+      "match_confidence": "high"
+    },
+    {
+      "id": "5988c939-f922-4f61-8b9c-621ed926a9e8",
+      "source_ref": "29903",
+      "name": "Flooring Matters SW",
+      "match_confidence": "high"
+    },
+    {
+      "id": "75790fc0-38c1-40cd-9aa0-2f4adf2bde81",
+      "source_ref": "29902",
+      "name": "Flooring Storage UK",
+      "match_confidence": "review"
+    },
+    {
+      "id": "652b652d-95cc-475d-b937-4dbc66a4e10f",
+      "source_ref": "30084",
+      "name": "Floortek Supplies",
+      "match_confidence": "review"
+    },
+    {
+      "id": "8ba7bf30-e0c0-47ce-9473-4f0d2be2109d",
+      "source_ref": "29692",
+      "name": "Fresh Flooring",
+      "match_confidence": "high"
+    },
+    {
+      "id": "6288c398-5c33-4d55-ba52-08207321b3c4",
+      "source_ref": "29704",
+      "name": "Gloucester Carpet Outlet",
+      "match_confidence": "high"
+    },
+    {
+      "id": "59d30c8c-bb7c-4a35-9d16-27fe32cd7eea",
+      "source_ref": "29897",
+      "name": "Guest Carpets",
+      "match_confidence": "high"
+    },
+    {
+      "id": "dda79f6d-2674-488b-9b28-4a3169a06193",
+      "source_ref": "29480",
+      "name": "Harper & Pye Ltd",
+      "match_confidence": "high"
+    },
+    {
+      "id": "f87bec92-994b-4cdb-bcd9-ba5d0a4151d0",
+      "source_ref": "29658",
+      "name": "Home Carpets by Neil Mcbrearty",
+      "match_confidence": "review"
+    },
+    {
+      "id": "e4e90a19-378d-4a76-adcf-7e9aaa15d776",
+      "source_ref": "29678",
+      "name": "Hudspeth Floooring",
+      "match_confidence": "high"
+    },
+    {
+      "id": "fdbc64b8-0038-459f-a233-9091a1b2d8dd",
+      "source_ref": "29668",
+      "name": "Hudspeth Flooring",
+      "match_confidence": "high"
+    },
+    {
+      "id": "bce9bb92-e892-4e2e-9823-8fb10a742d8f",
+      "source_ref": "30246",
+      "name": "Image Flooring Benfleet",
+      "match_confidence": "high"
+    },
+    {
+      "id": "b2d6dd90-e703-4dc7-b25b-cdc175fc7a03",
+      "source_ref": "30245",
+      "name": "Image Flooring Chelmsford",
+      "match_confidence": "high"
+    },
+    {
+      "id": "a15fcfe1-862c-4794-a513-dd3eb7f6da92",
+      "source_ref": "29713",
+      "name": "Inspired Flooring Earby",
+      "match_confidence": "high"
+    },
+    {
+      "id": "f1d5d791-ecb7-4f03-b6c4-0c8d3f7f19dd",
+      "source_ref": "29685",
+      "name": "Iroka Interiors",
+      "match_confidence": "high"
+    },
+    {
+      "id": "09f74bb1-87ab-4e35-9054-c94554ae432e",
+      "source_ref": "29729",
+      "name": "JA flooring",
+      "match_confidence": "review"
+    },
+    {
+      "id": "8206e97e-afed-4179-bd46-be0dd0b0e332",
+      "source_ref": "29681",
+      "name": "Jeff Wynn",
+      "match_confidence": "high"
+    },
+    {
+      "id": "2b0e44de-9830-482f-b27f-433db3d84216",
+      "source_ref": "29881",
+      "name": "Jim Youngman Carpets",
+      "match_confidence": "high"
+    },
+    {
+      "id": "0fc8f3e9-ff07-4837-9618-330c4eedb447",
+      "source_ref": "29889",
+      "name": "JL Flooring",
+      "match_confidence": "not_found"
+    },
+    {
+      "id": "eb7c0716-4647-44a3-88fd-c574e3bffea5",
+      "source_ref": "29736",
+      "name": "JSR Flooring",
+      "match_confidence": "high"
+    },
+    {
+      "id": "41f8e106-0d77-4953-a9d8-eb531af3fac5",
+      "source_ref": "29854",
+      "name": "Kinghall Flooring",
+      "match_confidence": "high"
+    },
+    {
+      "id": "e24a1021-c1e0-4b26-9350-031b88b4163d",
+      "source_ref": "29700",
+      "name": "Knights flooring",
+      "match_confidence": "high"
+    },
+    {
+      "id": "66cbbad1-4a19-4080-be60-fe4bb3993a4e",
+      "source_ref": "29900",
+      "name": "LT Carpets & Flooring",
+      "match_confidence": "review"
+    },
+    {
+      "id": "45c1fb5e-7c80-4a1a-909b-c17dae9775aa",
+      "source_ref": "29761",
+      "name": "Lutterworth Flooring",
+      "match_confidence": "high"
+    },
+    {
+      "id": "278aa548-f3d4-45b9-9c63-ae70f457575e",
+      "source_ref": "30466",
+      "name": "Market Carpets",
+      "match_confidence": "high"
+    },
+    {
+      "id": "15833be4-720c-4cad-9611-ccfccb27af0c",
+      "source_ref": "29750",
+      "name": "Mascalls Carpets & Flooring Specialists",
+      "match_confidence": "high"
+    },
+    {
+      "id": "659d6b78-c585-4ffc-8aa2-c9f36f23f229",
+      "source_ref": "29676",
+      "name": "MS Flooring",
+      "match_confidence": "high"
+    },
+    {
+      "id": "6039fd10-5b49-4e75-81d8-4ce4b2814b4c",
+      "source_ref": "29882",
+      "name": "Multisave Carpets",
+      "match_confidence": "not_found"
+    },
+    {
+      "id": "e20f9794-5f41-4ded-bcef-85a5aa126857",
+      "source_ref": "29478",
+      "name": "Northumbria Flooring & Furniture",
+      "match_confidence": "review"
+    },
+    {
+      "id": "21583568-8c8d-4975-8131-5f0a6033774e",
+      "source_ref": "29705",
+      "name": "Northumbria Flooring & Furniture",
+      "match_confidence": "high"
+    },
+    {
+      "id": "dda1db7a-f902-41bc-a31f-51fb8e9134d2",
+      "source_ref": "30089",
+      "name": "Tees Valley Flooring",
+      "match_confidence": "review"
+    },
+    {
+      "id": "fe506bc0-6059-486b-8287-0aae23075e50",
+      "source_ref": "29876",
+      "name": "The Design House",
+      "match_confidence": "high"
+    },
+    {
+      "id": "bf5f06f0-296e-40fa-972e-7c7553a99860",
+      "source_ref": "29920",
+      "name": "OTB Interiors",
+      "match_confidence": "high"
+    },
+    {
+      "id": "207445b6-0b16-444b-aaa6-201be2ea0d74",
+      "source_ref": "30187",
+      "name": "Parkside Discount Carpets",
+      "match_confidence": "high"
+    },
+    {
+      "id": "d25367c3-0368-4b56-a2ff-26d20b99dfd1",
+      "source_ref": "30263",
+      "name": "Phil Irwin Carpets",
+      "match_confidence": "high"
+    },
+    {
+      "id": "9cf5789c-258b-45fb-bc65-0c661f2ca572",
+      "source_ref": "30177",
+      "name": "Posh Carpets & Flooring",
+      "match_confidence": "high"
+    },
+    {
+      "id": "28ddfba2-03bb-4bee-8046-0bb9dbaac9a6",
+      "source_ref": "30189",
+      "name": "RMD Flooring",
+      "match_confidence": "high"
+    },
+    {
+      "id": "ed824448-147c-44ed-8deb-35592939331d",
+      "source_ref": "29748",
+      "name": "Rodgers Carpets Ltd",
+      "match_confidence": "review"
+    },
+    {
+      "id": "451c9046-d9e9-4fbe-a221-a9157b113bbd",
+      "source_ref": "29703",
+      "name": "ROMNEY FLOORING",
+      "match_confidence": "high"
+    },
+    {
+      "id": "80dffb56-efde-4dee-a959-13cce44b7bab",
+      "source_ref": "29662",
+      "name": "Roseways",
+      "match_confidence": "review"
+    },
+    {
+      "id": "932645af-94b9-443b-8b76-e22f07b93840",
+      "source_ref": "29739",
+      "name": "Sawston Carpets & Flooring",
+      "match_confidence": "high"
+    },
+    {
+      "id": "69866c55-2815-4175-ab5a-90998b534b3d",
+      "source_ref": "29887",
+      "name": "Select Carpet-Blinds & Floors",
+      "match_confidence": "high"
+    },
+    {
+      "id": "4734ec5d-63c3-409d-93c6-59ee344b43b8",
+      "source_ref": "29860",
+      "name": "Selectline Kitchens and Flooring",
+      "match_confidence": "review"
+    },
+    {
+      "id": "bf860eac-7db6-4be7-bd3b-cf0f71e8b038",
+      "source_ref": "29718",
+      "name": "Solihull Carpets",
+      "match_confidence": "high"
+    },
+    {
+      "id": "a785c6e1-3579-4270-afb1-0d7201421871",
+      "source_ref": "30262",
+      "name": "Spacers Tile & Wood Flooring Limited",
+      "match_confidence": "high"
+    },
+    {
+      "id": "2cbbc6e7-5b5a-4f5f-a33c-6a81096f7149",
+      "source_ref": "29916",
+      "name": "St Helens Flooring",
+      "match_confidence": "high"
+    },
+    {
+      "id": "5904a493-93be-4682-a964-e585a20bb0fb",
+      "source_ref": "29906",
+      "name": "Steve's Carpets",
+      "match_confidence": "high"
+    },
+    {
+      "id": "75f5dc1d-82cf-4b03-9e5e-93b9d6a45c8a",
+      "source_ref": "30191",
+      "name": "Stroud Carpets & Interiors",
+      "match_confidence": "high"
+    },
+    {
+      "id": "1af1ad6f-b412-44ff-abdc-5b6f3b6b9408",
+      "source_ref": "30083",
+      "name": "Supreme Carpets",
+      "match_confidence": "high"
+    },
+    {
+      "id": "f44fcd7c-bdc1-45dd-88b1-0b276db0b387",
+      "source_ref": "29694",
+      "name": "Sylk Flooring",
+      "match_confidence": "high"
+    },
+    {
+      "id": "8267c98c-87d7-4103-831f-350af7b02a58",
+      "source_ref": "29675",
+      "name": "The Arches Carpet Centre",
+      "match_confidence": "high"
+    },
+    {
+      "id": "a06eabb5-53ac-4ffb-8a80-bd5b54f28732",
+      "source_ref": "29735",
+      "name": "The Floor Studio",
+      "match_confidence": "review"
+    },
+    {
+      "id": "51980f03-73c8-4c0f-9c0c-9273da8b4832",
+      "source_ref": "29716",
+      "name": "The Flooring and Carpet shop",
+      "match_confidence": "review"
+    },
+    {
+      "id": "870dfb80-6f16-466f-b339-363d77bd42e7",
+      "source_ref": "30260",
+      "name": "The Southport Carpet Centre",
+      "match_confidence": "high"
+    },
+    {
+      "id": "0b7b8cb1-bff8-4d52-94d3-d07edcddca99",
+      "source_ref": "30256",
+      "name": "Thompsons Floooring",
+      "match_confidence": "not_found"
+    },
+    {
+      "id": "8f912fc6-ea65-4ca5-baf8-2230dad780d6",
+      "source_ref": "29724",
+      "name": "Trinity Carpets",
+      "match_confidence": "high"
+    },
+    {
+      "id": "38ee6d99-b12a-4a89-9b79-ef17a09cd824",
+      "source_ref": "29725",
+      "name": "Trinity Carpets",
+      "match_confidence": "high"
+    },
+    {
+      "id": "a8ff3866-6b6a-47e1-8fa1-a488122d10cb",
+      "source_ref": "29683",
+      "name": "Trinity Flooring",
+      "match_confidence": "high"
+    },
+    {
+      "id": "1548e795-213e-4d55-99c9-a5fa4ecc9729",
+      "source_ref": "30258",
+      "name": "Upper Street Carpets",
+      "match_confidence": "high"
+    },
+    {
+      "id": "80371b31-d480-41be-9ffa-a68169356e7e",
+      "source_ref": "30181",
+      "name": "VICTORIA FLOORING LTD",
+      "match_confidence": "high"
+    },
+    {
+      "id": "70eefd15-0914-4249-acd4-faf2aa8cdfe0",
+      "source_ref": "30192",
+      "name": "Village Flooring",
+      "match_confidence": "high"
+    },
+    {
+      "id": "d61eeb5a-5a62-44a1-86fc-ab9ce8d8245b",
+      "source_ref": "29728",
+      "name": "Walker on Flooring",
+      "match_confidence": "review"
+    },
+    {
+      "id": "b5288e7c-2015-4373-aee6-453be67b7e5a",
+      "source_ref": "29714",
+      "name": "Wansbeck Carpet and Floor",
+      "match_confidence": "high"
+    },
+    {
+      "id": "0732c36c-184d-4c46-a4bd-0ab7c4b9e3c8",
+      "source_ref": "29845",
+      "name": "Welch Mill Carpets",
+      "match_confidence": "high"
+    },
+    {
+      "id": "0a3cd315-8d62-44f8-b81b-4334d1b86b3a",
+      "source_ref": "29726",
+      "name": "Whitburn Coastal Flooring",
+      "match_confidence": "review"
+    },
+    {
+      "id": "422bd3a0-8592-44b2-8164-2f4fbe6b5543",
+      "source_ref": "29867",
+      "name": "Whitley Bay Carpets and Beds",
+      "match_confidence": "review"
+    },
+    {
+      "id": "4442bd1a-2fd9-446d-a793-5763ff379208",
+      "source_ref": "29712",
+      "name": "Winnens 1929 ltd",
+      "match_confidence": "review"
+    },
+    {
+      "id": "de9624c8-966a-4a0d-ba56-55546030d584",
+      "source_ref": "29893",
+      "name": "Wycombe Carpet Centre",
+      "match_confidence": "high"
+    },
+    {
+      "id": "7e286dfd-e85a-4553-b7c1-4e947e39b09c",
+      "source_ref": "30081",
+      "name": "Magic Carpets",
+      "match_confidence": "high"
+    },
+    {
+      "id": "fb774d29-356c-4607-846b-5aca64870810",
+      "source_ref": "29665",
+      "name": "Allans Furniture Warehouse",
+      "match_confidence": "high"
+    },
+    {
+      "id": "d3865118-7d39-470f-bb98-7ad0b5dd3f50",
+      "source_ref": "29756",
+      "name": "Carpet and flooring Services",
+      "match_confidence": "high"
+    },
+    {
+      "id": "a229dc30-e375-4b1c-b557-5e236cd376c1",
+      "source_ref": "29751",
+      "name": "Crawford Flooring EK",
+      "match_confidence": "review"
+    },
+    {
+      "id": "62b76f81-ba2e-44c5-bdfc-b2d4921045f9",
+      "source_ref": "29844",
+      "name": "Donnys Carpets Scotland Ltd",
+      "match_confidence": "high"
+    },
+    {
+      "id": "a228b671-bf86-4daf-99ee-a65ea8416033",
+      "source_ref": "29857",
+      "name": "EBR Flooring",
+      "match_confidence": "high"
+    },
+    {
+      "id": "cc10efe9-7464-4e4a-829a-85e764400787",
+      "source_ref": "29660",
+      "name": "Edinburgh Carpet Warehouse Limited",
+      "match_confidence": "high"
+    },
+    {
+      "id": "60865760-95f9-4fa3-b8eb-feafab1d6c06",
+      "source_ref": "30469",
+      "name": "Falkirk Carpets",
+      "match_confidence": "high"
+    },
+    {
+      "id": "557d9cc5-ae72-453e-9a58-0f365ff15b8c",
+      "source_ref": "29752",
+      "name": "Flairplan",
+      "match_confidence": "high"
+    },
+    {
+      "id": "d191ca62-ab10-4eef-b0da-b1b8203d06f6",
+      "source_ref": "29872",
+      "name": "Forever Flooring",
+      "match_confidence": "high"
+    },
+    {
+      "id": "3e326369-3b63-4840-8a77-2bb1c4f828fe",
+      "source_ref": "29839",
+      "name": "G Flooring Solutions",
+      "match_confidence": "high"
+    },
+    {
+      "id": "04c7519d-1dcb-4b41-8d6b-67f258a7b001",
+      "source_ref": "29901",
+      "name": "G N L Carpet and Flooring",
+      "match_confidence": "review"
+    },
+    {
+      "id": "22e7d370-109a-4dba-bd83-16533d306d70",
+      "source_ref": "29664",
+      "name": "Inspired Floors",
+      "match_confidence": "high"
+    },
+    {
+      "id": "027fcd9d-874f-4352-bd9c-ddea5a5fe13e",
+      "source_ref": "29431",
+      "name": "Inverness Flooring & Furniture",
+      "match_confidence": "high"
+    },
+    {
+      "id": "ba1e0c24-e5af-4a50-bcc7-9b3465657f5a",
+      "source_ref": "29759",
+      "name": "JM Flooring Scotland",
+      "match_confidence": "high"
+    },
+    {
+      "id": "2cbd7a46-9711-4482-bf5a-bc2243362b94",
+      "source_ref": "29855",
+      "name": "Kinnears for Carpets Ltd",
+      "match_confidence": "review"
+    },
+    {
+      "id": "c9a09cef-01a8-4517-a787-ff86d8f67a55",
+      "source_ref": "29848",
+      "name": "M West Flooring",
+      "match_confidence": "high"
+    },
+    {
+      "id": "1bac67bf-e2d2-4026-ad00-e12b1597dee5",
+      "source_ref": "29755",
+      "name": "North Floors",
+      "match_confidence": "high"
+    },
+    {
+      "id": "34ac121a-4e68-4c6c-801e-7e39fd3f15d1",
+      "source_ref": "29879",
+      "name": "Northern Carpets and Beds",
+      "match_confidence": "high"
+    },
+    {
+      "id": "0cd5bbdd-94d2-4e65-a670-28364fa2a4d3",
+      "source_ref": "29898",
+      "name": "Saltire Carpets and Beds",
+      "match_confidence": "high"
+    },
+    {
+      "id": "c212f31e-36b7-4f5b-8760-5b09a8a7f475",
+      "source_ref": "29884",
+      "name": "Sams Carpet and Flooring Ltd",
+      "match_confidence": "not_found"
+    },
+    {
+      "id": "cca591d8-49dd-4e3b-aa2a-cb5afff5e4f3",
+      "source_ref": "29843",
+      "name": "Stainton Flooring",
+      "match_confidence": "review"
+    },
+    {
+      "id": "aa43b13f-d21f-4d35-86da-7228b48cb0ec",
+      "source_ref": "29841",
+      "name": "Uddo Flooring Ltd",
+      "match_confidence": "high"
+    },
+    {
+      "id": "c1b6c16e-c252-4547-9914-d38acab3811b",
+      "source_ref": "29873",
+      "name": "Unique Flooring Fife",
+      "match_confidence": "high"
+    },
+    {
+      "id": "a647c58d-c5f5-4b03-a04b-a31be83b4a25",
+      "source_ref": "29917",
+      "name": "White Stag Flooring",
+      "match_confidence": "high"
+    },
+    {
+      "id": "68f341d3-58fb-4d30-a40a-56a8757e4d50",
+      "source_ref": "29868",
+      "name": "Whittons Flooring Arbroath",
+      "match_confidence": "high"
+    },
+    {
+      "id": "a5a2cc9c-9f82-4945-9c68-6d852cc534e3",
+      "source_ref": "29720",
+      "name": "Carpetfit Wales",
+      "match_confidence": "high"
+    },
+    {
+      "id": "5ee29474-b1fc-4441-9e52-dc83dc16d979",
+      "source_ref": "29899",
+      "name": "Castle Carpets Wrexham",
+      "match_confidence": "review"
+    },
+    {
+      "id": "7d74c9e0-d680-4471-9010-645029fa995c",
+      "source_ref": "29693",
+      "name": "Floor Store U.K",
+      "match_confidence": "review"
+    },
+    {
+      "id": "5b2a3852-b672-485f-949b-d6552afd4caa",
+      "source_ref": "29885",
+      "name": "Floors on Floors Penarth",
+      "match_confidence": "high"
+    },
+    {
+      "id": "ca9116a9-d9de-4204-b1af-3117c434341b",
+      "source_ref": "30082",
+      "name": "Hughes Flooring",
+      "match_confidence": "review"
+    },
+    {
+      "id": "e9ea6c3a-854a-4f65-bf23-5229935622cb",
+      "source_ref": "29880",
+      "name": "Our Own Designs",
+      "match_confidence": "review"
+    },
+    {
+      "id": "25bd0153-93c4-4933-b194-b9efc051e521",
+      "source_ref": "30474",
+      "name": "Signature Floors Pembroke",
+      "match_confidence": "not_found"
+    }
+  ]
+}
