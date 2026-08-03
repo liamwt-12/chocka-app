@@ -19,6 +19,8 @@ Nothing in the running app imports from this directory.
 | `verify-matches.py` | The script that produced it. Reads `GOOGLE_PLACES_API_KEY` from the environment. |
 | `rematch-2026-07-30.json` | Round two — re-match of the 8 `NOT FOUND` rows and full candidate lists for the top 4 suspects. |
 | `rematch.py` | The script for round two. Also carries validated ports of `scorePlace` and `bandFor`. |
+| `verify-all.py` | **Round three (2026-08-03) — step 1 of 2.** Gives **all 180** rows the deep standard, with `classifyMatch`'s four defects fixed. Emits a machine-readable verdict per row. Writes a JSON file and **nothing else** — it never touches the database. |
+| `verification-2026-08-03.json` | Its output: verdict + full candidate list + both the fixed and the original judgement per candidate, so the delta is auditable. |
 
 ## This repository is public
 

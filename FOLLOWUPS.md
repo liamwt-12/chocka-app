@@ -473,7 +473,37 @@ Invisible. Defensible band 72.3 – 75.3, so treat the mean as ±1.5.
 Places Details lookup, not the deep candidate-list check the 9 suspects received. Probably right, not
 checked to the same standard. Re-running all 169 would close both this and condition 4.
 
-### Known limitation — verification coverage of the 169 is uneven, and 129 rows were never re-checked  [known limitation — accepted 2026-07-30, not a task]
+### Known limitation — verification coverage of the 169 is uneven, and 129 rows were never re-checked  [CLOSED 2026-08-03 — all 180 given the deep standard]
+
+**Closed by `scripts/source-data/verify-all.py`.** Every one of the 180 rows now has a full
+`searchText` candidate list judged by a fixed port of `classifyMatch` — the standard only 15 rows had.
+Evidence in `verification-2026-08-03.json`; both the fixed and the original judgement are recorded per
+candidate, so the delta is auditable rather than asserted.
+
+**Result: 147 CONFIRMED, 33 needing a human.** The three numbers that matter:
+
+- **5 of the 136 `high` rows did not confirm.** The 129-never-checked exposure was real but modest —
+  which is the honest answer, and better than the worry implied. It is no longer unmeasured.
+- **16 of the 36 `review` rows confirmed**, so their scores become showable. That is 16 retailers who
+  would have received an invite with no number in it.
+- **1 of the 8 hard zeros was wrong.** `Sams Carpet and Flooring Ltd` — 4.9★, 275 reviews, carried at
+  **0** — matches `Sam's Carpets and Flooring` at 0.91 character similarity. Exactly defect 1.
+
+**A new source-data defect, found by the proximity arm:** **37 rows** have a postcode that matches the
+candidate while the row's own lat/lng sits more than 250m away, so those two fields disagree in the
+source. It does not change any verdict here (the postcode is what the original matched on) but it means
+proximity cannot be trusted as an independent arm for those rows, and it is worth fixing upstream.
+
+**What the fixed port changes, beyond the four recorded defects.** Token-set similarity alone was
+rejecting obvious matches this list is full of — concatenation (`Lewis Carpets` / `Lewiscarpets
+Canterbury`, jaccard 0.00) and typos (`Hudspeth Floooring` / `Hudspeth Flooring`). A character-level
+arm on the despaced names catches both, with an 8-character floor that keeps defect 2 dead. First pass
+without it flagged 61 rows; nearly half were the matcher's fault, not the data's.
+
+**Still open:** the 33 flagged rows are a triage, not a verdict. Applying any of this to
+`retailers.match_confidence` is step 2 and deliberately separate.
+
+### Superseded — verification coverage of the 169 is uneven  [original entry, kept for the reasoning]
 **What it is.** "169 verified" describes three different standards of evidence, not one:
 
 | Standard | n | What was actually done |
