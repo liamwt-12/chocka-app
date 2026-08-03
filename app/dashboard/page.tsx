@@ -76,10 +76,25 @@ export default function DashboardPage() {
             {resolved.badge && <ScoreBadge badge={resolved.badge} />}
           </div>
           <div style={{fontSize:38,fontWeight:600,lineHeight:1,marginTop:6,fontFamily:mono,color:sc(p.audit_score_after||p.audit_score)}}>{p.audit_score_after||p.audit_score}<span style={{fontSize:16,color:V.textSoft}}>/100</span></div>
+          {/* "+N from setup" is a real delta and stays: audit_score and
+              audit_score_after are BOTH lib/audit.scoreProfile readings of the
+              same connected profile, before and after the onboarding fixes.
+              Subtracting them is valid — unlike batch vs live, which is the
+              comparison the hard rule forbids. */}
           {p.audit_score_after&&p.audit_score&&<div style={bdg(V.greenLight,V.green)}>↑ +{p.audit_score_after-p.audit_score} from setup</div>}
-          <div style={{marginTop:8,display:'flex',alignItems:'flex-end',gap:3,height:28}}>
-            {[20,30,35,45,55,65,72,(p.audit_score_after||p.audit_score)].map((h,i)=>(<div key={i} style={{flex:1,height:`${h}%`,borderRadius:'3px 3px 0 0',background:i===7?V.orange:V.orangeLight}}/>))}
-          </div>
+          {/* An 8-bar sparkline used to sit here, drawn from a hardcoded
+              [20,30,35,45,55,65,72,score]. The first seven values were invented,
+              so every retailer saw eight weeks of steady improvement that never
+              happened — on day one, for a retailer whose profile we had just
+              connected. Harmless decoration until a real pre-launch baseline
+              started rendering on the same page, at which point the fake bars
+              read as the journey from that baseline to the live score: exactly
+              the blended series the hard rule forbids.
+
+              Removed rather than relabelled. A caption saying "illustrative" is
+              ignored while the shape does the persuading, and one real
+              score_history row is a dot, not a trend. Bring a chart back when
+              there is more than one real point per retailer to draw. */}
         </div>
         <div style={{...card,padding:'14px 16px'}}>
           <div style={lbl}>Managed For</div>

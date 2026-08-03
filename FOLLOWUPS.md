@@ -432,7 +432,7 @@ decision that surfaced this).
 
 Both deliberately left out of the 2026-07-29 import day, for stated reasons rather than time.
 
-### The dashboard draws a fabricated score history  [pre-pilot — found 2026-08-03 while adding the badge]
+### The dashboard draws a fabricated score history  [CLOSED 2026-08-03 — bars removed]
 `app/dashboard/page.tsx` renders an 8-bar sparkline from the literal array
 `[20,30,35,45,55,65,72, <current score>]`. The first seven values are invented: every retailer, on
 their first day, sees a chart showing their score climbing steadily from 20 to where it is now.
@@ -443,10 +443,18 @@ improvement that did not happen; and the pre-launch baseline now renders on the 
 invites reading the fake bars as the journey from that baseline to the live score — precisely the
 blended series the hard rule forbids.
 
-**Deliberately not changed in the badge commit.** Removing it alters the visual design of the tile,
-which is a call for whoever owns the design rather than a correctness fix I should make unilaterally.
-Options: drop the bars; drive them from real `score_history` rows (which exist, one per retailer, so
-today there would be exactly one bar); or keep them and label them explicitly as an illustration.
+**Removed, not relabelled or rebuilt.** A caption saying "illustrative" gets ignored while the shape
+does the persuading, and one real `score_history` row is a dot rather than a trend — it would read as
+broken. The tile is now a static score: label, badge, number, and the genuine "+N from setup" delta.
+
+**"+N from setup" stays, and is not the same thing.** `audit_score` and `audit_score_after` are both
+`lib/audit.scoreProfile` readings of the same connected profile, before and after the onboarding
+fixes. Subtracting them is valid. It is batch-vs-live that cannot be subtracted, and that comparison
+is not on this tile.
+
+**Bring a chart back when there is more than one real point per retailer to draw.** `score_history` is
+the record of truth and already accumulates one row per scoring event, so the data will arrive on its
+own; the mistake was drawing the shape before it did.
 
 **Related:** the same instinct produced "7,101 businesses scored across the UK" on the Stellar login,
 removed on 2026-08-03.
