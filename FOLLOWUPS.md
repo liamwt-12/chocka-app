@@ -83,7 +83,7 @@ empty manageable set. Isolated to the two catch blocks in the callback plus one 
 branch in `app/onboarding/page.tsx`. Optionally add a short low-level retry inside
 `getManageableListings` for transient 5xx before giving up.
 
-### `needsVerification` tests `=== 'review'`, so any other value reads as trustworthy  [latent — fixed by data today, not by code]
+### `needsVerification` tests `=== 'review'`, so any other value reads as trustworthy  [CLOSED 2026-08-03 — predicate inverted]
 **What it is.** `lib/retailer-score.ts` computes `needsVerification: retailer?.match_confidence === 'review'`.
 That is an equality test, not `!== 'high'`. Every value that is not literally `'review'` — including
 `'not_found'`, `null`, and anything a future import invents — resolves to **needsVerification: false**,
@@ -100,10 +100,15 @@ prevent exactly this did not cover the case, because it was written against the 
 there are now **zero** `not_found` rows and the trusted set has a minimum score of 44. The defect is
 closed *by the data*, which is the weaker of the two ways to close it.
 
-**Fix when picked up:** invert the test — `needsVerification: retailer?.match_confidence !== 'high'` —
-so trust is opt-in rather than opt-out. Note `lib/retailer-score.ts` has 14 tests asserting current
-behaviour, and at least one will need updating; that is the point of the change, not an obstacle to
-it. Until then, any future import that writes `'not_found'` reintroduces the defect silently.
+**Fixed same day.** Inverted to `match_confidence !== 'high'`, so trust is opt-in and the failure mode
+is withholding a good score rather than publishing a wrong one. No existing test needed changing — the
+three that covered this were already asserting the correct behaviour for `'review'` and `'high'`; the
+gap was that nothing asserted anything about the OTHER values. Two tests added: one sweeping
+`not_found`, `''`, `'HIGH'`, `null` and `undefined` to prove they all fail closed, and one pinning the
+hard-zero case specifically, since `score === 0` is not null and so slipped past the upstream guard.
+
+Note this is now belt and braces: the 2026-08-03 apply already left zero `not_found` rows. The point of
+the code fix is that it no longer depends on the data staying that way.
 
 ## Deferred — entitlement and billing
 

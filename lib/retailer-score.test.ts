@@ -80,6 +80,27 @@ describe('resolveRetailerScore — verification flag', () => {
     expect(resolveRetailerScore(batch(78, { match_confidence: 'high' })).needsVerification).toBe(false);
   });
 
+  it('flags EVERY value that is not an explicit high — trust is opt-in', () => {
+    // The regression this guards. The flag was `=== 'review'`, so anything else
+    // read as trustworthy. The 8 `not_found` rows carry score 0 and band
+    // "Invisible"; send-invites gates on `score !== null && !needsVerification`,
+    // and 0 is not null. Eight real businesses would have been cold-emailed to
+    // be told they scored 0 out of 100, badged "Audited" — one of which scores
+    // 98. Any new confidence value must fail closed, not open.
+    for (const conf of ['not_found', 'unverified', '', 'HIGH', 'pending'] as const) {
+      expect(resolveRetailerScore(batch(0, { match_confidence: conf })).needsVerification).toBe(true);
+    }
+    expect(resolveRetailerScore(batch(0, { match_confidence: null })).needsVerification).toBe(true);
+    expect(resolveRetailerScore(batch(0, { match_confidence: undefined })).needsVerification).toBe(true);
+  });
+
+  it('withholds a hard zero rather than presenting it as an audited result', () => {
+    // score 0 is not null, so the null-guard upstream never caught this.
+    const r = resolveRetailerScore(batch(0, { match_confidence: 'not_found', band: 'Invisible' }));
+    expect(r.score).toBe(0);
+    expect(r.needsVerification).toBe(true);
+  });
+
   it('does not flag a live score even if the old scrape match was unverified', () => {
     // Once the retailer connects their own profile, the scrape's guess about
     // which business this was stops being load-bearing.
