@@ -21,6 +21,20 @@ const HOST_TO_SLUG: Record<string, string> = {
   'localhost': 'chocka',
   '127.0.0.1': 'chocka',
   'app.stellarlocal.co.uk': 'stellar',
+
+  // Local development as Stellar. Without this there is NO way to run the
+  // Stellar brand on a dev machine — plain `localhost` resolves to Chocka, and
+  // unknown hosts fail-safe to Chocka too, so every Stellar-only surface
+  // (invite-only /login, the £0 price paths, Stellar copy) renders as Chocka
+  // locally and can only be checked in production. That is a large part of why
+  // Stellar-specific defects have accumulated unnoticed.
+  //
+  // `*.localhost` resolves to 127.0.0.1 in Chrome, Safari and Firefox without
+  // touching /etc/hosts, so `http://stellar.localhost:3000` just works.
+  //
+  // Safe in production: this is a reserved TLD that cannot be registered, so no
+  // real request can ever arrive with this Host.
+  'stellar.localhost': 'stellar',
 };
 
 export function resolveTenantSlug(host: string): string {
