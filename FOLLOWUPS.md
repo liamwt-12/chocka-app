@@ -432,7 +432,49 @@ decision that surfaced this).
 
 Both deliberately left out of the 2026-07-29 import day, for stated reasons rather than time.
 
-### Badge UI — no page exists to build it against  [deferred — build on real data]
+### The dashboard draws a fabricated score history  [pre-pilot — found 2026-08-03 while adding the badge]
+`app/dashboard/page.tsx` renders an 8-bar sparkline from the literal array
+`[20,30,35,45,55,65,72, <current score>]`. The first seven values are invented: every retailer, on
+their first day, sees a chart showing their score climbing steadily from 20 to where it is now.
+
+It was decorative when nobody had a real history to contradict it. It is a problem now for two
+reasons: a Stellar retailer's first dashboard view is day one, so the chart depicts eight weeks of
+improvement that did not happen; and the pre-launch baseline now renders on the same page, which
+invites reading the fake bars as the journey from that baseline to the live score — precisely the
+blended series the hard rule forbids.
+
+**Deliberately not changed in the badge commit.** Removing it alters the visual design of the tile,
+which is a call for whoever owns the design rather than a correctness fix I should make unilaterally.
+Options: drop the bars; drive them from real `score_history` rows (which exist, one per retailer, so
+today there would be exactly one bar); or keep them and label them explicitly as an illustration.
+
+**Related:** the same instinct produced "7,101 businesses scored across the UK" on the Stellar login,
+removed on 2026-08-03.
+
+### Badge UI  [CLOSED 2026-08-03 — built against the verified 180]
+**Built.** `components/ScoreBadge.tsx` exports three pieces, all driven by `BADGE_LABEL` /
+`BADGE_DESCRIPTION` in `lib/retailer-score` so copy cannot drift between surfaces:
+
+- **`ScoreBadge`** — says which measurement a number is. `audited` and `connected` are styled to look
+  like different things rather than two states of one thing, for the same reason they are never drawn
+  as one series.
+- **`SupersededScore`** — the only sanctioned way to show a batch score beside a live one: a separate
+  sentence, explicitly stating the two are not comparable and that the difference is not a change.
+  No arrow, no delta, no second point on a line.
+- **`UnverifiedScoreNotice`** — shown instead of a number when `needsVerification` is true.
+
+Rendered on the **dashboard** (badge on the score tile; superseded baseline in its own block; the
+audited-only card for an invited retailer whose live audit has not run yet) and on the **invite page**
+(badge with description under the score). `/api/dashboard` returns the linked `retailers` row raw, not
+resolved — `resolveRetailerScore` stays the single place that decides precedence and trust.
+
+**Verified against the real 180:** 147 render a score with the `audited` badge, 33 get the unverified
+notice, and **0 zero-scores are shown**. Simulating the case nobody has seen yet — a retailer holding
+both — the live score wins, the badge flips to `connected`, the batch band is dropped (different
+vocabulary), the batch score reappears only as `supersededBatchScore`, and the resolved object carries
+**no** delta, trend, change or diff field.
+
+**Superseded — the original entry, kept for the reasoning**
 **Context:** `lib/retailer-score.ts` resolves which score to display and which badge to show
 (`audited` for batch, `connected` for live), with `BADGE_LABEL` / `BADGE_DESCRIPTION` copy and 14
 tests. Nothing renders it. There is no retailer-facing page anywhere in this repo — `retailers` is a

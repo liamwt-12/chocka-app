@@ -17,6 +17,7 @@ import { getRequestTenant } from '@/lib/tenant-request';
 import { supabaseAdmin } from '@/lib/supabase';
 import { hashInviteToken, checkInviteRedeemable, normaliseInviteToken } from '@/lib/invite-token';
 import { resolveRetailerScore } from '@/lib/retailer-score';
+import { ScoreBadge } from '@/components/ScoreBadge';
 import Button from '@/components/Button';
 
 interface InviteRow {
@@ -207,6 +208,16 @@ export default async function InvitePage({ params }: { params: { token: string }
               {resolved.band ? ` — ${resolved.band}` : ''}. Connect your profile to see what is
               costing you the rest.
             </p>
+            {/* Same badge, same copy, same component as the dashboard. The
+                number a retailer is emailed and the number they see after
+                connecting must be labelled by the same vocabulary, or the
+                switch from `audited` to `connected` reads as a score change
+                rather than a change of measurement. */}
+            {resolved.badge && (
+              <div className="mt-4">
+                <ScoreBadge badge={resolved.badge} withDescription />
+              </div>
+            )}
           </>
         ) : (
           <p className="text-sm text-gray-500">

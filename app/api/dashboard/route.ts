@@ -176,7 +176,23 @@ export async function GET(request: NextRequest) {
       .eq('referrer_id', userId)
       .eq('status', 'completed');
 
+    // The pre-launch baseline for this retailer, if they came in through an
+    // invite. Read through retailers.user_id, which linkInviteToUser is the only
+    // thing that sets — so a self-serve signup simply has none and the dashboard
+    // shows nothing extra.
+    //
+    // Returned RAW, not resolved. resolveRetailerScore is the single place that
+    // decides which score wins and whether it can be trusted, and it needs the
+    // live score alongside; doing half of that here would put the precedence
+    // rule in two places.
+    const { data: retailer } = await supabaseAdmin
+      .from('retailers')
+      .select('name, score, band, scored_at, match_confidence')
+      .eq('user_id', userId)
+      .maybeSingle();
+
     return NextResponse.json({
+      retailer: retailer ?? null,
       user: { name: user.name, email: user.email, phone: user.phone_number, referral_code: user.referral_code, subscription_status: user.subscription_status, auto_post_enabled: user.auto_post_enabled, auto_reply_enabled: user.auto_reply_enabled, sms_enabled: user.sms_enabled },
       profile: profile ? { business_name: profile.business_name, category: profile.category, city: profile.city, streak_weeks: profile.streak_weeks || 0, total_posts: postCountRes.count || 0, total_replies: replyCountRes.count || 0, audit_score: profile.audit_score || null, audit_score_after: profile.audit_score_after || null, latitude: profile.latitude, longitude: profile.longitude } : null,
       google, recentPosts: postsRes.data || [], recentReviews: reviewsRes.data || [],
