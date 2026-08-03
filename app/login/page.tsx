@@ -98,6 +98,23 @@ export default function LoginPage() {
           </div>
 
           {/* Error banner */}
+          {errorCode === 'invite_required' && (
+            <div role="alert" style={{
+              background:'#fdecea',
+              border:`1px solid #f5c2bb`,
+              borderRadius:'0.875rem',
+              padding:'1rem 1.125rem',
+              marginBottom:'1.5rem',
+              fontSize:'0.9375rem',
+              color:'#7a1d11',
+              lineHeight:1.5,
+            }}>
+              {tenant.brandName} is invite-only at the moment, so we couldn&apos;t finish setting up your
+              account. Nothing was created, and the access you just granted has been handed straight
+              back to Google. If you were expecting an invite, email <a href={`mailto:${tenant.teamEmail}`} style={{ color:'#7a1d11',textDecoration:'underline' }}>{tenant.teamEmail}</a> and we&apos;ll sort it out.
+            </div>
+          )}
+
           {errorCode === 'scope_missing' && (
             <div role="alert" style={{
               background:'#fdecea',
@@ -197,7 +214,29 @@ export default function LoginPage() {
               </div>
             </div>
 
-            {/* CTA */}
+            {/* CTA — invite-only on the Stellar host.
+                The real gate is server-side, in the OAuth callback; this panel
+                only stops someone starting a flow that is going to refuse them.
+                Chocka is unchanged. */}
+            {tenant.slug === 'stellar' ? (
+              <div style={{
+                border:`1px solid ${border}`,
+                borderRadius:'0.875rem',
+                padding:'1.125rem 1.25rem',
+                background:bg,
+                textAlign:'center',
+              }}>
+                <div style={{ fontFamily:body,fontSize:'1rem',fontWeight:600,color:text,marginBottom:'0.375rem' }}>
+                  {tenant.brandName} is invite-only
+                </div>
+                <p style={{ fontSize:'0.875rem',color:secondary,lineHeight:1.5,margin:0 }}>
+                  Your Tarkett rep can set you up, or email{' '}
+                  <a href={`mailto:${tenant.teamEmail}`} style={{ color:orange,textDecoration:'underline' }}>{tenant.teamEmail}</a>{' '}
+                  and we&apos;ll send you a link.
+                </p>
+              </div>
+            ) : (
+            <>
             <button onClick={handleGoogleLogin} style={{
               display:'flex',alignItems:'center',justifyContent:'center',gap:10,
               width:'100%',padding:'1rem',borderRadius:'0.875rem',
@@ -221,6 +260,8 @@ export default function LoginPage() {
             <p style={{ textAlign:'center',fontSize:'0.8125rem',color:muted,margin:'0.75rem 0 0' }}>
               Free · No card required · 30 seconds
             </p>
+            </>
+            )}
 
             {/* Visible security line */}
             <p style={{ display:'flex',alignItems:'center',justifyContent:'center',gap:6,fontSize:'0.8125rem',color:muted,margin:'0.5rem 0 0' }}>
