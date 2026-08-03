@@ -65,6 +65,27 @@ export interface Tenant {
   priceMonthlyGbp: number; // 29
   priceMonthlyPence: number; // 2900
   proofLocation: string; // Chocka-specific proof copy ("North East")
+
+  // Who pays, when the retailer does not. Set only on a zero-price tenant, and
+  // used wherever "free" would otherwise read as "trial" or "broken" — a
+  // retailer told the service is free still wants to know why it is.
+  fundedBy?: string;
+
+  // Every claim the sign-in page makes. These were hardcoded, which meant the
+  // Stellar host asserted Chocka's evidence: "7,101 businesses scored across
+  // the UK" is Chocka's North East dataset restated as national, and the
+  // 8-week average is a Chocka results claim with no Stellar cohort behind it.
+  // A brand states its own proof or states none.
+  //
+  // `proofClaim: null` and `avgScoreAfter8Weeks: null` both HIDE their element
+  // rather than rendering something empty.
+  loginCopy: {
+    headline: string[]; // rendered one line per entry
+    sub: string;
+    proofClaim: string | null;
+    avgScoreAfter8Weeks: number | null;
+  };
+
   meta: { title: string; description: string };
   // CSS font stacks injected as --hd (headings) and --bd (body). Whatever is
   // named here must be loaded by an @import in app/globals.css.
@@ -91,6 +112,12 @@ const CHOCKA_BASE: Omit<Tenant, 'appUrl' | 'appHost' | 'emailFrom'> = {
   priceMonthlyGbp: 29,
   priceMonthlyPence: 2900,
   proofLocation: 'North East',
+  loginCopy: {
+    headline: ['SEE YOUR', 'GOOGLE PROFILE', 'SCORE.'],
+    sub: 'Find out what\'s hurting your visibility and what to fix first. Takes 30 seconds.',
+    proofClaim: '7,101 businesses scored across the North East',
+    avgScoreAfter8Weeks: 84,
+  },
   meta: {
     title: 'Chocka — Keep your diary chocka',
     description:
@@ -152,6 +179,22 @@ const STELLAR_BASE: Omit<Tenant, 'appUrl' | 'appHost' | 'emailFrom'> = {
   priceMonthlyGbp: 0,
   priceMonthlyPence: 0,
   proofLocation: 'UK',
+  fundedBy: 'Tarkett',
+  loginCopy: {
+    // No self-serve promise. On the Stellar host this page is invite-only, so a
+    // "see your score, takes 30 seconds" hero sat directly above a panel saying
+    // they cannot — two contradictory messages on one screen. This copy is the
+    // salvaged Stellar positioning (see FOLLOWUPS) and stays true whether the
+    // reader has an invite or not.
+    headline: ['GET FOUND.', 'GET THE PHONE', 'RINGING.'],
+    sub: 'We look after your shop\'s presence on Google, so more local customers find you and call.',
+    // No numeric proof. The Stellar baseline (mean 75.3 across 169 verified)
+    // carries four mandatory conditions — including that it is NEVER shown next
+    // to an in-app score, which this page displays. Stating no number is the
+    // only safe option here; see FOLLOWUPS "Hard rule".
+    proofClaim: 'Free for Tarkett retailers — Tarkett pays for it',
+    avgScoreAfter8Weeks: null,
+  },
   meta: {
     title: 'Stellar Local · Get found',
     description:

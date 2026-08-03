@@ -30,7 +30,11 @@ export default function ReferralPage() {
         <Button href={`/login?ref=${code}`} size="lg" className="w-full">
           Get started — 30 seconds
         </Button>
-        <p className="text-xs text-gray-300 mt-4">£{tenant.priceMonthlyGbp}/month · Cancel anytime</p>
+        <p className="text-xs text-gray-300 mt-4">
+          {tenant.priceMonthlyGbp > 0
+            ? `£${tenant.priceMonthlyGbp}/month · Cancel anytime`
+            : tenant.fundedBy ? `Free · paid for by ${tenant.fundedBy}` : 'Free · no card required'}
+        </p>
       </div>
     </div>
   );

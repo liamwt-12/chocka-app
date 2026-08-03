@@ -3,6 +3,9 @@ import { getRequestTenant } from '@/lib/tenant-request';
 // Resolved per request, not per process — see the note in app/privacy/page.tsx.
 export default function TermsPage() {
   const t = getRequestTenant();
+  // Written for a paid subscription. On a free tenant the payment terms describe
+  // a transaction that does not exist — see the note in app/privacy/page.tsx.
+  const paid = t.priceMonthlyGbp > 0;
   return (
     <div className="max-w-2xl mx-auto px-6 py-16">
       <a href="/" className="text-brand font-extrabold text-xl">{t.brandName}</a>
@@ -15,7 +18,9 @@ export default function TermsPage() {
         <p>
           {t.brandName} manages your Google Business Profile on your behalf. This includes writing and
           publishing posts, replying to reviews, and sending you performance updates via SMS and email.
-          By subscribing, you authorise us to take these actions using your Google account.
+          {paid
+            ? 'By subscribing, you authorise us to take these actions using your Google account.'
+            : 'By connecting your Google account, you authorise us to take these actions using it.'}
         </p>
 
         <h2 className="text-lg font-bold text-charcoal mt-8">Your responsibilities</h2>
@@ -25,12 +30,21 @@ export default function TermsPage() {
           negative review replies). You must not use the service for any unlawful purpose.
         </p>
 
-        <h2 className="text-lg font-bold text-charcoal mt-8">Payments</h2>
-        <p>
-          Subscriptions are billed monthly or annually via Stripe. You can cancel anytime from your
-          settings or the Stripe billing portal. Refunds are not provided for partial billing periods.
-          We may change our pricing with 30 days notice.
-        </p>
+        <h2 className="text-lg font-bold text-charcoal mt-8">{paid ? 'Payments' : 'Cost'}</h2>
+        {paid ? (
+          <p>
+            Subscriptions are billed monthly or annually via Stripe. You can cancel anytime from your
+            settings or the Stripe billing portal. Refunds are not provided for partial billing periods.
+            We may change our pricing with 30 days notice.
+          </p>
+        ) : (
+          <p>
+            {t.brandName} is free to you{t.fundedBy ? `. ${t.fundedBy} funds the service` : ''}. There is
+            no subscription, no payment details are collected, and you will not be charged. If that
+            ever changes we will tell you at least 30 days beforehand, and it would take your
+            agreement — we cannot start charging an account that has never given us a payment method.
+          </p>
+        )}
 
         <h2 className="text-lg font-bold text-charcoal mt-8">AI-generated content</h2>
         <p>
@@ -46,9 +60,10 @@ export default function TermsPage() {
           prior to any claim.
         </p>
 
-        <h2 className="text-lg font-bold text-charcoal mt-8">Cancellation</h2>
+        <h2 className="text-lg font-bold text-charcoal mt-8">{paid ? 'Cancellation' : 'Stopping'}</h2>
         <p>
-          You can cancel at any time. On cancellation, we stop all automated actions on your Google
+          {paid ? 'You can cancel at any time.' : 'You can stop at any time, and remove our access from your Google account directly.'}
+          {' '}On {paid ? 'cancellation' : 'stopping'}, we stop all automated actions on your Google
           profile. Your data is retained for 30 days in case you return, then permanently deleted.
         </p>
 

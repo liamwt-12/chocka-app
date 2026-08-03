@@ -83,6 +83,21 @@ empty manageable set. Isolated to the two catch blocks in the callback plus one 
 branch in `app/onboarding/page.tsx`. Optionally add a short low-level retry inside
 `getManageableListings` for transient 5xx before giving up.
 
+### The liability clause is anchored to fees paid, and a free retailer pays none  [pre-pilot — needs a solicitor, not a rewrite]
+**What it is.** `app/terms/page.tsx` limits liability to "the fees you have paid in the 12 months prior
+to any claim". On a zero-price tenant that evaluates to **zero**, so the clause either caps liability
+at nothing or is unenforceable — and which of those is true is a legal question, not an engineering one.
+
+**Deliberately not rewritten in the 2026-08-03 copy sweep.** That pass corrected statements of *fact*
+that were false for a free retailer — Stripe, billing, "no active plan", payment terms. Drafting a
+liability limitation is a different act, and inventing one would be worse than leaving the current
+text visible and flagged.
+
+**Related:** the same sweep also left `hardcoded 'Tarkett'` out of everything except `STELLAR_BASE.fundedBy`,
+so if a second free tenant ever appears the copy follows automatically. One exception to reconcile at
+merge time: the onboarding opt-in card added on `stellar-cron-entitlement` says "paid for by Tarkett"
+as a literal. It should read `tenant.fundedBy`, which did not exist when that branch was written.
+
 ## Pre-pilot — Stellar landing (`/stellar`)
 
 Must land before real retailers see the page. Both are known compromises in the initial
