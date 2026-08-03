@@ -652,8 +652,60 @@ repo is public (see the public-repo decision above).
 any replay of that link bail out safely. It was revoked anyway, because left as `accepted` it counts
 as a real retailer acceptance in any funnel query during the pilot.
 
-### The generic `/login` route is open on the Stellar host and produces an unlinked account  [deferred — decide before the pilot]
-**What it is.** There are two ways into Stellar Local today, not one. The invite link
+### Let a no-invite arrival ask for one, instead of bouncing  [deferred — build once Tarkett's first-contact answer is known]
+**What it is.** The gate below refuses cleanly, but it is still a dead end: a retailer who arrives
+without an invite is told to email `team@stellarlocal.co.uk`, and whether they do is out of our hands.
+The better behaviour is to capture them — business name and email into a request row — so a no-invite
+arrival becomes a lead rather than a bounce.
+
+**Why it is deliberately not built yet.** Which retailers arrive this way, and what they will have
+been told before they do, depends entirely on how Tarkett answers the first-contact question above.
+If **Tarkett makes first contact** (option 1), no-invite arrivals become the *main* flow and the
+capture form is load-bearing — it needs to echo whatever wording Tarkett actually sent, or the
+retailer thinks they are in the wrong place. If **Stellar emails the confirmed corporates** (option 3),
+the invite link is the only door and this stays a rare fallback worth almost nothing. Building it now
+means guessing which, and the guess is free to make later: the refusal branch in the callback is a
+single `return`, and the panel is one conditional in `app/login/page.tsx`.
+
+**Guardrail for whoever builds it:** a request row must not be a shortcut into `retailers.user_id`.
+The whole point of the gate is that only a verified invite links a retailer, and a self-asserted
+"I am Elvet Flooring" is not that. Queue for review, or mint a real invite and send it — do not link.
+
+**Related:** `inviteAdmitsSignup` in `app/api/auth/callback/google/route.ts`, and the post-hoc linking
+entry below, which is the other half of the same problem.
+
+### The generic `/login` route is open on the Stellar host and produces an unlinked account  [CLOSED 2026-08-03 — gated]
+**Closed by gating `/login` on the Stellar host.** Two changes, both tenant-scoped so Chocka is
+untouched:
+
+- **The real gate is server-side**, in `app/api/auth/callback/google/route.ts` (Step 3b). On the
+  Stellar tenant, account *creation* now requires an invite ref that would actually link:
+  `inviteAdmitsSignup()` mirrors `linkInviteToUser`'s preconditions exactly — signature verifies, the
+  invite row exists, `accepted_at` is set, `user_id` is null, status is `pending`, and the retailer is
+  itself unclaimed. Refusal redirects to `/login?error=invite_required` and writes nothing.
+- **The panel in `app/login/page.tsx`** replaces the Connect button with "invite-only" on the Stellar
+  host. This is a sign, not a lock — hiding a button does nothing for anyone hitting the callback URL
+  directly, which is why the gate above exists.
+
+**Three decisions inside it worth knowing:**
+
+1. **It gates creation, not sign-in.** The check sits after the `existingUser` branch has returned, so
+   a properly invited retailer coming back later through `/login` is unaffected. Gating sign-in too
+   would lock out exactly the people the invite flow onboarded.
+2. **The declined credential is revoked.** At the refusal point we hold a live Google refresh token
+   for someone we have just turned away. It is never stored, so it is handed back to Google
+   best-effort rather than left as a standing grant for an app that gave them nothing.
+3. **`expires_at` is deliberately not checked.** Expiry is enforced at accept time; re-testing it here
+   would reject a retailer whose invite lapsed during the seconds they spent on Google's consent
+   screen, after they had already granted access. `linkInviteToUser` does not check it either, and the
+   two must not diverge.
+
+**Not covered by tests.** This repo has no API-route tests at all, and the gate lives inside the
+callback's request flow. `npm test` (139 tests) and `next build` both pass, but the gate itself was
+verified by reading, not by execution. Worth an integration test if route testing is ever set up.
+
+**Original context, kept because the reasoning still applies to the entry above.** There were two ways
+into Stellar Local, not one. The invite link
 (`/invite/<token>`, delivered by email or handed over by a rep) is the intended route. But
 `app.stellarlocal.co.uk/login` also carries a live "Connect Google — see your score" button, which
 fires `/api/auth/callback/google?action=login&plan=…` with no token and no invite. It works: real

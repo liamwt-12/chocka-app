@@ -186,6 +186,51 @@ export async function GET(request: NextRequest) {
       return response;
     }
 
+    // Step 3b: On the Stellar host, refuse to CREATE an account without a usable
+    // invite.
+    //
+    // Placed here deliberately — after the existingUser branch has returned, and
+    // before any row is written. It gates account *creation* only. A retailer who
+    // was properly invited and comes back later through /login is an existing user
+    // and never reaches this line; gating sign-in as well would lock out the very
+    // people the invite flow onboarded.
+    //
+    // The gap this closes: linkInviteToUser is the only code anywhere that sets
+    // retailers.user_id, and it runs only when a signed invite ref arrives in the
+    // OAuth state. Without one, /login produced a real Stellar account with its
+    // retailer row left unclaimed and the 2026-06-21 baseline unattached — an
+    // orphan that nothing reconciles, because post-hoc linking is not built.
+    //
+    // Chocka is untouched: the condition is tenant-scoped, and Chocka has no
+    // invite concept at all.
+    if (tenant.slug === 'stellar') {
+      const admitted = await inviteAdmitsSignup(parsedState.invite);
+      if (!admitted.ok) {
+        console.error(
+          `[auth] Stellar signup refused — no usable invite (${admitted.reason}); ` +
+            `email=${userInfo.email ? 'present' : 'absent'}; state invite=${parsedState.invite ? 'present' : 'absent'}`,
+        );
+
+        // We hold a live Google credential for someone we have just declined to
+        // sign up. It is never stored, so hand it back rather than leaving the
+        // grant sitting in their Google account for an app that gave them nothing.
+        // Best-effort: a failure here must not change what the retailer sees.
+        if (tokens.refresh_token) {
+          try {
+            await fetch('https://oauth2.googleapis.com/revoke', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+              body: new URLSearchParams({ token: tokens.refresh_token }),
+            });
+          } catch (err) {
+            console.error('[auth] could not revoke the declined signup credential:', err);
+          }
+        }
+
+        return NextResponse.redirect(new URL('/login?error=invite_required', baseUrl));
+      }
+    }
+
     // Step 4: New user — create and go to onboarding
     const referralCode = generateReferralCode();
 
@@ -295,6 +340,63 @@ export async function GET(request: NextRequest) {
  * from the invite would add a second rule for the same field. A disagreement is
  * logged loudly and otherwise ignored.
  */
+/**
+ * Would this invite ref actually result in a linked retailer?
+ *
+ * The gate in Step 3b uses this to decide whether creating an account is
+ * worthwhile. It deliberately mirrors linkInviteToUser's preconditions rather
+ * than inventing its own bar, because the two failing differently is the one way
+ * this can do harm: stricter here turns away a retailer whose invite would have
+ * worked, looser here admits the orphan the gate exists to prevent.
+ *
+ * If you change a preconditon in linkInviteToUser, change it here too. The
+ * checks are listed in the same order there for exactly that reason.
+ *
+ * Note what is NOT checked: expires_at. Expiry is enforced at accept time, and
+ * re-testing it here would reject a retailer whose invite lapsed during the
+ * seconds they spent on Google's consent screen — mid-flow, having already
+ * granted access. linkInviteToUser does not check it either.
+ */
+async function inviteAdmitsSignup(inviteRef: unknown): Promise<{ ok: boolean; reason: string }> {
+  if (typeof inviteRef !== 'string' || inviteRef.length === 0) return { ok: false, reason: 'no invite ref in state' };
+
+  const inviteId = parseInviteRef(inviteRef);
+  if (!inviteId) return { ok: false, reason: 'invite ref failed to verify' };
+
+  const { data: invite, error } = await supabaseAdmin
+    .from('retailer_invites')
+    .select('id,retailer_id,accepted_at,user_id,status')
+    .eq('id', inviteId)
+    .maybeSingle();
+
+  // A lookup failure is not proof the invite is bad. Refuse anyway — the
+  // alternative is creating an account we cannot link, which is the thing being
+  // prevented — but say so distinctly in the log, because a burst of these means
+  // the database is unwell, not that retailers are arriving by the wrong door.
+  if (error) return { ok: false, reason: `invite lookup failed: ${error.message}` };
+  if (!invite) return { ok: false, reason: 'no invite row' };
+  if (!invite.accepted_at) return { ok: false, reason: 'invite never went through the accept route' };
+  if (invite.user_id) return { ok: false, reason: 'invite already claimed' };
+  if (invite.status !== 'pending') return { ok: false, reason: `invite status is ${invite.status}` };
+
+  // The retailer is the scarce side — linkInviteToUser claims it with
+  // `.is('user_id', null)`, so an already-claimed row yields zero rows and the
+  // link silently fails. Checking it here is what stops a signup against a
+  // retailer someone else already holds, which is precisely how a real Tarkett
+  // row came to be unclaimable on 2026-07-30.
+  const { data: retailer, error: retailerError } = await supabaseAdmin
+    .from('retailers')
+    .select('id,user_id')
+    .eq('id', invite.retailer_id)
+    .maybeSingle();
+
+  if (retailerError) return { ok: false, reason: `retailer lookup failed: ${retailerError.message}` };
+  if (!retailer) return { ok: false, reason: 'invite points at no retailer' };
+  if (retailer.user_id) return { ok: false, reason: 'retailer already claimed by another user' };
+
+  return { ok: true, reason: 'ok' };
+}
+
 async function linkInviteToUser(
   inviteRef: unknown,
   userId: string,
