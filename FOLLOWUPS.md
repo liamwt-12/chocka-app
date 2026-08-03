@@ -621,6 +621,37 @@ one of those is permanently closed.
 
 ## Deferred — retailer invite flow
 
+### Live end-to-end tests must not use a real retailer row  [rule — set 2026-08-03 after reversing one]
+**What happened.** The 2026-07-30 end-to-end proof of the invite engine was run against
+`retailers.source_ref=29438` — **"A Wood Idea", Blaydon-on-Tyne**, a real business on Tarkett's list,
+score 91, `high` confidence. It worked, which was the point. It also left that row claimed:
+`retailers.user_id` set to the tester's account.
+
+**Why that is worse than it sounds.** `linkInviteToUser` claims with `.is('user_id', null)`, so a
+claimed row is *permanently unclaimable* by anyone else. Had this survived to the pilot, the real
+A Wood Idea would have accepted their invite, hit the silent `retailer ... is already claimed by
+another user` branch, and ended up with an account and no linked retailer — the exact failure the
+`/login` entry below describes, arriving through the *correct* door and therefore much harder to
+diagnose. It would have been found by a confused retailer, not by us.
+
+**Reversed 2026-08-03.** Token revoked at Google — the endpoint answered `revoked`, **not** `already
+invalid`, so by the same test recorded under the OAuth consent entry the credential was live for the
+four days in between. Then nulled with `token_status='offboarded'`, `retailers.user_id` cleared, and
+both invite rows for that retailer set to `revoked`. Verified after: retailer 29438 unclaimed with its
+91 baseline intact, no retailer claimed anywhere in the table, no user holding a Google token except
+`liam@wearecanny.uk`, and `sent_at` null on every row of `retailer_invites` — **nothing has ever been
+emailed to anyone.**
+
+**The rule from here.** Test the invite flow against a **seeded throwaway retailer row**, not a row
+from Tarkett's 180. If a real row must be used, unclaim it in the same session — a claimed row is
+invisible until the real business turns up, which is the worst possible moment to discover it. Note
+the reversal script was deliberately **not committed**: it names a personal Gmail address and this
+repo is public (see the public-repo decision above).
+
+**Also worth knowing:** the invite marked `accepted` still held `user_id`, which alone would have made
+any replay of that link bail out safely. It was revoked anyway, because left as `accepted` it counts
+as a real retailer acceptance in any funnel query during the pilot.
+
 ### The generic `/login` route is open on the Stellar host and produces an unlinked account  [deferred — decide before the pilot]
 **What it is.** There are two ways into Stellar Local today, not one. The invite link
 (`/invite/<token>`, delivered by email or handed over by a rep) is the intended route. But
