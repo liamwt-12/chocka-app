@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
-import { verifyCronSecret, unauthorizedResponse } from '@/lib/cron';
+import { verifyCronSecret, unauthorizedResponse, isEntitledToAutomation } from '@/lib/cron';
 import { sendSMS, logSMS } from '@/lib/twilio';
 import { sendEmail } from '@/lib/email';
 import { getTenantForRow } from '@/lib/tenant';
@@ -12,16 +12,20 @@ export async function GET(request: NextRequest) {
     // Get users in onboarding (steps 0-7)
     // tenants ( slug ) is embedded so each user's brand is known at send time —
     // this route builds its own query rather than using getActiveUsersWithProfiles.
+    // The entitlement filter runs in JS rather than SQL for the same reason as
+    // getActiveUsersWithProfiles — a zero-price tenant is entitled without ever
+    // reaching 'active', and price is not a column on tenants. This route keeps
+    // its own query for the onboarding_step window, so it has to apply the gate
+    // itself; the two must not diverge.
     const { data: users } = await supabaseAdmin
       .from('users')
       .select('*, profiles(*), tenants ( slug )')
-      .eq('subscription_status', 'active')
       .gte('onboarding_step', 0)
       .lte('onboarding_step', 7);
 
     let sent = 0;
 
-    for (const user of users || []) {
+    for (const user of (users || []).filter(isEntitledToAutomation)) {
       if (!user.phone_number || !user.sms_enabled) continue;
       const profile = user.profiles?.[0];
 
