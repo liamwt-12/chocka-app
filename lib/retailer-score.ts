@@ -124,6 +124,16 @@ export function resolveRetailerScore(
     badge: 'audited',
     scoredAt: retailer?.scored_at ?? null,
     supersededBatchScore: null,
-    needsVerification: retailer?.match_confidence === 'review',
+    // Trust is OPT-IN: only an explicit 'high' means "quote this number at the
+    // retailer". This was `=== 'review'`, which made every other value —
+    // 'not_found', null, and anything a future import invents — read as
+    // trustworthy. That was not theoretical: the 8 `not_found` rows carried
+    // score 0 and band "Invisible", and `send-invites.ts` gates on
+    // `score !== null && !needsVerification`, so 0 sailed through. Had sending
+    // been unblocked, 8 real businesses would have been cold-emailed to be told
+    // they scored 0 out of 100, badged "Audited" — one of which actually scores
+    // 98. Inverted so the failure mode is withholding a good score, not
+    // publishing a wrong one.
+    needsVerification: retailer?.match_confidence !== 'high',
   };
 }

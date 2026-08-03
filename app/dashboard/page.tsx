@@ -2,6 +2,8 @@
 
 import { useState, useEffect } from 'react';
 import { useTenant } from '@/lib/tenant-context';
+import { resolveRetailerScore, BADGE_DESCRIPTION } from '@/lib/retailer-score';
+import { ScoreBadge, SupersededScore, UnverifiedScoreNotice } from '@/components/ScoreBadge';
 
 const V = { bg:'#F0EDE8',card:'#FAFAF8',card2:'#F5F3EF',orange:'var(--brand-strong)',orangeLight:'var(--brand-strong-light)',green:'#2D7A4F',greenLight:'#E8F5EE',amber:'#B8860B',amberLight:'#FFF8E6',text:'#1A1A1A',textMid:'#555',textSoft:'#999',border:'rgba(0,0,0,0.07)',shadow:'0 2px 12px rgba(0,0,0,0.06)',star:'#FBBC04' };
 const sans = "\'DM Sans\',sans-serif";
@@ -20,6 +22,22 @@ export default function DashboardPage() {
   if (!d) return <div style={{textAlign:'center',padding:'5rem 1rem',fontFamily:sans}}><p style={{color:V.textSoft}}>Could not load dashboard</p></div>;
 
   const p=d.profile, g=d.google, hasScore=p?.audit_score!=null;
+
+  // Which score to show, and what to call it. resolveRetailerScore owns the
+  // precedence rule (live wins outright) and the trust rule (only an explicit
+  // `high` match is quotable) — this component must not re-implement either.
+  //
+  // The two scores are NEVER merged. A live score displaces the batch one and
+  // the batch one reappears only as `supersededBatchScore`, rendered as a
+  // separate sentence by <SupersededScore>. There is deliberately no delta:
+  // publicAudit.scorePlace reads 3 public signals, the live audit reads 14 with
+  // OAuth, and subtracting one from the other produces a number that means
+  // nothing. See FOLLOWUPS "Hard rule", condition 3.
+  const liveScore = p?.audit_score_after ?? p?.audit_score ?? null;
+  const resolved = resolveRetailerScore(
+    d.retailer,
+    liveScore !== null ? { score: liveScore, scored_at: null } : null,
+  );
   const sc=(s:number)=>s>=76?V.green:s>=56?V.amber:s>=31?V.orange:'#E05050';
   // A return-on-spend ratio needs a spend. On a free tenant priceMonthlyGbp is 0,
   // so this divided by zero and rendered a literal "Infinity× — return on £0/mo"
@@ -51,12 +69,32 @@ export default function DashboardPage() {
       {/* Score + Managed */}
       {hasScore&&(<div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10,animation:'fadeUp .5s .05s ease both'}}>
         <div style={{...card,padding:'14px 16px'}}>
-          <div style={lbl}>Profile Score</div>
-          <div style={{fontSize:38,fontWeight:600,lineHeight:1,marginTop:6,fontFamily:mono,color:sc(p.audit_score_after||p.audit_score)}}>{p.audit_score_after||p.audit_score}<span style={{fontSize:16,color:V.textSoft}}>/100</span></div>
-          {p.audit_score_after&&p.audit_score&&<div style={bdg(V.greenLight,V.green)}>↑ +{p.audit_score_after-p.audit_score} from setup</div>}
-          <div style={{marginTop:8,display:'flex',alignItems:'flex-end',gap:3,height:28}}>
-            {[20,30,35,45,55,65,72,(p.audit_score_after||p.audit_score)].map((h,i)=>(<div key={i} style={{flex:1,height:`${h}%`,borderRadius:'3px 3px 0 0',background:i===7?V.orange:V.orangeLight}}/>))}
+          <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:8}}>
+            <div style={lbl}>Profile Score</div>
+            {/* Says WHICH measurement this number is. A score with no provenance
+                is the thing the hard rule exists to prevent. */}
+            {resolved.badge && <ScoreBadge badge={resolved.badge} />}
           </div>
+          <div style={{fontSize:38,fontWeight:600,lineHeight:1,marginTop:6,fontFamily:mono,color:sc(p.audit_score_after||p.audit_score)}}>{p.audit_score_after||p.audit_score}<span style={{fontSize:16,color:V.textSoft}}>/100</span></div>
+          {/* "+N from setup" is a real delta and stays: audit_score and
+              audit_score_after are BOTH lib/audit.scoreProfile readings of the
+              same connected profile, before and after the onboarding fixes.
+              Subtracting them is valid — unlike batch vs live, which is the
+              comparison the hard rule forbids. */}
+          {p.audit_score_after&&p.audit_score&&<div style={bdg(V.greenLight,V.green)}>↑ +{p.audit_score_after-p.audit_score} from setup</div>}
+          {/* An 8-bar sparkline used to sit here, drawn from a hardcoded
+              [20,30,35,45,55,65,72,score]. The first seven values were invented,
+              so every retailer saw eight weeks of steady improvement that never
+              happened — on day one, for a retailer whose profile we had just
+              connected. Harmless decoration until a real pre-launch baseline
+              started rendering on the same page, at which point the fake bars
+              read as the journey from that baseline to the live score: exactly
+              the blended series the hard rule forbids.
+
+              Removed rather than relabelled. A caption saying "illustrative" is
+              ignored while the shape does the persuading, and one real
+              score_history row is a dot, not a trend. Bring a chart back when
+              there is more than one real point per retailer to draw. */}
         </div>
         <div style={{...card,padding:'14px 16px'}}>
           <div style={lbl}>Managed For</div>
@@ -65,6 +103,41 @@ export default function DashboardPage() {
           <div style={{marginTop:10}}><div style={{fontSize:11,color:V.textSoft}}>Actions taken</div><div style={{fontSize:18,fontWeight:600,fontFamily:mono,marginTop:2}}>{totalActions}</div></div>
         </div>
       </div>)}
+
+      {/* The pre-launch baseline, once a live score has displaced it.
+          A SEPARATE statement in its own block — never a delta, never a second
+          point on the score tile's chart. Two different measurements. */}
+      {resolved.supersededBatchScore !== null && (
+        <div style={{...card,animation:'fadeUp .5s .07s ease both'}}>
+          <SupersededScore score={resolved.supersededBatchScore} scoredAt={d.retailer?.scored_at} />
+        </div>
+      )}
+
+      {/* Invited retailer who has no live score yet. Without this they see
+          nothing at all, having just been emailed a number. */}
+      {!hasScore && d.retailer && (
+        <div style={{...card,animation:'fadeUp .5s .05s ease both'}}>
+          {resolved.needsVerification ? (
+            <UnverifiedScoreNotice businessName={d.retailer.name} />
+          ) : resolved.score !== null ? (
+            <>
+              <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:8,marginBottom:6}}>
+                <div style={lbl}>Profile Score</div>
+                {resolved.badge && <ScoreBadge badge={resolved.badge} />}
+              </div>
+              <div style={{fontSize:38,fontWeight:600,lineHeight:1,fontFamily:mono,color:sc(resolved.score)}}>
+                {resolved.score}<span style={{fontSize:16,color:V.textSoft}}>/100</span>
+              </div>
+              {resolved.band && <div style={{fontSize:13,color:V.textSoft,marginTop:4,fontFamily:sans}}>{resolved.band}</div>}
+              {resolved.badge && (
+                <p style={{fontSize:11,color:V.textSoft,marginTop:10,lineHeight:1.5,fontFamily:sans}}>
+                  {BADGE_DESCRIPTION[resolved.badge]}
+                </p>
+              )}
+            </>
+          ) : null}
+        </div>
+      )}
 
       {/* Value banner */}
       {estCalls>0&&(<div style={{background:V.text,color:'white',borderRadius:16,padding:'16px 18px',display:'flex',alignItems:'center',justifyContent:'space-between',animation:'fadeUp .5s .1s ease both'}}>

@@ -40,6 +40,16 @@ export interface Listing {
   latitude?: number;
   longitude?: number;
   category: string;
+
+  /**
+   * Google Places id, parsed out of the location's own `metadata.mapsUri`.
+   *
+   * FREE. It arrives on the enumeration call every signup already makes, so
+   * capturing it costs no extra request and adds no new way for a signup to
+   * fail. Absent when Google does not return a mapsUri for the location —
+   * treat it as a bonus, never as a guarantee.
+   */
+  placeId?: string;
 }
 
 export function formatAddress(address: any): string {
@@ -123,7 +133,10 @@ export async function getAccounts(accessToken: string) {
 }
 
 export async function getLocations(accessToken: string, accountName: string) {
-  const mask = 'name,title,storefrontAddress,latlng,categories';
+  // `metadata` carries mapsUri, which carries the Places id. Requested here
+  // rather than resolved later because it rides along on a call that already
+  // happens — see Listing.placeId.
+  const mask = 'name,title,storefrontAddress,latlng,categories,metadata';
   const locations: any[] = [];
   let pageToken: string | undefined;
   do {
@@ -144,6 +157,20 @@ export async function getLocations(accessToken: string, accountName: string) {
 // Replaces the old "accounts[0] × locations[0]" assumption. Walks every
 // account with a management role and every location under it, so managers and
 // group-managed shops surface instead of silently binding the wrong listing.
+/**
+ * Pull the Places id out of a location's mapsUri.
+ *
+ * Same expression the dashboard has used since it started caching
+ * `profiles.google_place_id` — kept identical on purpose so the two cannot
+ * disagree about what a place id is. Returns undefined rather than '' so an
+ * absent id is never mistaken for a resolved-but-empty one.
+ */
+export function placeIdFromMapsUri(mapsUri?: string | null): string | undefined {
+  if (!mapsUri) return undefined;
+  const m = mapsUri.match(/place_id[=:]([^&]+)/);
+  return m ? m[1] : undefined;
+}
+
 export async function getManageableListings(accessToken: string): Promise<Listing[]> {
   const accountsRes = await getAccounts(accessToken);
   const accounts: any[] = accountsRes.accounts || [];
@@ -172,6 +199,7 @@ export async function getManageableListings(accessToken: string): Promise<Listin
         latitude: loc.latlng?.latitude,
         longitude: loc.latlng?.longitude,
         category: loc.categories?.primaryCategory?.displayName || '',
+        placeId: placeIdFromMapsUri(loc.metadata?.mapsUri),
       });
     }
   }

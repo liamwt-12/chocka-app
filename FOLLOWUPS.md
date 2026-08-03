@@ -83,6 +83,33 @@ empty manageable set. Isolated to the two catch blocks in the callback plus one 
 branch in `app/onboarding/page.tsx`. Optionally add a short low-level retry inside
 `getManageableListings` for transient 5xx before giving up.
 
+### `needsVerification` tests `=== 'review'`, so any other value reads as trustworthy  [CLOSED 2026-08-03 — predicate inverted]
+**What it is.** `lib/retailer-score.ts` computes `needsVerification: retailer?.match_confidence === 'review'`.
+That is an equality test, not `!== 'high'`. Every value that is not literally `'review'` — including
+`'not_found'`, `null`, and anything a future import invents — resolves to **needsVerification: false**,
+i.e. "this score is trustworthy, quote it".
+
+**What that did.** The 8 `not_found` rows carry **score 0, band "Invisible"**. `send-invites.ts` gates
+on `resolved.score !== null && !resolved.needsVerification`, and 0 is not null, so those 8 rows passed
+the gate. Had sending been unblocked, **8 real businesses would have been cold-emailed to tell them
+they scored 0 out of 100**, badged "Audited", with no qualification — including `Sams Carpet and
+Flooring Ltd`, which has 4.9 stars, 275 reviews and genuinely scores 98. The guard that exists to
+prevent exactly this did not cover the case, because it was written against the `review` bucket.
+
+**Why it is not live today.** The 2026-08-03 apply moved every non-CONFIRMED row to `'review'`, so
+there are now **zero** `not_found` rows and the trusted set has a minimum score of 44. The defect is
+closed *by the data*, which is the weaker of the two ways to close it.
+
+**Fixed same day.** Inverted to `match_confidence !== 'high'`, so trust is opt-in and the failure mode
+is withholding a good score rather than publishing a wrong one. No existing test needed changing — the
+three that covered this were already asserting the correct behaviour for `'review'` and `'high'`; the
+gap was that nothing asserted anything about the OTHER values. Two tests added: one sweeping
+`not_found`, `''`, `'HIGH'`, `null` and `undefined` to prove they all fail closed, and one pinning the
+hard-zero case specifically, since `score === 0` is not null and so slipped past the upstream guard.
+
+Note this is now belt and braces: the 2026-08-03 apply already left zero `not_found` rows. The point of
+the code fix is that it no longer depends on the data staying that way.
+
 ## Deferred — entitlement and billing
 
 ### Split entitlement from billing status properly  [deferred — the clean version of the 2026-08-03 cron fix]
@@ -405,7 +432,57 @@ decision that surfaced this).
 
 Both deliberately left out of the 2026-07-29 import day, for stated reasons rather than time.
 
-### Badge UI — no page exists to build it against  [deferred — build on real data]
+### The dashboard draws a fabricated score history  [CLOSED 2026-08-03 — bars removed]
+`app/dashboard/page.tsx` renders an 8-bar sparkline from the literal array
+`[20,30,35,45,55,65,72, <current score>]`. The first seven values are invented: every retailer, on
+their first day, sees a chart showing their score climbing steadily from 20 to where it is now.
+
+It was decorative when nobody had a real history to contradict it. It is a problem now for two
+reasons: a Stellar retailer's first dashboard view is day one, so the chart depicts eight weeks of
+improvement that did not happen; and the pre-launch baseline now renders on the same page, which
+invites reading the fake bars as the journey from that baseline to the live score — precisely the
+blended series the hard rule forbids.
+
+**Removed, not relabelled or rebuilt.** A caption saying "illustrative" gets ignored while the shape
+does the persuading, and one real `score_history` row is a dot rather than a trend — it would read as
+broken. The tile is now a static score: label, badge, number, and the genuine "+N from setup" delta.
+
+**"+N from setup" stays, and is not the same thing.** `audit_score` and `audit_score_after` are both
+`lib/audit.scoreProfile` readings of the same connected profile, before and after the onboarding
+fixes. Subtracting them is valid. It is batch-vs-live that cannot be subtracted, and that comparison
+is not on this tile.
+
+**Bring a chart back when there is more than one real point per retailer to draw.** `score_history` is
+the record of truth and already accumulates one row per scoring event, so the data will arrive on its
+own; the mistake was drawing the shape before it did.
+
+**Related:** the same instinct produced "7,101 businesses scored across the UK" on the Stellar login,
+removed on 2026-08-03.
+
+### Badge UI  [CLOSED 2026-08-03 — built against the verified 180]
+**Built.** `components/ScoreBadge.tsx` exports three pieces, all driven by `BADGE_LABEL` /
+`BADGE_DESCRIPTION` in `lib/retailer-score` so copy cannot drift between surfaces:
+
+- **`ScoreBadge`** — says which measurement a number is. `audited` and `connected` are styled to look
+  like different things rather than two states of one thing, for the same reason they are never drawn
+  as one series.
+- **`SupersededScore`** — the only sanctioned way to show a batch score beside a live one: a separate
+  sentence, explicitly stating the two are not comparable and that the difference is not a change.
+  No arrow, no delta, no second point on a line.
+- **`UnverifiedScoreNotice`** — shown instead of a number when `needsVerification` is true.
+
+Rendered on the **dashboard** (badge on the score tile; superseded baseline in its own block; the
+audited-only card for an invited retailer whose live audit has not run yet) and on the **invite page**
+(badge with description under the score). `/api/dashboard` returns the linked `retailers` row raw, not
+resolved — `resolveRetailerScore` stays the single place that decides precedence and trust.
+
+**Verified against the real 180:** 147 render a score with the `audited` badge, 33 get the unverified
+notice, and **0 zero-scores are shown**. Simulating the case nobody has seen yet — a retailer holding
+both — the live score wins, the badge flips to `connected`, the batch band is dropped (different
+vocabulary), the batch score reappears only as `supersededBatchScore`, and the resolved object carries
+**no** delta, trend, change or diff field.
+
+**Superseded — the original entry, kept for the reasoning**
 **Context:** `lib/retailer-score.ts` resolves which score to display and which badge to show
 (`audited` for batch, `connected` for live), with `BADGE_LABEL` / `BADGE_DESCRIPTION` copy and 14
 tests. Nothing renders it. There is no retailer-facing page anywhere in this repo — `retailers` is a
@@ -473,7 +550,37 @@ Invisible. Defensible band 72.3 – 75.3, so treat the mean as ±1.5.
 Places Details lookup, not the deep candidate-list check the 9 suspects received. Probably right, not
 checked to the same standard. Re-running all 169 would close both this and condition 4.
 
-### Known limitation — verification coverage of the 169 is uneven, and 129 rows were never re-checked  [known limitation — accepted 2026-07-30, not a task]
+### Known limitation — verification coverage of the 169 is uneven, and 129 rows were never re-checked  [CLOSED 2026-08-03 — all 180 given the deep standard]
+
+**Closed by `scripts/source-data/verify-all.py`.** Every one of the 180 rows now has a full
+`searchText` candidate list judged by a fixed port of `classifyMatch` — the standard only 15 rows had.
+Evidence in `verification-2026-08-03.json`; both the fixed and the original judgement are recorded per
+candidate, so the delta is auditable rather than asserted.
+
+**Result: 147 CONFIRMED, 33 needing a human.** The three numbers that matter:
+
+- **5 of the 136 `high` rows did not confirm.** The 129-never-checked exposure was real but modest —
+  which is the honest answer, and better than the worry implied. It is no longer unmeasured.
+- **16 of the 36 `review` rows confirmed**, so their scores become showable. That is 16 retailers who
+  would have received an invite with no number in it.
+- **1 of the 8 hard zeros was wrong.** `Sams Carpet and Flooring Ltd` — 4.9★, 275 reviews, carried at
+  **0** — matches `Sam's Carpets and Flooring` at 0.91 character similarity. Exactly defect 1.
+
+**A new source-data defect, found by the proximity arm:** **37 rows** have a postcode that matches the
+candidate while the row's own lat/lng sits more than 250m away, so those two fields disagree in the
+source. It does not change any verdict here (the postcode is what the original matched on) but it means
+proximity cannot be trusted as an independent arm for those rows, and it is worth fixing upstream.
+
+**What the fixed port changes, beyond the four recorded defects.** Token-set similarity alone was
+rejecting obvious matches this list is full of — concatenation (`Lewis Carpets` / `Lewiscarpets
+Canterbury`, jaccard 0.00) and typos (`Hudspeth Floooring` / `Hudspeth Flooring`). A character-level
+arm on the despaced names catches both, with an 8-character floor that keeps defect 2 dead. First pass
+without it flagged 61 rows; nearly half were the matcher's fault, not the data's.
+
+**Still open:** the 33 flagged rows are a triage, not a verdict. Applying any of this to
+`retailers.match_confidence` is step 2 and deliberately separate.
+
+### Superseded — verification coverage of the 169 is uneven  [original entry, kept for the reasoning]
 **What it is.** "169 verified" describes three different standards of evidence, not one:
 
 | Standard | n | What was actually done |
@@ -828,7 +935,41 @@ should queue for review rather than write.
 **Related:** `app/api/auth/callback/google/route.ts` (`linkInviteToUser`), and the
 `profiles.google_place_id` decision above, which unblocks the better of the two keys.
 
-### Store `profiles.google_place_id` at bind time, so the invite mismatch check can be real  [deferred — decision, touches every signup]
+### Store `profiles.google_place_id` at bind time  [CLOSED 2026-08-03 — and it cost nothing]
+**Done, but not by either option this entry proposed.** Both assumed the price was an extra
+`findPlaceId` Places call on a path every signup takes, which is why it was deferred. There was a third
+way: `getLocations` was requesting a readMask of `name,title,storefrontAddress,latlng,categories` and
+simply **not asking for `metadata`** — which carries `mapsUri`, which carries the place id. Adding one
+word to that mask yields the id on a call every signup already makes.
+
+**So the cost is zero extra requests and zero new failure modes on the signup path.** No `findPlaceId`
+fallback was added at bind time deliberately: that would put a new network dependency on the critical
+path to buy a marginal number of extra ids. The dashboard's existing fallback still fills in later for
+anything Google returns no mapsUri for.
+
+Both insert sites now set it — `bindManageableListing` in the OAuth callback and
+`app/api/listings/select`, the latter overwriting on a re-pick, since the point of re-picking is that
+the previous listing was the wrong business. `placeIdFromMapsUri` is exported from `lib/google.ts` and
+uses the identical expression the dashboard has always used, so the two cannot disagree about what a
+place id is. Four tests, including that it returns `undefined` rather than `''` — those write NULL and
+a resolved-but-empty id respectively, and the second would compare equal to nothing.
+
+**`warnOnProfileMismatch` is now a real check.** Where both sides know a place id it compares
+identities and returns, instead of guessing from name tokens and a town substring. It falls back to the
+old test when either side lacks one — 8 of the 180 retailers have no place id at all, so this stays a
+best-effort signal and never a gate.
+
+**Still outstanding, and now the cheaper half of the same question:** whether to import lat/lng onto
+`retailers` from `retailers-locations.csv` for a distance check as a second signal. Note the 2026-08-03
+verification found **37 rows whose postcode and lat/lng disagree at source**, so that data needs
+cleaning before it can corroborate anything.
+
+**Also still outstanding — `profiles.tenant_id` is never set on new rows.** Deliberately not folded in
+here: `bindManageableListing` does not currently receive the tenant, so fixing it means threading a new
+argument through both of its call sites, which is a different change from adding a column that was
+already in hand. Same two insert sites though, so do them together when picked up.
+
+### Superseded — the original framing of the place_id decision  [kept for the reasoning]
 **Context:** `warnOnProfileMismatch` in `app/api/auth/callback/google/route.ts` exists to catch the
 case where a retailer accepts one invite and connects a different business — they open Elvet's invite
 and connect their own unrelated profile. The check it can actually perform is weak: it compares name

@@ -60,6 +60,11 @@ export async function POST(request: NextRequest) {
       address: chosen.address,
       latitude: chosen.latitude,
       longitude: chosen.longitude,
+      // The other half of the bind-time capture — see the callback's
+      // bindManageableListing. Both insert sites must set this or they drift,
+      // and a re-pick has to overwrite it: the whole point of re-picking is
+      // that the previous listing was the wrong business.
+      google_place_id: chosen.placeId ?? null,
       audit_score: null,
       audit_score_after: null,
     };

@@ -487,7 +487,10 @@ async function linkInviteToUser(
       .update({ user_id: userId, updated_at: new Date().toISOString() })
       .eq('id', invite.retailer_id)
       .is('user_id', null)
-      .select('id,name,town');
+      // place_id comes back so the mismatch check below can compare identities
+      // rather than name tokens. 8 of the 180 retailers have none, so it stays
+      // a best-effort signal, not a gate.
+      .select('id,name,town,place_id');
 
     if (retailerError) {
       // The likeliest cause is the unique index: this user is already linked to a
@@ -546,15 +549,39 @@ async function linkInviteToUser(
  */
 async function warnOnProfileMismatch(
   userId: string,
-  retailer: { id: string; name: string; town: string | null },
+  retailer: { id: string; name: string; town: string | null; place_id?: string | null },
 ): Promise<void> {
   const { data: profile } = await supabaseAdmin
     .from('profiles')
-    .select('business_name,address')
+    .select('business_name,address,google_place_id')
     .eq('user_id', userId)
     .maybeSingle();
 
-  if (!profile?.business_name) return;
+  if (!profile) return;
+
+  // The real check, when both sides know their Places id. This compares
+  // IDENTITIES — the same Google listing or not — instead of guessing from name
+  // tokens and a town string. It is only possible now that google_place_id is
+  // captured at bind time; before that the column was set for 1 of 6 profiles,
+  // so this branch would almost never have been reachable.
+  //
+  // A definite answer either way, so it returns rather than falling through to
+  // the weaker test: agreeing place ids should not then be second-guessed by a
+  // name comparison, and disagreeing ones need no corroboration.
+  if (retailer.place_id && profile.google_place_id) {
+    if (retailer.place_id !== profile.google_place_id) {
+      console.error(
+        `[invite] PROFILE MISMATCH (place_id): retailer ${retailer.id} "${retailer.name}" ` +
+          `expects ${retailer.place_id} but the connected profile is ${profile.google_place_id} — ` +
+          `this is a different Google listing, not a naming difference`,
+      );
+    } else {
+      console.log(`[invite] profile matches retailer ${retailer.id} by place_id`);
+    }
+    return;
+  }
+
+  if (!profile.business_name) return;
 
   const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
   // Arrays rather than Sets: this repo targets es5, where spreading a Set needs
@@ -614,6 +641,14 @@ async function bindManageableListing(userId: string, accessToken: string): Promi
     address: only.address,
     latitude: only.latitude,
     longitude: only.longitude,
+
+    // Captured at bind time because it arrives free on the enumeration above.
+    // Until now this was set only by a conditional fallback inside the
+    // dashboard's no-reviews branch, so 1 of 6 production profiles had one.
+    // It is what lets warnOnProfileMismatch compare identities rather than
+    // name tokens, and it is the strongest key any future post-hoc linking
+    // could use. Null when Google returned no mapsUri — a bonus, not a promise.
+    google_place_id: only.placeId ?? null,
   });
   return 'onboarding';
 }
