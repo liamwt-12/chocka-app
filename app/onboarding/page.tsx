@@ -28,6 +28,14 @@ export default function OnboardingPage() {
   const [post, setPost] = useState('');
   const [hrs, setHrs] = useState<any>(null);
   const [phone, setPhone] = useState('');
+
+  // Automation opt-in, shown only on a free tenant (see the users insert in the
+  // OAuth callback). Both start FALSE and match the row as created, so a
+  // retailer who never touches them is left exactly as they were made — the
+  // screen cannot silently grant something by being skipped.
+  const freeTenant = tenant.priceMonthlyGbp === 0;
+  const [optPost, setOptPost] = useState(false);
+  const [optReply, setOptReply] = useState(false);
   const [phoneErr, setPhoneErr] = useState('');
   const [fixLines, setFixLines] = useState<string[]>([]);
   const [counter, setCounter] = useState(0);
@@ -155,6 +163,18 @@ export default function OnboardingPage() {
     const c = phone.replace(/\s/g, '');
     if (!c.match(/^(\+44|0)7\d{9}$/)) { setPhoneErr('Enter a valid UK mobile number'); return; }
     setPhoneErr('');
+
+    // Persist the opt-in BEFORE anything else on this path can fail. The two
+    // fields are already on the PATCH allowlist in /api/account/delete, so this
+    // needs no new endpoint. Written unconditionally rather than only when true:
+    // a retailer who turns one on and back off must end up off, not untouched.
+    if (freeTenant) {
+      await fetch('/api/account/delete', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ auto_post_enabled: optPost, auto_reply_enabled: optReply }),
+      }).catch(() => {});
+    }
     const res = await fetch('/api/checkout', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ phone: c, plan: 'monthly', referralCode: sessionStorage.getItem('chocka_ref') || '' }) });
     if (res.ok) {
       const data = await res.json();
@@ -547,15 +567,67 @@ export default function OnboardingPage() {
             {phoneErr && <p style={{color:V.red,fontSize:12,marginTop:4}}>{phoneErr}</p>}
           </div>
 
-          <div style={{background:V.text,borderRadius:12,padding:'14px 16px',display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:16}}>
-            <div>
-              <div style={{fontFamily:mono,fontSize:22,fontWeight:600,color:'#fff'}}>£{tenant.priceMonthlyGbp}<span style={{fontSize:12,color:'rgba(255,255,255,.4)'}}>/month</span></div>
-              <div style={{fontSize:11,color:'rgba(255,255,255,.3)'}}>Cancel anytime · No contract</div>
+          {freeTenant ? (
+            /* Free tenant: no price, and nothing is automatic until asked for.
+               Replaces the Stripe block rather than sitting beside it — a
+               "£0/month · Billed monthly via Stripe" panel is meaningless here. */
+            <div style={card}>
+              <div style={lbl}>What would you like us to do?</div>
+              <p style={{fontSize:13,color:V.textSoft,margin:'0 0 14px'}}>
+                Both are off. Turn on what you want — you can change either one at any time in Settings.
+              </p>
+              {([
+                { on: optPost, set: setOptPost, title: 'Write and publish posts',
+                  desc: 'We write a post for your Google profile each week and publish it for you.' },
+                { on: optReply, set: setOptReply, title: 'Reply to reviews',
+                  desc: 'We reply to your 4-5 star reviews. Anything lower always comes to you first.' },
+              ] as const).map((o) => (
+                <button
+                  key={o.title}
+                  type="button"
+                  role="switch"
+                  aria-checked={o.on}
+                  onClick={() => o.set(!o.on)}
+                  style={{
+                    display:'flex',alignItems:'flex-start',gap:12,width:'100%',textAlign:'left',
+                    background:V.card2,border:`1px solid ${o.on ? V.orange : V.border}`,
+                    borderRadius:12,padding:'12px 14px',marginBottom:8,cursor:'pointer',
+                    fontFamily:sans,transition:'border-color .15s',
+                  }}
+                >
+                  <span style={{
+                    width:20,height:20,borderRadius:6,flexShrink:0,marginTop:1,
+                    border:`1px solid ${o.on ? V.orange : V.border}`,
+                    background:o.on ? V.orange : 'transparent',
+                    display:'flex',alignItems:'center',justifyContent:'center',
+                  }}>
+                    {o.on && (
+                      <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true">
+                        <path d="M2.5 6.5L5 9L9.5 3.5" fill="none" stroke="#fff" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
+                      </svg>
+                    )}
+                  </span>
+                  <span>
+                    <span style={{display:'block',fontSize:14,fontWeight:600,color:V.text}}>{o.title}</span>
+                    <span style={{display:'block',fontSize:12,color:V.textSoft,marginTop:2}}>{o.desc}</span>
+                  </span>
+                </button>
+              ))}
+              <p style={{fontSize:12,color:V.textSoft,margin:'8px 0 0'}}>
+                It&apos;s free — {tenant.brandName} is paid for by Tarkett. You stay the owner of your profile.
+              </p>
             </div>
-            <div style={{fontSize:11,color:'rgba(255,255,255,.3)',textAlign:'right'}}>Billed monthly<br/>via Stripe</div>
-          </div>
+          ) : (
+            <div style={{background:V.text,borderRadius:12,padding:'14px 16px',display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:16}}>
+              <div>
+                <div style={{fontFamily:mono,fontSize:22,fontWeight:600,color:'#fff'}}>£{tenant.priceMonthlyGbp}<span style={{fontSize:12,color:'rgba(255,255,255,.4)'}}>/month</span></div>
+                <div style={{fontSize:11,color:'rgba(255,255,255,.3)'}}>Cancel anytime · No contract</div>
+              </div>
+              <div style={{fontSize:11,color:'rgba(255,255,255,.3)',textAlign:'right'}}>Billed monthly<br/>via Stripe</div>
+            </div>
+          )}
 
-          <button onClick={submitPhone} style={btn}>Continue To Payment →</button>
+          <button onClick={submitPhone} style={btn}>{freeTenant ? 'Continue →' : 'Continue To Payment →'}</button>
         </div>
       </div>
     );
@@ -609,22 +681,39 @@ export default function OnboardingPage() {
           <div style={card}>
             <div style={lbl}>What happens next</div>
             <div style={{display:'flex',flexDirection:'column',gap:10}}>
-              <div style={{display:'flex',gap:12,alignItems:'flex-start'}}>
-                <span style={{width:30,height:30,borderRadius:'50%',display:'flex',alignItems:'center',justifyContent:'center',fontSize:13,flexShrink:0,background:V.orangeLight}}>📝</span>
-                <div><div style={{fontSize:14,fontWeight:500}}>Tomorrow 10am</div><div style={{fontSize:12,color:V.textSoft}}>Your first post goes live on Google</div></div>
-              </div>
+              {/* Only promise what was actually turned on. On a free tenant both
+                  start off, so an unconditional "your first post goes live
+                  tomorrow" would be a straight falsehood on the very screen that
+                  is meant to set expectations. */}
+              {(!freeTenant || optPost) && (
+                <div style={{display:'flex',gap:12,alignItems:'flex-start'}}>
+                  <span style={{width:30,height:30,borderRadius:'50%',display:'flex',alignItems:'center',justifyContent:'center',fontSize:13,flexShrink:0,background:V.orangeLight}}>📝</span>
+                  <div><div style={{fontSize:14,fontWeight:500}}>Tomorrow 10am</div><div style={{fontSize:12,color:V.textSoft}}>Your first post goes live on Google</div></div>
+                </div>
+              )}
               <div style={{display:'flex',gap:12,alignItems:'flex-start'}}>
                 <span style={{width:30,height:30,borderRadius:'50%',display:'flex',alignItems:'center',justifyContent:'center',fontSize:13,flexShrink:0,background:V.greenLight}}>📊</span>
                 <div><div style={{fontSize:14,fontWeight:500}}>Monday 9am</div><div style={{fontSize:12,color:V.textSoft}}>Your first stats text arrives</div></div>
               </div>
-              <div style={{display:'flex',gap:12,alignItems:'flex-start'}}>
-                <span style={{width:30,height:30,borderRadius:'50%',display:'flex',alignItems:'center',justifyContent:'center',fontSize:13,flexShrink:0,background:'#EEF2FF'}}>🔄</span>
-                <div><div style={{fontSize:14,fontWeight:500}}>Every week</div><div style={{fontSize:12,color:V.textSoft}}>Posts, review replies, profile managed</div></div>
-              </div>
+              {(!freeTenant || optPost || optReply) && (
+                <div style={{display:'flex',gap:12,alignItems:'flex-start'}}>
+                  <span style={{width:30,height:30,borderRadius:'50%',display:'flex',alignItems:'center',justifyContent:'center',fontSize:13,flexShrink:0,background:'#EEF2FF'}}>🔄</span>
+                  <div><div style={{fontSize:14,fontWeight:500}}>Every week</div><div style={{fontSize:12,color:V.textSoft}}>{
+                    !freeTenant ? 'Posts, review replies, profile managed'
+                      : optPost && optReply ? 'Posts, review replies, profile managed'
+                      : optPost ? 'Posts written and published for you'
+                      : 'Review replies handled for you'
+                  }</div></div>
+                </div>
+              )}
             </div>
           </div>
 
-          <p style={{textAlign:'center',fontSize:13,color:V.textSoft,margin:'16px 0'}}>You don&apos;t need to do anything. Your profile is managed.</p>
+          <p style={{textAlign:'center',fontSize:13,color:V.textSoft,margin:'16px 0'}}>{
+            (!freeTenant || optPost || optReply)
+              ? 'You don’t need to do anything. Your profile is managed.'
+              : 'Nothing is automatic yet — we’ve only fixed what you saw above. Turn on posts or review replies whenever you like, in Settings.'
+          }</p>
           <button onClick={()=>router.push('/dashboard')} style={btn}>Go To Dashboard →</button>
         </div>
       </div>
