@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach, vi } from 'vitest';
-import { getManageableListings, getLocationFull, GbpError } from './google';
+import { getManageableListings, getLocationFull, GbpError, placeIdFromMapsUri } from './google';
 
 // ── Mock helpers ──────────────────────────────────────────────────────────
 // These stub Google's HTTP responses in the exact shapes each scenario
@@ -214,5 +214,32 @@ describe('getLocationFull error mapping', () => {
     global.fetch = vi.fn(async () => resp(true, 200, { name: 'locations/x', title: 'Shop' })) as any;
     const out = await getLocationFull('t', 'locations/x');
     expect(out.title).toBe('Shop');
+  });
+});
+
+describe('placeIdFromMapsUri', () => {
+  // The place id rides in free on the location enumeration every signup already
+  // makes. Before this, google_place_id was set only by a conditional fallback
+  // buried in the dashboard, so 1 of 6 production profiles had one.
+
+  it('pulls the id out of a real mapsUri', () => {
+    expect(placeIdFromMapsUri('https://maps.google.com/?cid=123&place_id=ChIJabc123')).toBe('ChIJabc123');
+  });
+
+  it('accepts the colon form as well as the equals form', () => {
+    expect(placeIdFromMapsUri('https://maps.google.com/?q=place_id:ChIJxyz789')).toBe('ChIJxyz789');
+  });
+
+  it('stops at the next parameter rather than swallowing the rest of the URL', () => {
+    expect(placeIdFromMapsUri('https://maps.google.com/?place_id=ChIJabc&hl=en')).toBe('ChIJabc');
+  });
+
+  it('returns undefined — never an empty string — when there is nothing to find', () => {
+    // undefined and '' are different downstream: one writes NULL, the other
+    // writes a resolved-but-empty id that would compare equal to nothing.
+    expect(placeIdFromMapsUri('https://maps.google.com/?cid=123')).toBeUndefined();
+    expect(placeIdFromMapsUri('')).toBeUndefined();
+    expect(placeIdFromMapsUri(null)).toBeUndefined();
+    expect(placeIdFromMapsUri(undefined)).toBeUndefined();
   });
 });

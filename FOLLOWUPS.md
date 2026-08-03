@@ -880,7 +880,41 @@ should queue for review rather than write.
 **Related:** `app/api/auth/callback/google/route.ts` (`linkInviteToUser`), and the
 `profiles.google_place_id` decision above, which unblocks the better of the two keys.
 
-### Store `profiles.google_place_id` at bind time, so the invite mismatch check can be real  [deferred — decision, touches every signup]
+### Store `profiles.google_place_id` at bind time  [CLOSED 2026-08-03 — and it cost nothing]
+**Done, but not by either option this entry proposed.** Both assumed the price was an extra
+`findPlaceId` Places call on a path every signup takes, which is why it was deferred. There was a third
+way: `getLocations` was requesting a readMask of `name,title,storefrontAddress,latlng,categories` and
+simply **not asking for `metadata`** — which carries `mapsUri`, which carries the place id. Adding one
+word to that mask yields the id on a call every signup already makes.
+
+**So the cost is zero extra requests and zero new failure modes on the signup path.** No `findPlaceId`
+fallback was added at bind time deliberately: that would put a new network dependency on the critical
+path to buy a marginal number of extra ids. The dashboard's existing fallback still fills in later for
+anything Google returns no mapsUri for.
+
+Both insert sites now set it — `bindManageableListing` in the OAuth callback and
+`app/api/listings/select`, the latter overwriting on a re-pick, since the point of re-picking is that
+the previous listing was the wrong business. `placeIdFromMapsUri` is exported from `lib/google.ts` and
+uses the identical expression the dashboard has always used, so the two cannot disagree about what a
+place id is. Four tests, including that it returns `undefined` rather than `''` — those write NULL and
+a resolved-but-empty id respectively, and the second would compare equal to nothing.
+
+**`warnOnProfileMismatch` is now a real check.** Where both sides know a place id it compares
+identities and returns, instead of guessing from name tokens and a town substring. It falls back to the
+old test when either side lacks one — 8 of the 180 retailers have no place id at all, so this stays a
+best-effort signal and never a gate.
+
+**Still outstanding, and now the cheaper half of the same question:** whether to import lat/lng onto
+`retailers` from `retailers-locations.csv` for a distance check as a second signal. Note the 2026-08-03
+verification found **37 rows whose postcode and lat/lng disagree at source**, so that data needs
+cleaning before it can corroborate anything.
+
+**Also still outstanding — `profiles.tenant_id` is never set on new rows.** Deliberately not folded in
+here: `bindManageableListing` does not currently receive the tenant, so fixing it means threading a new
+argument through both of its call sites, which is a different change from adding a column that was
+already in hand. Same two insert sites though, so do them together when picked up.
+
+### Superseded — the original framing of the place_id decision  [kept for the reasoning]
 **Context:** `warnOnProfileMismatch` in `app/api/auth/callback/google/route.ts` exists to catch the
 case where a retailer accepts one invite and connects a different business — they open Elvet's invite
 and connect their own unrelated profile. The check it can actually perform is weak: it compares name
