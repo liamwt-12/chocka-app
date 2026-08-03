@@ -135,7 +135,7 @@ users produces no error, no log and no user complaint until someone asks why not
 from a healthy quiet day. A one-line log of the candidate and admitted counts per run would have made
 this visible in a week rather than never.
 
-### Stellar onboarding still routes through Stripe checkout  [pre-pilot — blocks real retailers]
+### Stellar onboarding still routes through Stripe checkout  [CLOSED 2026-08-03 — Stripe is now unreachable for a free tenant]
 **What it is.** `submitPhone` in `app/onboarding/page.tsx` POSTs to `/api/checkout` for every tenant.
 For a free Stellar retailer that route will: create a real **Stripe customer** for them, request a
 checkout session against `getPriceId(plan)` — a **Chocka** price id, since there is no Stellar price —
@@ -151,11 +151,35 @@ leaving a stray Stripe customer behind and depending on an error path to reach t
 that commit: the opt-in persists before the checkout call, so it is unaffected either way, and this is
 a separate defect that deserves its own change.
 
-**Fix when picked up:** skip `/api/checkout` entirely for a zero-price tenant and persist
-`phone_number` / `referred_by` through a path that does not touch Stripe (`/api/account/delete`'s PATCH
-allowlist is the obvious home, and would need `phone_number` adding plus server-side validation — it
-currently only accepts booleans). Also fix `getTenant()` → request-aware resolution in
-`app/api/checkout/route.ts` regardless, since it mis-brands the return URLs for any non-primary tenant.
+**Fixed, and wider than this entry framed it.** The business context is that there is **no
+per-retailer billing for Stellar at all** — Tarkett is invoiced monthly against active user counts and
+reconciled by hand. So this was never a copy problem: any reachable Stripe flow is wrong outright.
+
+Gated in three places, entitlement resolved from `users.tenant_id` rather than the request Host,
+because which brand a person belongs to is a property of their account — a Stellar retailer who opens
+the Chocka host must not thereby become billable:
+
+- **`/api/checkout`** refuses a zero-price tenant with `no_billing_for_tenant`, BEFORE the phone write
+  and before `createCustomer`. Ordering matters: the old code created and persisted a Stripe customer
+  even on runs where session creation later failed.
+- **`/api/billing-portal`** refuses the same way, checked BEFORE `stripe_customer_id` — otherwise a
+  retailer who had already acquired one from the ungated checkout could still open a portal.
+- **Onboarding** no longer calls `/api/checkout` for a free tenant at all. Phone and automation choices
+  now save in ONE request through the account PATCH, so a retailer cannot end up with opt-ins stored
+  and their number lost. A failed save now blocks with an error instead of continuing silently — the
+  number drives the Monday stats text, and losing it is invisible until it never arrives.
+
+`phone_number` was added to that PATCH allowlist with server-side UK-mobile validation; it is the first
+free-text field there, and an allowlist that waves strings through is not an allowlist. The booleans
+beside it are now coerced rather than trusted.
+
+**Verified against real production users on both tenants:** the Stellar user is refused on both routes
+and the refused request writes **nothing** (phone still null, no Stripe customer); the Chocka user is
+unaffected and falls through to the normal Stripe path. Zero Stellar users hold a `stripe_customer_id`.
+
+**Still true and still worth doing:** `app/api/checkout/route.ts` builds its return URLs from
+`getTenant()`, which is not request-aware. Harmless now that only the primary tenant can reach it, but
+wrong the moment a second PAID tenant exists.
 
 ### The liability clause is anchored to fees paid, and a free retailer pays none  [pre-pilot — needs a solicitor, not a rewrite]
 **What it is.** `app/terms/page.tsx` limits liability to "the fees you have paid in the 12 months prior

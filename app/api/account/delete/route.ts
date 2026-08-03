@@ -16,8 +16,28 @@ export async function PATCH(request: NextRequest) {
 
     for (const field of allowedFields) {
       if (field in body) {
-        updates[field] = body[field];
+        // Every field on this list is a flag. Coerce rather than trust, so a
+        // string "false" cannot arrive and read as true.
+        updates[field] = Boolean(body[field]);
       }
+    }
+
+    // phone_number is here so a free tenant has somewhere to save it that is not
+    // /api/checkout. On a paid tenant the phone is written by the checkout route
+    // on the way to Stripe; a Stellar retailer never goes to Stripe, and without
+    // this they would reach the end of onboarding with no number stored and no
+    // Monday stats text.
+    //
+    // Validated, unlike the flags above: this is the first free-text field on the
+    // allowlist, and an allowlist that waves strings through is not an allowlist.
+    // Same UK-mobile rule the onboarding form applies client-side — the client
+    // check is for the retailer's benefit, this one is the actual constraint.
+    if ('phone_number' in body) {
+      const raw = typeof body.phone_number === 'string' ? body.phone_number.replace(/\s/g, '') : '';
+      if (!/^(\+44|0)7\d{9}$/.test(raw)) {
+        return NextResponse.json({ error: 'Not a valid UK mobile number' }, { status: 400 });
+      }
+      updates.phone_number = raw;
     }
 
     const { error } = await supabaseAdmin
