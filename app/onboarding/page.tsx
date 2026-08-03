@@ -169,12 +169,36 @@ export default function OnboardingPage() {
     // needs no new endpoint. Written unconditionally rather than only when true:
     // a retailer who turns one on and back off must end up off, not untouched.
     if (freeTenant) {
-      await fetch('/api/account/delete', {
+      // A free tenant NEVER touches /api/checkout. There is no per-retailer
+      // subscription behind it — Stellar Local is funded by Tarkett and invoiced
+      // monthly against active user counts, reconciled by hand — so a Stripe
+      // customer for this retailer is a record of something that does not exist,
+      // and the checkout page it leads to quotes Chocka's price to someone who
+      // was told the service is free.
+      //
+      // The phone goes through the account PATCH instead, which is why
+      // phone_number is on that allowlist. Saved together with the automation
+      // choices in one request so a retailer cannot end up with their opt-ins
+      // stored and their number lost, or the reverse.
+      const saved = await fetch('/api/account/delete', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ auto_post_enabled: optPost, auto_reply_enabled: optReply }),
-      }).catch(() => {});
+        body: JSON.stringify({ phone_number: c, auto_post_enabled: optPost, auto_reply_enabled: optReply }),
+      }).catch(() => null);
+
+      if (!saved || !saved.ok) {
+        // Do not silently continue: the number drives the Monday stats text and
+        // the review alerts, and losing it here is invisible until they never
+        // arrive.
+        setPhoneErr('We could not save your details. Please try again.');
+        return;
+      }
+
+      setPhase('fixing');
+      await runFixes();
+      return;
     }
+
     const res = await fetch('/api/checkout', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ phone: c, plan: 'monthly', referralCode: sessionStorage.getItem('chocka_ref') || '' }) });
     if (res.ok) {
       const data = await res.json();
