@@ -239,6 +239,27 @@ export async function GET(request: NextRequest) {
         google_refresh_token: encryptSecret(tokens.refresh_token, userTokenAad(newUserId)),
         referral_code: referralCode,
         tenant_id: tenantRow?.id ?? null,
+
+        // Automation is OPT-IN on a free tenant, and only on a free tenant.
+        //
+        // Both columns default to `true` in the database, which was the right
+        // default when the only way to hold an account was to pay for one —
+        // paying for a service called "autopilot" is itself the opt-in. A Stellar
+        // retailer pays nothing and is invited by their flooring supplier, so
+        // that reasoning does not carry across: defaulting them to true would
+        // mean writing posts and public review replies on a real business's
+        // Google listing before they had agreed to any of it.
+        //
+        // That directly contradicts what Stellar promises them — "you stay the
+        // owner", "undo anything, instantly", "no money, no spam, no lock-in" —
+        // and the damage is public and hard to retract. The onboarding flow asks
+        // explicitly and turns these on.
+        //
+        // Spread conditionally so Chocka's insert stays byte-identical and keeps
+        // taking the database defaults.
+        ...(tenant.priceMonthlyGbp === 0
+          ? { auto_post_enabled: false, auto_reply_enabled: false }
+          : {}),
       })
       .select()
       .single();

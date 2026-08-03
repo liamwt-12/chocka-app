@@ -83,6 +83,53 @@ empty manageable set. Isolated to the two catch blocks in the callback plus one 
 branch in `app/onboarding/page.tsx`. Optionally add a short low-level retry inside
 `getManageableListings` for transient 5xx before giving up.
 
+## Deferred — entitlement and billing
+
+### Split entitlement from billing status properly  [deferred — the clean version of the 2026-08-03 cron fix]
+**What it is.** `users.subscription_status` is a **Stripe mirror** — the Stripe webhook
+(`app/api/webhook/route.ts`) is the only writer of `'active'` anywhere in the repo. Every cron route
+used it to answer a different question: *should we do automated work for this user?* Those coincided
+only while every tenant was paid, and diverged silently the moment a free tenant existed.
+
+**Fixed narrowly on 2026-08-03** with `isEntitledToAutomation()` in `lib/cron.ts`: a zero-price tenant
+is entitled without ever being `'active'`. That is correct and tested, but it leaves one column
+answering two questions, and the price it reads lives in `lib/tenant.ts` rather than the database — so
+the predicate cannot be expressed in SQL and every caller must remember to filter in JS. There are two
+such callers today (`getActiveUsersWithProfiles` and `onboarding-sequence`, which builds its own
+query); a third that forgets is a silent repeat of the original bug.
+
+**Fix when picked up:** give the question its own answer — an `entitled_at`/`automation_enabled`
+concept on `users`, or a `price_monthly_gbp` column on `tenants` so the predicate becomes expressible
+in SQL and can move back into the query. Prefer whichever makes the *default* safe: the failure that
+actually happened was a filter silently excluding everyone, and it was invisible because excluding
+users produces no error, no log and no user complaint until someone asks why nothing has posted.
+
+**Worth a guard either way:** a cron run that processes **zero** users is currently indistinguishable
+from a healthy quiet day. A one-line log of the candidate and admitted counts per run would have made
+this visible in a week rather than never.
+
+### Stellar onboarding still routes through Stripe checkout  [pre-pilot — blocks real retailers]
+**What it is.** `submitPhone` in `app/onboarding/page.tsx` POSTs to `/api/checkout` for every tenant.
+For a free Stellar retailer that route will: create a real **Stripe customer** for them, request a
+checkout session against `getPriceId(plan)` — a **Chocka** price id, since there is no Stellar price —
+and build its success/cancel URLs from `getTenant().appUrl`, which is not request-aware and so returns
+**Chocka's** origin.
+
+**Why it has not blown up yet:** no Stellar retailer has ever reached this screen (0 Stellar profiles
+have ever been bound). If the checkout call fails, `res.ok` is false and the flow falls through to
+`setPhase('fixing')`, which happens to be the right outcome — so the flow may *appear* to work while
+leaving a stray Stripe customer behind and depending on an error path to reach the correct state.
+
+**Found 2026-08-03** while adding the automation opt-in to the same screen. Deliberately not fixed in
+that commit: the opt-in persists before the checkout call, so it is unaffected either way, and this is
+a separate defect that deserves its own change.
+
+**Fix when picked up:** skip `/api/checkout` entirely for a zero-price tenant and persist
+`phone_number` / `referred_by` through a path that does not touch Stripe (`/api/account/delete`'s PATCH
+allowlist is the obvious home, and would need `phone_number` adding plus server-side validation — it
+currently only accepts booleans). Also fix `getTenant()` → request-aware resolution in
+`app/api/checkout/route.ts` regardless, since it mis-brands the return URLs for any non-primary tenant.
+
 ## Pre-pilot — Stellar landing (`/stellar`)
 
 Must land before real retailers see the page. Both are known compromises in the initial
