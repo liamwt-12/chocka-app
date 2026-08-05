@@ -983,7 +983,21 @@ is archived byte-identical to the original as the record of how the 2026-06-21 b
 a **port**, if and when the batch scorer is productised. Full evidence:
 `scripts/source-data/MATCH_VERIFICATION.md`.
 
-### `classifyMatch` has four defects, two of which produce hard false zeros  [deferred — fix in a port, not in the archived file]
+### `classifyMatch` has four defects, two of which produce hard false zeros  [CLOSED — the port fixes all four; verified 2026-08-05]
+
+**The port exists and all four are fixed in it.** `scripts/source-data/verify-all.py` carries the
+corrected `classifyMatch`, and it is what re-verified all 180 rows on 2026-08-03; those verdicts were
+applied to `retailers.match_confidence` in `caaf075`. Checked line by line rather than taken from the
+script's own header: apostrophes stripped before tokenising (`:126`), single-character tokens dropped
+from the token set (`:144`), a shared *distinctive* non-trade token now required (`:147`, `:196`), and
+location evidence demoted to corroborating-only with a proximity arm (`location_evidence`).
+
+`publicAudit.ts` itself is **deliberately still defective** — it is the archive of how the 2026-06-21
+baseline was produced, and rewriting it would destroy the record of what actually generated those
+scores. That is the point of "fix in a port, not in the archived file".
+
+The defect write-ups below are kept in full: they are the reasoning behind the port, and they are what
+anyone productising the batch scorer needs to read first.
 
 All four live in `classifyMatch` / `normaliseName` (`publicAudit.ts:176-227`). Ordered by damage done.
 
