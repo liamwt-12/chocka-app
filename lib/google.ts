@@ -330,7 +330,12 @@ export async function replyToReview(accessToken: string, reviewName: string, com
     headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({ comment }),
   });
-  if (!res.ok) throw new Error(`Failed to reply: ${await res.text()}`);
+  // GbpError, not a bare Error, so the approval page can tell "you no longer have
+  // permission" from "the reviewer deleted it" from "Google is having a moment" —
+  // three failures that need three different things from the retailer. Same
+  // reasoning as getLocationFull. The message is byte-identical to what this used
+  // to throw (`${context}: ${text}`), so the callers that only log are unaffected.
+  if (!res.ok) throw await gbpError(res, 'Failed to reply');
   return res.json();
 }
 
