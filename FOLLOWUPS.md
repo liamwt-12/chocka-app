@@ -177,9 +177,29 @@ beside it are now coerced rather than trusted.
 and the refused request writes **nothing** (phone still null, no Stripe customer); the Chocka user is
 unaffected and falls through to the normal Stripe path. Zero Stellar users hold a `stripe_customer_id`.
 
-**Still true and still worth doing:** `app/api/checkout/route.ts` builds its return URLs from
-`getTenant()`, which is not request-aware. Harmless now that only the primary tenant can reach it, but
-wrong the moment a second PAID tenant exists.
+**Return URLs — CLOSED 2026-08-05.** `app/api/checkout/route.ts` built its success/cancel URLs from
+`getTenant()`, which always answers Chocka. Harmless while only the primary tenant could reach the
+route, but wrong the moment a second PAID tenant exists: that tenant's retailer would pay and be
+returned to a competitor's origin.
+
+Both routes now build their return URL from the tenant they had **already resolved for the user** —
+`getTenantForRow(user)`, which each one computes for its entitlement gate and then ignored. So this
+is one line each, not new resolution machinery.
+
+`app/api/billing-portal/route.ts` carried the identical defect and is fixed in the same change: the
+two were gated together in the 2026-08-03 pass and build the same kind of URL, so fixing one alone
+would leave the pair inconsistent.
+
+**Account-derived, not Host-derived** — worth stating because "make it request-aware" is the obvious
+reading and is the wrong one. The brand a person is *billed under* is a property of their account,
+exactly as the entitlement gate argues. A Host-derived URL would return a retailer who happened to
+open the other brand's host to that brand's app after paying for this one. Chocka is bit-for-bit
+unchanged either way: `getTenantForRow()` on a Chocka user resolves to the primary tenant, whose
+`appUrl` is the same `NEXT_PUBLIC_APP_URL` expression these lines already read, preview deploys and
+local dev included.
+
+Untouched and still open: `cancelPage()` in `app/api/posts/cancel/route.ts`, which is a rendered page
+rather than a return URL and has its own note above.
 
 ### The liability clause is anchored to fees paid, and a free retailer pays none  [pre-pilot — needs a solicitor, not a rewrite]
 **What it is.** `app/terms/page.tsx` limits liability to "the fees you have paid in the 12 months prior

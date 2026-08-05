@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
 import { createCustomer, createCheckoutSession, getPriceId } from '@/lib/stripe';
-import { getTenant, getTenantForRow } from '@/lib/tenant';
+import { getTenantForRow } from '@/lib/tenant';
 
 export async function POST(request: NextRequest) {
   try {
@@ -68,8 +68,24 @@ export async function POST(request: NextRequest) {
         .eq('id', userId);
     }
 
-    // Create checkout session
-    const appUrl = getTenant().appUrl;
+    // Create checkout session.
+    //
+    // Return URLs come from the tenant resolved for THIS USER above, not from
+    // getTenant(), which always answers Chocka. A second paid tenant would
+    // otherwise have paid and been returned to a competitor's origin.
+    //
+    // Account-derived rather than Host-derived, for the same reason the gate
+    // above is: the brand a person is billed under is a property of their
+    // account. Deriving these URLs from the Host would return a retailer who
+    // happened to open the other brand's host to that brand's app after paying
+    // for this one. The tenant that takes the money is the tenant that owns the
+    // page they come back to.
+    //
+    // Chocka is bit-for-bit unchanged: getTenantForRow() on a Chocka user
+    // resolves to the primary tenant, whose appUrl is the same
+    // NEXT_PUBLIC_APP_URL expression this line used to read — including the
+    // preview-deploy and local-dev cases.
+    const appUrl = tenant.appUrl;
     const session = await createCheckoutSession({
       customerId,
       priceId: getPriceId(plan),
