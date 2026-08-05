@@ -234,10 +234,30 @@ than `supabase db push` — the Management API needs no interactive password. Re
 Verified after: production and staging identical across every probe, all row counts unchanged
 (`retailers` 181, `users` 13, `profiles` 6, `score_history` 180).
 
-**Still to do before the /privacy wording can tighten:** register the cron with whatever scheduler
-runs the others, and run a real refresh. `last_seen_at` and `delisted_at` are null on all 181 rows,
-so nothing is delisted and the job would delete nothing today. Until a refresh has actually run, the
-notice's "we review that by hand" remains the true statement.
+**First real refresh run 2026-08-05.** Fetched Tarkett's live store locator
+(`store-locator-list-json`, one request, the same public no-auth endpoint the original scrape used),
+checked completeness (`totalCount` 180 = `results` 180, `itemsPerPage` 10000, so nothing truncated),
+and refreshed against it.
+
+**Result: no change since June 2026.** 180 in the live list, 180 in the database, **zero departures
+and zero additions**. `last_seen_at` is now set on all 180 real records (the 181st row is the
+synthetic `wt-002` test record and was correctly untouched — it carries a different `source`).
+Nothing is delisted, so the retention job has zero candidates.
+
+**Blocked — there is no scheduler to register the cron with.** Searched exhaustively: no
+`[functions]` schedule in `netlify.toml`, no Netlify scheduled functions, no `.github/workflows`, and
+no reference anywhere to a third-party cron service. Whatever invokes the existing six cron routes is
+external and undiscoverable from the repo.
+
+Worth knowing, and *not* resolvable from the data: `sms_log`, `scheduled_posts` and `weekly_stats` are
+all **empty**, so no cron has ever written a row. That is equally consistent with "never scheduled"
+and with "scheduled, but `getActiveUsersWithProfiles` admits nobody" — which is currently true. The
+two cannot be told apart from row counts, so **whether any cron runs at all is an open question**,
+not just this one. **The /privacy wording stays as it is, deliberately.** "We review that by hand rather than
+automatically" is *still exactly true*: the refresh above was run by hand, and the deletion job is
+built but unscheduled. Changing it to claim an automatic review would re-introduce the precise defect
+this entry exists to fix — a policy describing behaviour the system does not perform. It can tighten
+once the cron is actually scheduled and has run, and not before.
 
 ## League and operator console
 
