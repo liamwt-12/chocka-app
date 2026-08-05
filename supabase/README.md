@@ -131,10 +131,40 @@ require it.
 
 ### Using it for a migration, going forward
 
-1. `python3 scripts/verify-schema-match.py` — start from a known-matching state.
-2. Apply the candidate migration to **staging** and check it does what you expect.
-3. Apply to production via `supabase db push`.
-4. `python3 scripts/dump-production-schema.py` to refresh the baseline, and commit the diff.
+```
+python3 scripts/verify-schema-match.py                                   # 1. known-matching start
+python3 scripts/apply-schema-to-staging.py --file supabase/migrations/<f> # 2. prove it on staging
+python3 scripts/verify-schema-match.py                                   #    diff shows ONLY the new objects
+python3 scripts/apply-migration-to-production.py <f> --confirm            # 3. apply + record
+python3 scripts/dump-production-schema.py                                 # 4. refresh baseline, commit
+```
+
+**`apply-migration-to-production.py` exists because `supabase db push` needs the database password
+interactively**, which makes it unusable from a script — a large part of why this history drifted in
+the first place. The Management API needs no password.
+
+What it does NOT do is apply schema out-of-band. It writes the version into
+`supabase_migrations.schema_migrations` exactly as `db push` would, so the history stays truthful and
+`db push` stays trustworthy for anyone who prefers it. Either route is fine; they agree.
+
+**Its post-condition is what makes "staging first" a rule the tooling enforces**, not one somebody
+remembers:
+
+- **Before:** staging must be a strict superset of production. If production has objects staging
+  lacks, they have diverged and it stops.
+- **After:** staging and production must match *exactly*. If the migration was never applied to
+  staging, production ends up ahead, the diff is non-empty, and it exits non-zero.
+
+It also refuses anything outside `supabase/migrations/`, refuses an already-recorded version, requires
+`--confirm`, and reports any row-count change — a schema migration that moves data is not a schema
+migration.
+
+### Getting the database password, if you want `db push` instead
+
+Supabase shows the database password **once, at project creation**, and cannot retrieve it later —
+only reset it. Dashboard → your project → **Project Settings → Database → Database password →
+Reset database password**. Resetting invalidates any existing direct connection string; nothing in
+this repo uses one, because all the tooling here goes through the Management API.
 
 `supabase/migrations/` remains the place for **incremental** changes. `supabase/schema/production-baseline.sql`
 is the **snapshot** — it is what a fresh environment is built from, and it is regenerated rather than

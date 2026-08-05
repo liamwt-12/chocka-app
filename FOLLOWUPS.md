@@ -228,11 +228,16 @@ Three safety properties worth keeping if this is ever rewritten:
 predicate, weighted towards proving it does *not* delete: unparseable dates, future dates, claimed
 records and null rows all resolve to keep.
 
-**Still to do before the /privacy wording can tighten:** apply the migration to production
-(`supabase db push` — it needs the DB password interactively, so it was not done from here, and the
-staging apply script deliberately refuses to write to production), register the cron with whatever
-scheduler runs the others, and run a real refresh. Until a refresh has actually run, the notice's
-"we review that by hand" remains the true statement.
+**Migration applied to production 2026-08-05**, via `scripts/apply-migration-to-production.py` rather
+than `supabase db push` — the Management API needs no interactive password. Recorded in
+`supabase_migrations.schema_migrations` exactly as `db push` would, so the history stays truthful.
+Verified after: production and staging identical across every probe, all row counts unchanged
+(`retailers` 181, `users` 13, `profiles` 6, `score_history` 180).
+
+**Still to do before the /privacy wording can tighten:** register the cron with whatever scheduler
+runs the others, and run a real refresh. `last_seen_at` and `delisted_at` are null on all 181 rows,
+so nothing is delisted and the job would delete nothing today. Until a refresh has actually run, the
+notice's "we review that by hand" remains the true statement.
 
 ## League and operator console
 
