@@ -269,7 +269,7 @@ rather than naming someone else's sponsor.
 Must land before real retailers see the page. Both are known compromises in the initial
 `/stellar` port (`app/stellar/`).
 
-### Stellar-branded /privacy and /terms  [pre-pilot — blocks real retailers]
+### Stellar-branded /privacy and /terms  [PARTLY CLOSED — imports fixed; the prose is the open half]
 **Context:** the `/stellar` footer links the existing `/privacy` and `/terms` routes. A page
 that immediately asks for Google `business.manage` consent must show privacy/terms that match
 the Stellar brand and name the correct data controller.
@@ -289,7 +289,7 @@ still refers to billing, a Stripe customer ID and cancellation, none of which de
 service that is free to the retailer and funded by Tarkett. Needs a read-through as Stellar.
 Step 6 has to touch the privacy copy anyway (encryption-at-rest wording), so sweep it then.
 
-### Swap `metadataBase` to the Stellar domain  [pre-pilot]
+### Swap `metadataBase` to the Stellar domain  [CLOSED 2026-07-27]
 **Context:** `app/stellar/page.tsx` sets `metadataBase` to `NEXT_PUBLIC_APP_URL`
 (app.chocka.co.uk) as a placeholder, so OG/canonical URLs resolve against the Chocka app
 domain, not Stellar's.
@@ -360,7 +360,7 @@ which is available on every path including the early returns, rather than `getRe
 route handlers in this repo read `x-tenant-slug` off the request directly, as the OAuth callback and
 `/api/invite/accept` do, and that avoids pulling `next/headers` into a route handler.
 
-### Dashboard ROI renders `Infinity×` for a free tenant  [pre-pilot — blocks first dashboard]
+### Dashboard ROI renders `Infinity×` for a free tenant  [CLOSED — verified in code 2026-08-05]
 **Context:** `app/dashboard/page.tsx:24` computes
 `roi = estValue > 0 ? Math.round(estValue / tenant.priceMonthlyGbp) : 0`. Stellar's
 `priceMonthlyGbp` is `0`, so any retailer with at least one call divides by zero and the tile
@@ -374,7 +374,7 @@ profile and calls > 0.
 is free to the retailer the honest metric is absolute, e.g. "£1,440 estimated value this
 month", with the ratio dropped. Small copy + layout change.
 
-### Chocka's proof claim renders under Stellar branding  [pre-pilot — blocks real retailers]
+### Chocka's proof claim renders under Stellar branding  [CLOSED — verified in code 2026-08-05]
 **Context:** `app/login/page.tsx:97` hardcodes "7,101 businesses scored across the
 {proofLocation}". That figure is Chocka's North East dataset. Under Stellar branding, with
 `proofLocation` set to "UK", it becomes a claim that is not true of Stellar and not true of
@@ -384,7 +384,7 @@ the UK.
 or drop the claim for Stellar and replace it with the Tarkett-network framing the live
 holding site already uses.
 
-### Price-0 copy sweep  [pre-pilot]
+### Price-0 copy sweep  [CLOSED — verified in code 2026-08-05]
 **Context:** several strings assume a paid plan and read oddly at £0:
 `app/ref/[code]/page.tsx:33` ("£0/month · Cancel anytime"), `app/onboarding/page.tsx:552`,
 `app/settings/page.tsx:78,113` (plan rows), and `app/admin/page.tsx:108` ("N active × £0/mo",
@@ -392,6 +392,21 @@ so Stellar revenue always totals zero in the admin view).
 
 **Fix when picked up:** treat `priceMonthlyGbp === 0` as a distinct state — "Free, funded by
 Tarkett" rather than "£0/month" — and exclude free tenants from revenue arithmetic.
+
+**Audit note, 2026-08-05.** These four entries were still labelled open long after the work landed —
+found while surveying what was left to batch. Each was checked against the code before being
+re-labelled, not taken on the strength of a commit message:
+
+| Entry | Where it is actually handled |
+|---|---|
+| Dashboard ROI | `app/dashboard/page.tsx:51` — `showRoi` gates the tile on `priceMonthlyGbp > 0`, not a clamp |
+| Proof claim | `app/login/page.tsx:91` renders `tenant.loginCopy.proofClaim`, and hides the element when null |
+| Price-0 copy | `app/ref/[code]/page.tsx:34`, `app/settings/page.tsx:83`, `app/admin/page.tsx:112`, `app/onboarding/page.tsx:593` all branch on the zero-price tenant |
+| `metadataBase` | Moot — the only file that set it was retired |
+
+A backlog that says "open" when it means "done" costs more than one that is merely incomplete: it
+makes every remaining entry untrustworthy until individually verified, which is exactly the work this
+note exists to save the next reader.
 
 ### Salvage from the retired `/stellar` landing page  [reference — not a task]
 `app/stellar/` was removed on 2026-07-27 (see the entry below). The route was retired
