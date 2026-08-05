@@ -10,7 +10,7 @@ export async function GET(request: NextRequest) {
   if (!verifyCronSecret(request)) return unauthorizedResponse();
 
   try {
-    const users = await getActiveUsersWithProfiles(supabaseAdmin);
+    const users = await getActiveUsersWithProfiles(supabaseAdmin, 'monday-stats');
     let sent = 0;
 
     const weekStart = getWeekStart();

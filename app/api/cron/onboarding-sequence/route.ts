@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
-import { verifyCronSecret, unauthorizedResponse, isEntitledToAutomation } from '@/lib/cron';
+import { verifyCronSecret, unauthorizedResponse, admitEntitled } from '@/lib/cron';
 import { sendSMS, logSMS } from '@/lib/twilio';
 import { sendEmail } from '@/lib/email';
 import { getTenantForRow } from '@/lib/tenant';
@@ -16,7 +16,9 @@ export async function GET(request: NextRequest) {
     // getActiveUsersWithProfiles — a zero-price tenant is entitled without ever
     // reaching 'active', and price is not a column on tenants. This route keeps
     // its own query for the onboarding_step window, so it has to apply the gate
-    // itself; the two must not diverge.
+    // itself; the two must not diverge. admitEntitled() is what keeps them from
+    // diverging: it is the single place the filter and its counts live, so this
+    // route cannot drift from the shared one or go quiet about what it admitted.
     const { data: users } = await supabaseAdmin
       .from('users')
       .select('*, profiles(*), tenants ( slug )')
@@ -25,7 +27,9 @@ export async function GET(request: NextRequest) {
 
     let sent = 0;
 
-    for (const user of (users || []).filter(isEntitledToAutomation)) {
+    // <any> for the same reason getActiveUsersWithProfiles pins its return type:
+    // the loop below reads far more of the row than the gate's constraint names.
+    for (const user of admitEntitled<any>(users || [], 'onboarding-sequence')) {
       if (!user.phone_number || !user.sms_enabled) continue;
       const profile = user.profiles?.[0];
 

@@ -9,7 +9,7 @@ export async function GET(request: NextRequest) {
   if (!verifyCronSecret(request)) return unauthorizedResponse();
 
   try {
-    const users = await getActiveUsersWithProfiles(supabaseAdmin);
+    const users = await getActiveUsersWithProfiles(supabaseAdmin, 'post-generator');
     const now = new Date();
     const month = now.toLocaleString('en-GB', { month: 'long' });
     const season = getSeason(now.getMonth());
