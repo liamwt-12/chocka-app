@@ -192,6 +192,90 @@ describe('getManageableListings', () => {
   });
 });
 
+// ── Transient retry on the enumeration path ─────────────────────────────────
+// getManageableListings is all-or-nothing by design, so one Google blip used to
+// end a signup on /no-profile — a page telling a retailer with a perfectly good
+// listing to go and create one. Transients are retried before they become an
+// outcome. 4xx is NOT retried: it is a decision Google will repeat.
+describe('getManageableListings transient retry', () => {
+  it('retries a 500 on accounts and succeeds on the second attempt', async () => {
+    vi.useFakeTimers();
+    let calls = 0;
+    global.fetch = vi.fn(async (url: any) => {
+      if (String(url).includes('mybusinessaccountmanagement')) {
+        calls++;
+        if (calls === 1) return resp(false, 500, { error: { status: 'INTERNAL' } });
+        return resp(true, 200, { accounts: [{ name: 'accounts/1', role: 'OWNER' }] });
+      }
+      return resp(true, 200, { locations: [loc('locations/1', 'Shop')] });
+    }) as any;
+
+    const p = getManageableListings('t');
+    await vi.runAllTimersAsync();
+    const out = await p;
+    vi.useRealTimers();
+
+    expect(calls).toBe(2);
+    expect(out).toHaveLength(1);
+  });
+
+  it('retries a 429 on locations', async () => {
+    vi.useFakeTimers();
+    let locCalls = 0;
+    global.fetch = vi.fn(async (url: any) => {
+      if (String(url).includes('mybusinessaccountmanagement')) {
+        return resp(true, 200, { accounts: [{ name: 'accounts/1', role: 'OWNER' }] });
+      }
+      locCalls++;
+      if (locCalls === 1) return resp(false, 429, {}, 'rate limited');
+      return resp(true, 200, { locations: [loc('locations/1', 'Shop')] });
+    }) as any;
+
+    const p = getManageableListings('t');
+    await vi.runAllTimersAsync();
+    expect(await p).toHaveLength(1);
+    vi.useRealTimers();
+    expect(locCalls).toBe(2);
+  });
+
+  it('gives up after the configured retries and still throws', async () => {
+    // The all-or-nothing guarantee must survive the retry: a persistent failure
+    // still throws rather than returning a partial set.
+    vi.useFakeTimers();
+    let calls = 0;
+    global.fetch = vi.fn(async () => { calls++; return resp(false, 503, { error: { status: 'UNAVAILABLE' } }); }) as any;
+
+    const p = getManageableListings('t').catch((e) => e);
+    await vi.runAllTimersAsync();
+    const err = await p;
+    vi.useRealTimers();
+
+    expect(err).toBeInstanceOf(GbpError);
+    expect(err.status).toBe(503);
+    expect(calls).toBe(3); // initial + 2 retries
+  });
+
+  it('does NOT retry a 403 — Google will give the same answer again', async () => {
+    let calls = 0;
+    global.fetch = vi.fn(async () => { calls++; return resp(false, 403, {}, JSON.stringify({ error: { status: 'PERMISSION_DENIED' } })); }) as any;
+
+    const err = await getManageableListings('t').catch((e) => e);
+    expect(err).toBeInstanceOf(GbpError);
+    expect(err.googleStatus).toBe('PERMISSION_DENIED');
+    expect(calls).toBe(1);
+  });
+
+  it('does not delay the success path at all', async () => {
+    // No fake timers: if a successful enumeration ever awaited a backoff, this
+    // test would hang rather than fail politely.
+    mockGoogle({
+      accounts: [{ name: 'accounts/1', role: 'OWNER' }],
+      locationsByAccount: { 'accounts/1': [loc('locations/1', 'Shop')] },
+    });
+    expect(await getManageableListings('t')).toHaveLength(1);
+  });
+});
+
 // ── getLocationFull: status-aware errors the audit route maps to codes ───────
 describe('getLocationFull error mapping', () => {
   it('Case 8b — 403 PERMISSION_DENIED → GbpError carrying status 403 + PERMISSION_DENIED', async () => {

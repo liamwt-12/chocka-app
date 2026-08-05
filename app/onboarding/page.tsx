@@ -63,6 +63,16 @@ export default function OnboardingPage() {
       loadListings();
       return;
     }
+    // The OAuth callback could not enumerate this account's listings — Google
+    // threw rather than answering "none". No profile is bound, so running the
+    // audit here would return no_profile and render "No Google Business Profile
+    // found", which is the wrong thing to tell someone whose listing is fine.
+    // Show the retryable state instead, and return before runAudit().
+    if (params.get('connect') === 'failed') {
+      setAuditCode('connect_failed');
+      setAuditError('Could not reach Google');
+      return;
+    }
     runAudit();
   }, []);
 
@@ -280,6 +290,12 @@ export default function OnboardingPage() {
       const isNotAuth = auditCode === 'not_authenticated' || auditError === 'Not authenticated';
       const isDisconnected = auditCode === 'google_disconnected' || auditError === 'Google not connected';
       const isListing = auditCode === 'listing_access_denied' || auditCode === 'listing_not_found';
+      // Set by the OAuth callback, not by /api/audit: the listing enumeration
+      // threw, so nothing is bound and there is nothing to audit yet. Its retry
+      // has to redo the CONNECT, which is why it cannot share the Try Again
+      // button below — that one re-runs the audit and would come straight back
+      // with no_profile.
+      const isConnectFailed = auditCode === 'connect_failed';
       // Any other code (google_unreachable, unknown, or an empty/legacy code) is
       // treated as a reachable-but-failed listing: honest, retryable, with a
       // reconnect option. The bare "Something went wrong" screen is deliberately
@@ -288,6 +304,7 @@ export default function OnboardingPage() {
         : isNotAuth ? 'Session\nexpired'
         : isDisconnected ? 'Reconnect\nyour Google'
         : isListing ? 'Listing access\nproblem'
+        : isConnectFailed ? 'We couldn’t reach\nGoogle'
         : 'We couldn’t reach\nyour listing';
       const subtitle = isNoProfile
         ? 'We couldn\u2019t find a Google Business Profile linked to this account.'
@@ -297,6 +314,8 @@ export default function OnboardingPage() {
         ? 'We lost the connection to your Google account.'
         : isListing
         ? 'We couldn\u2019t open the listing that\u2019s currently connected.'
+        : isConnectFailed
+        ? 'Google didn\u2019t answer when we asked which listings you manage. Nothing is wrong with your account.'
         : 'We couldn\u2019t reach your Google listing right now. This is usually temporary.';
       const detail = isNoProfile
         ? `Try signing in with the Google account you use to manage your listing. Not sure which one? Email ${tenant.teamEmail} and we\u2019ll help.`
@@ -306,6 +325,8 @@ export default function OnboardingPage() {
         ? 'Please sign in again to reconnect.'
         : isListing
         ? 'You may not have permission to manage this listing, or it\u2019s been removed. Choose a different one, or ask the owner to add you.'
+        : isConnectFailed
+        ? `This is almost always temporary \u2014 try again in a moment. If it keeps happening, email ${tenant.teamEmail}.`
         : `Reconnect Google or try again. If it keeps happening, email ${tenant.teamEmail}.`;
       return (
         <div style={{minHeight:'100vh',fontFamily:sans,background:V.bg,color:V.text,display:'flex',justifyContent:'center'}}>
@@ -318,7 +339,11 @@ export default function OnboardingPage() {
             <div style={{...card,padding:20,textAlign:'center'}}>
               <div style={{fontSize:40,marginBottom:12}}>!</div>
               <p style={{fontSize:14,color:V.textMid,margin:'0 0 16px'}}>{detail}</p>
-              {isListing ? (
+              {isConnectFailed ? (
+                /* Retries the CONNECT, not the audit. Nothing is bound yet, so
+                   there is nothing for runAudit() to look at. */
+                <button onClick={()=>{ window.location.href='/api/auth/callback/google'; }} style={btn}>Try Again</button>
+              ) : isListing ? (
                 <button onClick={()=>{ setAuditError(false); setAuditCode(''); setPhase('select'); loadListings(); }} style={btn}>Choose a Different Listing</button>
               ) : (isNoProfile || isDisconnected || isNotAuth) ? (
                 <button onClick={()=>{ window.location.href='/api/auth/callback/google'; }} style={btn}>Sign In With a Different Account</button>

@@ -117,13 +117,51 @@ export async function refreshAccessToken(refreshToken: string): Promise<string> 
   return data.access_token;
 }
 
+// ── Transient-failure retry for the enumeration calls ───────────────────────
+// getManageableListings is deliberately all-or-nothing: if any account's
+// locations call fails it throws, so a partial enumeration is never mistaken for
+// the complete set and cannot auto-bind the wrong listing. Correct, but it means
+// one blip from Google turns a signup into a dead end.
+//
+// So the blip gets retried before it becomes an outcome. Only 429 and 5xx — and
+// a network-level throw — are retried. Every 4xx is a decision Google has already
+// made and will make again identically; retrying a 403 just makes the user wait
+// longer for the same answer.
+//
+// COST: up to +1s on the failure path, which is on the signup critical path.
+// That is the trade — a second of latency in the rare failure case against a
+// retailer who cannot connect at all. The success path is untouched: no delay is
+// incurred unless a request actually fails.
+const RETRY_DELAYS_MS = [250, 750];
+
+function sleep(ms: number) {
+  return new Promise((r) => setTimeout(r, ms));
+}
+
+async function fetchRetryingTransient(url: string, init: RequestInit): Promise<Response> {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      const res = await fetch(url, init);
+      // Out of retries, succeeded, or failed permanently — hand it back and let
+      // the caller build its own error from the response.
+      if (res.ok || attempt >= RETRY_DELAYS_MS.length) return res;
+      if (res.status !== 429 && res.status < 500) return res;
+    } catch (err) {
+      // A thrown fetch is a connection-level failure (DNS, TLS, socket) and is
+      // exactly the kind of thing that succeeds on a second attempt.
+      if (attempt >= RETRY_DELAYS_MS.length) throw err;
+    }
+    await sleep(RETRY_DELAYS_MS[attempt]);
+  }
+}
+
 export async function getAccounts(accessToken: string) {
   const accounts: any[] = [];
   let pageToken: string | undefined;
   do {
     const url = new URL('https://mybusinessaccountmanagement.googleapis.com/v1/accounts');
     if (pageToken) url.searchParams.set('pageToken', pageToken);
-    const res = await fetch(url.toString(), { headers: { Authorization: `Bearer ${accessToken}` } });
+    const res = await fetchRetryingTransient(url.toString(), { headers: { Authorization: `Bearer ${accessToken}` } });
     if (!res.ok) throw await gbpError(res, 'Failed to get accounts');
     const data = await res.json();
     if (data.accounts) accounts.push(...data.accounts);
@@ -144,7 +182,7 @@ export async function getLocations(accessToken: string, accountName: string) {
     url.searchParams.set('readMask', mask);
     url.searchParams.set('pageSize', '100');
     if (pageToken) url.searchParams.set('pageToken', pageToken);
-    const res = await fetch(url.toString(), { headers: { Authorization: `Bearer ${accessToken}` } });
+    const res = await fetchRetryingTransient(url.toString(), { headers: { Authorization: `Bearer ${accessToken}` } });
     if (!res.ok) throw await gbpError(res, 'Failed to get locations');
     const data = await res.json();
     if (data.locations) locations.push(...data.locations);
