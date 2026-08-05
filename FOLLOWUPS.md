@@ -63,7 +63,7 @@ exposure is material enough, with Tarkett's brand attached, to be worth real adv
 **Related:** `scripts/send-invites.ts` (held), `lib/email.ts` `retailerInviteEmail` (draft copy),
 [ICO — business-to-business marketing](https://ico.org.uk/for-organisations/direct-marketing-and-privacy-and-electronic-communications/business-to-business-marketing/).
 
-### Transient-enumeration → retryable error on OAuth connect  [P1 — Retailer product / onboarding]
+### Transient-enumeration → retryable error on OAuth connect  [CLOSED 2026-08-05]
 **Context:** `getManageableListings` is deliberately **all-or-nothing** — if any account's
 `getLocations` fails it throws, so a partial enumeration is never treated as authoritative
 (this is what stops a transient failure from auto-binding the wrong listing). The cost:
@@ -82,6 +82,35 @@ onboarding "Try Again" path) instead of `/no-profile`, which should be reserved 
 empty manageable set. Isolated to the two catch blocks in the callback plus one error
 branch in `app/onboarding/page.tsx`. Optionally add a short low-level retry inside
 `getManageableListings` for transient 5xx before giving up.
+
+**Done 2026-08-05, both halves — the retry as well as the error state.**
+
+`BindResult` gains a fourth member, `connect_failed`, which `bindManageableListing` never
+returns: it is what the two call sites record when it *throws*. That is the whole point of the
+type widening. `no_profile` now means only "Google answered, and this account manages nothing",
+and the two route to opposite places — one to a page about creating a Business Profile, the
+other to a retry. Conflating them told retailers with perfectly good listings to go and make one.
+
+Both `let result` declarations now **default to `connect_failed` rather than `no_profile`**, so a
+throw before assignment also reads as "we could not ask" rather than "there is nothing there".
+
+On the client, `?connect=failed` sets the error state and **returns before `runAudit()`**. That
+matters: no profile is bound in this state, so running the audit would return `no_profile` and
+render "No Google Business Profile found" — reintroducing the exact wrong message by a different
+route. Its "Try Again" re-runs the **connect**, not the audit, for the same reason.
+
+The optional half was worth taking: `fetchRetryingTransient` in `lib/google.ts` retries 429/5xx
+and network-level throws on the two enumeration calls, twice, at 250ms and 750ms. 4xx is never
+retried — it is a decision Google has already made and will make again, so retrying only makes
+the user wait longer for the same answer. This *prevents* most occurrences rather than reporting
+them more nicely; the error state is what remains for the ones that persist.
+
+**Cost:** up to +1s on the failure path, which is on the signup critical path. The success path is
+untouched, and there is a test that would hang rather than pass if that ever stopped being true.
+
+**The all-or-nothing guarantee is preserved** — a persistent failure still throws rather than
+returning a partial set, which is what stops a transient from auto-binding the wrong listing.
+Tested explicitly. Five tests; three of them verified to fail when the retry is removed.
 
 ### `needsVerification` tests `=== 'review'`, so any other value reads as trustworthy  [CLOSED 2026-08-03 — predicate inverted]
 **What it is.** `lib/retailer-score.ts` computes `needsVerification: retailer?.match_confidence === 'review'`.
@@ -109,6 +138,52 @@ hard-zero case specifically, since `score === 0` is not null and so slipped past
 
 Note this is now belt and braces: the 2026-08-03 apply already left zero `not_found` rows. The point of
 the code fix is that it no longer depends on the data staying that way.
+
+## NEXT PRIORITY — a staging database
+
+### There is nowhere to test a schema change before production  [NEXT — approach is an open question, do not build yet]
+
+**Status, 2026-08-05: agreed as the next real priority, and deliberately NOT started.** Standing this
+up is a more architectural piece of work than a backlog item, and the approach deserves thinking
+about rather than firing off. **Awaiting a decision on the approach before any work begins.**
+
+**What it blocks.** Three separate entries are currently stalled on exactly this, and each one names
+it in its own words:
+
+| Entry | Why it is stuck |
+|---|---|
+| `users.tenant_id` / `profiles.tenant_id` have no migration | The baseline cannot be written and verified against anything but production |
+| `score_source` / `scored_at` on `profiles` | An `ALTER` on a live table carrying every connected user's profile |
+| Split entitlement from billing status properly | Both candidate designs need a migration; deferred partly for this reason |
+
+**It is also why the last migration went straight to prod.** `supabase/README.md` records that
+`20260730120000` could not follow the repo's own rule — "run against a copy / staging database
+first, never prod" — because `supabase db dump` and a local database both need Docker, which was not
+available. It was applied to production after a `--dry-run`, on the grounds that it was purely
+additive, with row counts checked before and after. That was a deliberate judgement call, taken
+carefully, and it is not one that should have to be taken every time.
+
+**So the real cost is not the three blocked items.** It is that the rule which exists to protect a
+live database is currently unfollowable, so every schema change is either a judgement call or does
+not happen. That is what makes this the priority rather than any one of the items it blocks.
+
+**Options, unweighed — this is the decision to be made, not a recommendation:**
+
+- **Docker locally** (`supabase start`). Closest to the documented workflow and what `db dump` /
+  `db diff` expect. Requires Docker on the machine, which was the blocker last time.
+- **A second Supabase project as a staging environment.** No Docker, and it is a real Postgres with
+  the same extensions and quirks as production. Costs money, and needs a seeding story — production
+  data cannot simply be copied into it, since it holds real retailer records and encrypted
+  credentials whose AAD is bound to production row ids.
+- **Something else** — a throwaway branch database, a Postgres container in CI only, or capturing
+  the baseline schema from `information_schema` and testing migrations against a plain local
+  Postgres without the Supabase stack.
+
+**Whatever is chosen, one thing is already known and should carry into it:** this directory does not
+reproduce production, so a staging environment built from `supabase/migrations/` alone would be
+missing `users.tenant_id`, `profiles.tenant_id` and several whole tables. The baseline capture and
+the staging environment are the same piece of work in practice — neither is finishable without the
+other, and doing them in the wrong order produces a staging database that is confidently wrong.
 
 ## Deferred — entitlement and billing
 

@@ -160,7 +160,9 @@ export async function GET(request: NextRequest) {
       if (existingProfile) {
         dest = existingUser.onboarding_step === 'complete' ? '/dashboard' : '/onboarding';
       } else {
-        let result: BindResult = 'no_profile';
+        // Defaults to connect_failed, not no_profile: if anything below throws
+        // before assigning, "we could not ask" is the honest reading.
+        let result: BindResult = 'connect_failed';
         try {
           // The returning-user path is the one place the tenant id is NOT already
           // in hand — it was decided when this account was created, so it is read
@@ -171,10 +173,14 @@ export async function GET(request: NextRequest) {
             existingUser.tenant_id ?? null,
           );
         } catch (err) {
-          console.error('Failed to enumerate GBP listings for returning user:', err);
+          console.error(
+            `[auth] enumeration threw for returning user ${existingUser.id} — routing to retry, NOT /no-profile:`,
+            err,
+          );
         }
         dest = result === 'onboarding' ? (existingUser.onboarding_step === 'complete' ? '/dashboard' : '/onboarding')
              : result === 'select' ? '/onboarding?select=1'
+             : result === 'connect_failed' ? '/onboarding?connect=failed'
              : '/no-profile';
       }
 
@@ -320,7 +326,7 @@ export async function GET(request: NextRequest) {
 
     // Enumerate the listings this user can manage and decide where to send them:
     // one → auto-bind and start onboarding; several → picker; none → no-profile.
-    let result: BindResult = 'no_profile';
+    let result: BindResult = 'connect_failed';
     try {
       // Read back off the inserted row rather than reusing `tenantRow?.id`, so
       // the profile is tagged with what the database actually stored for its
@@ -332,11 +338,20 @@ export async function GET(request: NextRequest) {
         newUser.tenant_id ?? null,
       );
     } catch (err) {
-      console.error('Failed to enumerate GBP listings for new user:', err);
+      // The account row and the credential are already saved at this point, so
+      // this is recoverable: the retailer retries the connect and lands in the
+      // existing-user branch above. Sending them to /no-profile instead would
+      // have stranded a brand-new account on a page telling them to create a
+      // Business Profile they already have.
+      console.error(
+        `[auth] enumeration threw for new user ${newUser.id} — routing to retry, NOT /no-profile:`,
+        err,
+      );
     }
 
     const dest = result === 'onboarding' ? `/onboarding?plan=${plan}`
                : result === 'select' ? `/onboarding?select=1&plan=${plan}`
+               : result === 'connect_failed' ? `/onboarding?connect=failed&plan=${plan}`
                : '/no-profile';
 
     // The invited-retailer case this whole flow exists for. Last thing before the
@@ -629,7 +644,14 @@ function generateReferralCode(): string {
   return code;
 }
 
-type BindResult = 'onboarding' | 'select' | 'no_profile';
+// 'connect_failed' is NOT an outcome bindManageableListing returns — it is what
+// the call sites record when it THROWS. The distinction is the whole point of
+// this type having a fourth member: 'no_profile' must mean "Google answered, and
+// this account manages nothing", never "we could not ask". They send the retailer
+// to opposite places — one to a page about creating a Business Profile, the other
+// to a retry — and conflating them told a retailer with a perfectly good listing
+// to go and make one.
+type BindResult = 'onboarding' | 'select' | 'no_profile' | 'connect_failed';
 
 // Enumerate the listings this user can manage and bind the single profile when
 // there's exactly one. Returns where the caller should route:
