@@ -154,9 +154,30 @@ retailer has no live token), but it was not *knowable* before this guard, which 
 It also means the entitlement predicate is currently untested by production traffic: whatever replaces
 it will land with no live signal either way.
 
-**Still deferred — the schema half.** Choosing between `users.automation_enabled`/`entitled_at` and
-`tenants.price_monthly_gbp` commits a production migration and is not a code-only call. See the
-decision note below.
+**Zero-admitted is verified-intentional, not a fault (confirmed 2026-08-05).** Nobody is paying, so
+excluding the one live Chocka account is the gate working. Recorded here so the next person to read a
+`ZERO admitted` warning in the logs does not re-investigate it from scratch. The query:
+
+```sql
+select t.slug, u.token_status, u.subscription_status
+from public.users u left join tenants t on t.id = u.tenant_id;
+-- 11 chocka offboarded / 1 chocka valid (subscription_status null) / 1 stellar offboarded
+```
+
+**The schema half stays deferred — decided 2026-08-05, not merely unaddressed.** Neither
+`users.automation_enabled`/`entitled_at` nor `tenants.price_monthly_gbp` is being built now:
+
+- `tenants.price_monthly_gbp` would make the predicate SQL-expressible, but it puts price in two
+  places — the table and `lib/tenant.ts` — and does not actually separate the two questions. It
+  makes the existing compound predicate expressible, which is not the same thing.
+- `users.automation_enabled` is the genuine split, but it needs writers on both the signup path and
+  the **Stripe webhook**, and its column default is itself the "silently excluded everyone" failure
+  mode this entry is about.
+
+Both commit a production migration for a predicate that is currently correct, tested, and — since
+`admitEntitled()` — observable. The condition for picking this back up is a *third* entitlement
+caller appearing, or a second paid tenant; either makes the JS-side filter a real liability rather
+than a tidiness complaint. Until then the cost of the migration exceeds the cost of the duplication.
 
 ### Stellar onboarding still routes through Stripe checkout  [CLOSED 2026-08-03 — Stripe is now unreachable for a free tenant]
 **What it is.** `submitPhone` in `app/onboarding/page.tsx` POSTs to `/api/checkout` for every tenant.
