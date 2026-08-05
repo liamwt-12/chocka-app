@@ -23,16 +23,23 @@
  *
  * ── Usage ──────────────────────────────────────────────────────────────────
  *   npm run live:connect -- <label>     # once per account; opens consent URL
- *   npm run live:run                    # runs all assertions for connected labels
+ *   npm run live:run                    # runs all assertions, then revokes + deletes the tokens
+ *   npm run live:run -- --keep          # ... but keep them, for iterating (revoke yourself after)
+ *   npm run live:revoke                 # revoke + delete now
  *
  * Labels drive which case each account is tested as:
  *   owner | manager | manager-multi | group | empty | revoked | mixed | denied
  *   (manager, group, denied are the gating cases 2, 4, 8.)
  *
- * Captured tokens live in .gbp-tokens.json (gitignored — refresh tokens).
+ * Captured tokens live in .gbp-tokens.json (gitignored — refresh tokens), written
+ * 0600 and revoked at Google + deleted when `live:run` finishes. They are live
+ * credentials for real Business Profiles, so they are not a standing artefact:
+ * a full matrix run costs one consent click per label, which is the price of not
+ * leaving working credentials on disk between runs. See the token-file hygiene
+ * block below, and FOLLOWUPS.md "secrets hygiene".
  */
 import { createServer } from 'node:http';
-import { readFileSync, writeFileSync, existsSync } from 'node:fs';
+import { readFileSync, writeFileSync, existsSync, chmodSync, statSync, unlinkSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import {
   getGoogleAuthUrl, exchangeCodeForTokens, refreshAccessToken,
@@ -57,7 +64,93 @@ function loadEnv() {
 function fail(msg: string): never { console.error('\n✗ ' + msg + '\n'); process.exit(1); }
 
 type Store = Record<string, { refresh_token: string; scope?: string; capturedAt: string }>;
-function readStore(): Store { return existsSync(TOKENS_PATH) ? JSON.parse(readFileSync(TOKENS_PATH, 'utf8')) : {}; }
+
+// ── token-file hygiene ───────────────────────────────────────────────────────
+// This file holds LIVE Google refresh tokens for real Business Profiles — the
+// same class of secret SECRETS_AT_REST.md protects in the database, and the one
+// thing it explicitly scopes out.
+//
+// It is not encrypted, and deliberately so. The threat the envelope scheme
+// defends against is someone who can read the *database* — a leaked
+// service-role key, a backup dump, an RLS mistake. None of those reach a local
+// gitignored file. Encrypting it here would mean the harness needed
+// SECRET_ENCRYPTION_KEY locally, which puts the key and the ciphertext in the
+// same directory and buys nothing.
+//
+// What actually reduces the exposure is for the tokens not to be a standing
+// artefact: 0600 so only this user can read them, and revoked and deleted at
+// the end of a run so they exist for the duration of the testing and no longer.
+
+function writeStore(store: Store): void {
+  // mode on writeFileSync only applies when the file is CREATED, so an existing
+  // file keeps whatever permissions it had. chmod unconditionally afterwards, or
+  // a file created before this change stays world-readable forever.
+  writeFileSync(TOKENS_PATH, JSON.stringify(store, null, 2), { mode: 0o600 });
+  chmodSync(TOKENS_PATH, 0o600);
+}
+
+function readStore(): Store {
+  if (!existsSync(TOKENS_PATH)) return {};
+  // Say so rather than silently repairing: if this file has been readable by
+  // other accounts, tightening it now does not undo who has already read it,
+  // and that is worth knowing rather than papering over.
+  const mode = statSync(TOKENS_PATH).mode & 0o777;
+  if (mode & 0o077) {
+    console.warn(
+      `\n⚠  ${TOKENS_PATH} is mode ${mode.toString(8)} — readable beyond your user account.\n` +
+      `   It holds live Google refresh tokens. Tightening to 600 now, but assume prior exposure.\n`,
+    );
+    chmodSync(TOKENS_PATH, 0o600);
+  }
+  return JSON.parse(readFileSync(TOKENS_PATH, 'utf8'));
+}
+
+/**
+ * Revoke every captured token at Google and delete the file.
+ *
+ * Revoking matters more than deleting. A deleted file leaves the GRANT standing
+ * in the test account — the harness would still hold authorisation it no longer
+ * has a token for, and nothing would ever clean it up. Revoke first, delete
+ * second, so a failure leaves the file present and the problem visible instead
+ * of losing the only record of what still needs revoking.
+ */
+async function revokeAll(): Promise<void> {
+  const store = readStore();
+  const labels = Object.keys(store);
+  if (labels.length === 0) {
+    if (existsSync(TOKENS_PATH)) unlinkSync(TOKENS_PATH);
+    return;
+  }
+
+  const failed: string[] = [];
+  for (const label of labels) {
+    try {
+      const res = await fetch('https://oauth2.googleapis.com/revoke', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({ token: store[label].refresh_token }),
+      });
+      // An already-invalid token 400s. That is the desired end state, not a
+      // failure — the point is that it no longer works, however it got there.
+      if (!res.ok && res.status !== 400) failed.push(`${label} (HTTP ${res.status})`);
+    } catch (e: any) {
+      failed.push(`${label} (${String(e?.message).slice(0, 60)})`);
+    }
+  }
+
+  if (failed.length > 0) {
+    console.warn(
+      `\n⚠  Could not revoke: ${failed.join(', ')}.\n` +
+      `   ${TOKENS_PATH} has been LEFT IN PLACE so the tokens are not lost while still valid.\n` +
+      `   Revoke by hand at myaccount.google.com/permissions, then delete the file.\n`,
+    );
+    return;
+  }
+
+  unlinkSync(TOKENS_PATH);
+  console.log(`\n✓ Revoked ${labels.length} token(s) at Google and deleted ${TOKENS_PATH}.`);
+  console.log('  Re-connect before the next run:  npm run live:connect -- <label>\n');
+}
 
 // ── connect: capture a refresh token via the loopback OAuth flow ─────────────
 function waitForCode(): Promise<string> {
@@ -91,8 +184,9 @@ async function connect(label: string) {
 
   const store = readStore();
   store[label] = { refresh_token: tokens.refresh_token, scope: tokens.scope, capturedAt: new Date().toISOString() };
-  writeFileSync(TOKENS_PATH, JSON.stringify(store, null, 2));
-  console.log(`\n✓ Saved refresh token for "${label}". Run all cases with:  npm run live:run\n`);
+  writeStore(store);
+  console.log(`\n✓ Saved refresh token for "${label}" (0600). Run all cases with:  npm run live:run`);
+  console.log('  live:run revokes and deletes the tokens when it finishes — pass --keep to hold them.\n');
 }
 
 // ── audit path: faithful replica of app/api/audit/route.ts's core ────────────
@@ -196,7 +290,7 @@ async function syntheticMappingCheck(store: Store): Promise<Result> {
     : { pass: false, note: `expected a denied/not-found mapping, got ${a.code}` };
 }
 
-async function run() {
+async function run(keep: boolean) {
   if (!process.env.GOOGLE_CLIENT_ID || !process.env.GOOGLE_CLIENT_SECRET) fail('Set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET (shell or .env).');
   const store = readStore();
   const connected = Object.keys(store);
@@ -245,11 +339,24 @@ async function run() {
 
   console.log('Reminder — the harness does NOT cover: OAuth consent, UI redirects/picker/error-screen copy,');
   console.log('Settings "Change listing", or case 5\'s "no profiles row" DB side-effect. Run those from TEST_MATRIX.md.\n');
+
+  // Teardown is the DEFAULT, and runs whatever the results were. A NO-GO run
+  // leaves live credentials behind exactly as readily as a GO one, and the
+  // failure case is the one you are most likely to walk away from.
+  if (keep) {
+    console.log(`⚠  --keep: ${TOKENS_PATH} retained (0600). It holds live refresh tokens for real`);
+    console.log('   Business Profiles. Revoke when you are done:  npm run live:revoke\n');
+  } else {
+    await revokeAll();
+  }
 }
 
 // ── entry ────────────────────────────────────────────────────────────────────
 loadEnv();
-const [, , cmd, label] = process.argv;
+const [, , cmd, ...rest] = process.argv;
+const keep = rest.includes('--keep');
+const label = rest.find((a) => !a.startsWith('--')) || '';
 if (cmd === 'connect') connect(label).catch((e) => fail(String(e?.message || e)));
-else if (cmd === 'run') run().catch((e) => fail(String(e?.message || e)));
-else fail('Usage:\n  npm run live:connect -- <label>\n  npm run live:run');
+else if (cmd === 'run') run(keep).catch((e) => fail(String(e?.message || e)));
+else if (cmd === 'revoke') revokeAll().catch((e) => fail(String(e?.message || e)));
+else fail('Usage:\n  npm run live:connect -- <label>\n  npm run live:run [-- --keep]\n  npm run live:revoke');

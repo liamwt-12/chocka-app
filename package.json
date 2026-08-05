@@ -8,7 +8,8 @@
     "start": "next start",
     "test": "vitest run",
     "live:connect": "tsx scripts/live-matrix.ts connect",
-    "live:run": "tsx scripts/live-matrix.ts run"
+    "live:run": "tsx scripts/live-matrix.ts run",
+    "live:revoke": "tsx scripts/live-matrix.ts revoke"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.39.0",

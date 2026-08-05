@@ -31,6 +31,12 @@ step 6 of the follow-up list.
 Out of scope, logged in `FOLLOWUPS.md` instead: `.gbp-tokens.json` (the live-matrix harness
 writes real refresh tokens to a gitignored local file).
 
+**Closed 2026-08-05, and not by encrypting it.** The threat this document is built around is
+someone who can read the *database*; a local gitignored file is not reachable that way, and
+encrypting it would put `SECRET_ENCRYPTION_KEY` and the ciphertext in the same directory. The
+fix was to stop the tokens being a standing artefact instead: `0600` on write, and `live:run`
+revokes them at Google and deletes the file when it finishes. See FOLLOWUPS "secrets hygiene".
+
 ## Why application-level, and why the key must not live in the database
 
 Supabase already encrypts disk at rest, and the MapBoost project has daily physical backups
