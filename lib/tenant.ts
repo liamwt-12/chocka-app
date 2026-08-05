@@ -71,6 +71,29 @@ export interface Tenant {
   // retailer told the service is free still wants to know why it is.
   fundedBy?: string;
 
+  /**
+   * Where this tenant's retailer records came from, when they were NOT collected
+   * from the retailer themselves.
+   *
+   * Drives the UK GDPR **Article 14** disclosure on /privacy. Article 14 applies
+   * precisely because the data was obtained from a third party: the retailer
+   * never gave it to us, so they have to be told what we hold, where it came
+   * from, and how to have it erased — and told at the latest at first contact.
+   *
+   * Undefined on a tenant whose retailers only ever arrive by signing up
+   * themselves, which is Chocka. Chocka renders none of this and is unchanged.
+   *
+   * Single source of truth, the same treatment `fundedBy` got: the source is
+   * named in one place rather than restated in prose that can drift from it.
+   */
+  dataSource?: {
+    holder: string;      // whose list it is — "Tarkett"
+    description: string; // what the list is — "its public UK store locator"
+    url: string;         // where a retailer can go and look at it
+    obtained: string;    // when we took a copy — "June 2026"
+    fields: string;      // what we actually hold, stated plainly
+  };
+
   // Every claim the sign-in page makes. These were hardcoded, which meant the
   // Stellar host asserted Chocka's evidence: "7,101 businesses scored across
   // the UK" is Chocka's North East dataset restated as national, and the
@@ -180,6 +203,19 @@ const STELLAR_BASE: Omit<Tenant, 'appUrl' | 'appHost' | 'emailFrom'> = {
   priceMonthlyPence: 0,
   proofLocation: 'UK',
   fundedBy: 'Tarkett',
+  // The 180 retailer records behind the Stellar pilot were taken from Tarkett's
+  // public store locator on 2026-06-21, not collected from the retailers. 105 of
+  // the captured email addresses have non-generic local parts and are therefore
+  // personal data about identifiable people — which is what makes this an
+  // Article 14 obligation rather than a courtesy.
+  dataSource: {
+    holder: 'Tarkett',
+    description: 'its public UK store locator',
+    url: 'https://home.tarkett.co.uk/en_GB/store-locator',
+    obtained: 'June 2026',
+    fields:
+      'your business name, address and postcode, your website, and where Tarkett published one, a contact email address',
+  },
   loginCopy: {
     // No self-serve promise. On the Stellar host this page is invite-only, so a
     // "see your score, takes 30 seconds" hero sat directly above a panel saying
