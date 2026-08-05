@@ -91,6 +91,17 @@ def main():
     ref = STAGING_REF
     assert_writable(ref)
 
+    # --file applies ONE migration to staging, which is the everyday case: try
+    # the candidate change against a copy before it goes near production. The
+    # full-baseline path below is only for rebuilding staging from scratch.
+    if '--file' in sys.argv:
+        path = sys.argv[sys.argv.index('--file') + 1]
+        sql = open(path, encoding='utf-8').read()
+        print(f'applying {path} to staging ({ref}) …')
+        query(ref, sql, write=True)
+        print('applied')
+        return
+
     existing = table_count(ref)
     if existing and not reset:
         sys.exit(f'REFUSED: staging already has {existing} table(s) in public. '

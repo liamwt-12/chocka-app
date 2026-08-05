@@ -180,7 +180,7 @@ A pure privacy notice is not direct marketing. Bundle it with "here is a free se
 becomes a marketing email, at which point PECR applies and most of the cohort cannot lawfully receive
 it — converting a compliance fix into the breach the LIA says to avoid. Send it clean.
 
-### `retailers` and `score_history` have no retention policy at all  [improvement — no longer blocks the notice]
+### `retailers` and `score_history` have no retention policy at all  [BUILT 2026-08-05 — not yet operating]
 
 Nothing ever deletes a retailer record. `retailers.user_id` is `on delete set null`, so records
 deliberately survive account deletion, and no job or policy removes them otherwise. Indefinite
@@ -198,6 +198,41 @@ the privacy mailbox.
 **Downgraded from blocker to improvement.** Building a refresh-and-delete would let the wording be
 tightened to a real period and would strengthen the balancing test. It is no longer in the way of the
 notice, because the notice no longer over-promises.
+
+**Built 2026-08-05.** Both halves, and the first change in this repo tested on staging before
+production:
+
+- **`supabase/migrations/20260805120000_retailer_retention.sql`** — `last_seen_at` and `delisted_at`
+  on `retailers`, plus a partial index. Additive only. Applied to **staging** and diffed: staging
+  then differed from production by exactly those three objects and nothing else, which is the
+  migration proving it does what it says. **Not yet applied to production** — see below.
+- **`scripts/refresh-retailer-listing.ts`** — the refresh. Takes a file of `source_ref`s rather than
+  scraping, so a third party's markup change cannot start a deletion clock. Present → `last_seen_at`
+  now and `delisted_at` cleared; absent → `delisted_at` set, and only if it is currently null.
+- **`app/api/cron/retailer-retention`** — the deletion. Deletes records delisted longer than the
+  183-day grace; `score_history` follows by cascade.
+
+Three safety properties worth keeping if this is ever rewritten:
+
+1. **The clock runs from `delisted_at`, never `last_seen_at`.** If refreshes stop happening nothing
+   is delisted, so nothing ages towards deletion. A gap in the schedule cannot quietly consume the
+   dataset.
+2. **A claimed record is never deleted.** Enforced twice — in the pure predicate and again as
+   `.is('user_id', null)` on the delete — and the job shouts if the two ever disagree. A retailer who
+   connected their account has a dashboard and score history hanging off that row.
+3. **The refresh refuses to delist more than a third of the list** without `--force`. A half-failed
+   scrape returns a short list, and a short list read literally means "almost everyone has left" —
+   which would start the clock on the whole baseline, invisibly, until it fired six months later.
+
+`?dry=1` on the cron reports exactly what it would delete and deletes nothing. 12 tests on the
+predicate, weighted towards proving it does *not* delete: unparseable dates, future dates, claimed
+records and null rows all resolve to keep.
+
+**Still to do before the /privacy wording can tighten:** apply the migration to production
+(`supabase db push` — it needs the DB password interactively, so it was not done from here, and the
+staging apply script deliberately refuses to write to production), register the cron with whatever
+scheduler runs the others, and run a real refresh. Until a refresh has actually run, the notice's
+"we review that by hand" remains the true statement.
 
 ## NEXT PRIORITY — a staging database
 
