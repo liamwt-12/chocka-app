@@ -71,6 +71,39 @@ export interface Tenant {
   // retailer told the service is free still wants to know why it is.
   fundedBy?: string;
 
+  /**
+   * Where this tenant's retailer records came from, when they were NOT collected
+   * from the retailer themselves.
+   *
+   * Drives the UK GDPR **Article 14** disclosure on /privacy. Article 14 applies
+   * precisely because the data was obtained from a third party: the retailer
+   * never gave it to us, so they have to be told what we hold, where it came
+   * from, and how to have it erased — and told at the latest at first contact.
+   *
+   * Undefined on a tenant whose retailers only ever arrive by signing up
+   * themselves, which is Chocka. Chocka renders none of this and is unchanged.
+   *
+   * Single source of truth, the same treatment `fundedBy` got: the source is
+   * named in one place rather than restated in prose that can drift from it.
+   */
+  dataSource?: {
+    holder: string;      // whose list it is — "Tarkett"
+    description: string; // what the list is — "its public UK store locator"
+    url: string;         // where a retailer can go and look at it
+    obtained: string;    // when we took a copy — "June 2026"
+    /**
+     * What was taken from the list. Must match the columns actually held —
+     * a notice that names data we do not hold, or omits data we do, is a defect
+     * in itself. Verified against `retailers` and against the committed copy in
+     * `scripts/source-data/` on 2026-08-05.
+     */
+    fields: string;
+    /** What was worked out from public Google data, which the list did not contain. */
+    derived: string;
+    /** How long the record is kept, and what ends it. Article 14(2)(a). */
+    retention: string;
+  };
+
   // Every claim the sign-in page makes. These were hardcoded, which meant the
   // Stellar host asserted Chocka's evidence: "7,101 businesses scored across
   // the UK" is Chocka's North East dataset restated as national, and the
@@ -180,6 +213,42 @@ const STELLAR_BASE: Omit<Tenant, 'appUrl' | 'appHost' | 'emailFrom'> = {
   priceMonthlyPence: 0,
   proofLocation: 'UK',
   fundedBy: 'Tarkett',
+  // The 180 retailer records behind the Stellar pilot were taken from Tarkett's
+  // public store locator on 2026-06-21, not collected from the retailers. 105 of
+  // the captured email addresses have non-generic local parts and are therefore
+  // personal data about identifiable people — which is what makes this an
+  // Article 14 obligation rather than a courtesy.
+  dataSource: {
+    holder: 'Tarkett',
+    description: 'its public UK store locator',
+    url: 'https://home.tarkett.co.uk/en_GB/store-locator',
+    obtained: 'June 2026',
+    // Deliberately covers BOTH stores. The database row holds the name, town and
+    // email; the address, postcode and coordinates are held separately in the
+    // committed source file. Describing only the database would understate what
+    // is held.
+    fields:
+      'your business name, the town and country you trade in, your address, postcode and map ' +
+      'position, your website address, and — where Tarkett published one — a contact email address',
+    derived:
+      'your Google rating, how many reviews and photos your listing has, whether it links to a ' +
+      'website, and an identifier for the listing itself — and from those, a score and a band',
+    // SOFTENED to match what is actually performed. The earlier draft promised an
+    // annual re-check and deletion within six months — neither of which exists.
+    // Promising an erasure the system does not carry out is the same defect this
+    // notice was written to correct, so the wording states the CRITERIA and is
+    // honest that the review is manual.
+    //
+    // Article 14(2)(a) expressly allows criteria in place of a period where a
+    // period is not possible, so this is the supported route rather than a dodge.
+    //
+    // Erasure on request IS performed — by hand, off the privacy mailbox — so it
+    // is the one thing here stated as a firm commitment.
+    retention:
+      'for as long as you are listed as a stockist on that page and we are providing this service ' +
+      'to that network. We review that by hand rather than automatically, so your record may ' +
+      'persist for a while after you stop being listed',
+  },
   loginCopy: {
     // No self-serve promise. On the Stellar host this page is invite-only, so a
     // "see your score, takes 30 seconds" hero sat directly above a panel saying

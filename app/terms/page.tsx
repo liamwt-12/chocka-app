@@ -23,6 +23,34 @@ export default function TermsPage() {
             : 'By connecting your Google account, you authorise us to take these actions using it.'}
         </p>
 
+        {!paid && t.fundedBy && (
+          <>
+            <h2 className="text-lg font-bold text-charcoal mt-8">Who provides this, and who pays for it</h2>
+            {/*
+              NEEDS YOUR CONFIRMATION BEFORE GOING LIVE — this describes a
+              commercial arrangement, and the second sentence is a factual claim
+              about what the funder does and does not receive. Drafted from what
+              the codebase shows (invoicing is against active user counts,
+              reconciled by hand) but that is an inference about billing, not a
+              statement of an agreed data-sharing position. It is included rather
+              than omitted because "my supplier is paying for this — can they see
+              my reviews?" is the first question a retailer will ask, and silence
+              is a worse answer than a checked one.
+            */}
+            <p>
+              {t.brandName} is operated by {t.legalEntity}. {t.fundedBy} pays for it on your behalf
+              and is not otherwise involved: {t.fundedBy} is not a party to these terms, does not
+              operate the service, and does not decide what happens to your data.
+            </p>
+            <p>
+              {t.fundedBy} is told how many retailers are using the service, because that is what it
+              is invoiced for. It is not given your reviews, your ratings, your performance figures,
+              your phone number or the contents of anything we post for you. Your relationship with
+              {' '}{t.fundedBy} is unaffected by whether you use this service, or stop using it.
+            </p>
+          </>
+        )}
+
         <h2 className="text-lg font-bold text-charcoal mt-8">Your responsibilities</h2>
         <p>
           You must have a verified Google Business Profile. You must provide a valid UK mobile number.

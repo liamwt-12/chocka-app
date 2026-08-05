@@ -139,6 +139,66 @@ hard-zero case specifically, since `score === 0` is not null and so slipped past
 Note this is now belt and braces: the 2026-08-03 apply already left zero `not_found` rows. The point of
 the code fix is that it no longer depends on the data staying that way.
 
+## P1 — data protection gaps found by the legitimate interests assessment (2026-08-05)
+
+Both found while writing `LEGITIMATE_INTERESTS_ASSESSMENT.md`, neither previously logged. Both weigh
+directly against the lawful basis the `/privacy` notice is about to assert, which is what makes them
+urgent rather than tidy-up.
+
+### The Article 14 notice is overdue  [P1 — deadline already passed]
+
+Article 14(3) requires telling people whose data you obtained from a third party within a reasonable
+period and **at the latest one month** after obtaining it. The retailer records were taken from
+Tarkett's store locator in **June 2026**. Nobody has been told. The deadline passed before this was
+noticed.
+
+**This is independent of the lawful basis.** Getting legitimate interests right does not cure a
+missing notice; they are separate obligations and both are owed.
+
+**Who is owed one: all 180, not just the 105 with personal-looking emails.** The duty attaches to the
+record, not the email field — a sole trader is identifiable from their business name and address
+whether their address is `dave@` or `info@`. See LIA §6.5 for the full mapping of required elements
+and the four records with no email at all (`29478`, `29705`, `30089`, `29876`), which need a letter
+or another route — see below.
+
+**The four with no email are HELD, not deleted** (`29478`, `29705`, `30089`, `29876`). Deleting them
+would have discharged the obligation and was rejected: they are part of the Tarkett baseline, and
+deleting data to avoid having to tell someone about it is the wrong instinct even where it is lawful.
+They are excluded from any send batch. That is automatic today — you cannot email a null address —
+but the rule is written down because it must survive someone backfilling an address later:
+
+> A send batch is built from `contact_email is not null` **and** excludes those four `source_ref`
+> values. Obtaining an address for one of them does **not** make them sendable; they are held pending
+> a notice delivered another way.
+
+Recorded rather than enforced in code because **no sender exists** — `scripts/send-invites.ts` is
+referenced here but has never been written, and building one to enforce a hold would be building the
+thing that is on hold. Whoever writes it owns this rule.
+
+**The trap, stated because it is the likely failure:** the notice must NOT carry the invitation.
+A pure privacy notice is not direct marketing. Bundle it with "here is a free service, sign up" and it
+becomes a marketing email, at which point PECR applies and most of the cohort cannot lawfully receive
+it — converting a compliance fix into the breach the LIA says to avoid. Send it clean.
+
+### `retailers` and `score_history` have no retention policy at all  [improvement — no longer blocks the notice]
+
+Nothing ever deletes a retailer record. `retailers.user_id` is `on delete set null`, so records
+deliberately survive account deletion, and no job or policy removes them otherwise. Indefinite
+retention of personal data with no stated period weighs against us on the balancing test.
+
+**Resolved by softening the wording, not by promising a job (2026-08-05).** The first draft said "we
+re-check at least once a year and delete within six months". Nothing performs that, so it would have
+been a policy promising an erasure the system does not carry out — the same defect the draft corrects
+elsewhere. The notice now states the **criteria** instead, and says plainly that the review is by
+hand. Article 14(2)(a) expressly allows criteria where a definite period is not possible.
+
+Erasure on request is stated as a firm commitment, because that one *is* performed — manually, off
+the privacy mailbox.
+
+**Downgraded from blocker to improvement.** Building a refresh-and-delete would let the wording be
+tightened to a real period and would strengthen the balancing test. It is no longer in the way of the
+notice, because the notice no longer over-promises.
+
 ## NEXT PRIORITY — a staging database
 
 ### There is nowhere to test a schema change before production  [NEXT — approach is an open question, do not build yet]
