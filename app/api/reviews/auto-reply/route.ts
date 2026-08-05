@@ -2,17 +2,30 @@ import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
 import { refreshAccessToken, replyToReview } from '@/lib/google';
 import { generateReviewHash } from '@/lib/cron';
-import { getTenant } from '@/lib/tenant';
+import { getTenantBySlug } from '@/lib/tenant';
+import { resultPage } from '@/lib/result-page';
 import { decryptSecret, userTokenAad } from '@/lib/secrets';
 
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
+
+  // The brand for every page this route renders. Host-derived, for the same
+  // reason as app/api/posts/cancel: most of the exits below — invalid link,
+  // expired hash, review not found, already handled — render before any user
+  // row exists, so a per-user resolution would brand some screens correctly and
+  // leave the rest Chocka.
+  //
+  // The approve/reject links are built by review-alerts from
+  // `getTenantForRow(user).appUrl`, so the origin a retailer lands on is their
+  // own tenant's and the two resolutions agree by construction.
+  const tenant = getTenantBySlug(request.headers.get('x-tenant-slug'));
+
   const action = searchParams.get('action');
   const reviewId = searchParams.get('review_id');
   const hash = searchParams.get('hash');
 
   if (!action || !reviewId || !['approve', 'reject'].includes(action)) {
-    return new NextResponse(resultPage('Invalid link', 'This link is missing some information.'), {
+    return new NextResponse(resultPage(tenant, 'Invalid link', 'This link is missing some information.'), {
       headers: { 'Content-Type': 'text/html' },
     });
   }
@@ -20,7 +33,7 @@ export async function GET(request: NextRequest) {
   // Verify HMAC hash
   const expectedHash = generateReviewHash(reviewId);
   if (!hash || hash !== expectedHash) {
-    return new NextResponse(resultPage('Invalid link', 'This link has expired or is invalid.'), {
+    return new NextResponse(resultPage(tenant, 'Invalid link', 'This link has expired or is invalid.'), {
       headers: { 'Content-Type': 'text/html' },
     });
   }
@@ -40,14 +53,14 @@ export async function GET(request: NextRequest) {
     .single();
 
   if (!review) {
-    return new NextResponse(resultPage('Review not found', 'This review may have been deleted.'), {
+    return new NextResponse(resultPage(tenant, 'Review not found', 'This review may have been deleted.'), {
       headers: { 'Content-Type': 'text/html' },
     });
   }
 
   const pendingReply = review.review_replies?.find((r: any) => r.status === 'pending');
   if (!pendingReply) {
-    return new NextResponse(resultPage('Already handled', 'This review reply has already been processed.'), {
+    return new NextResponse(resultPage(tenant, 'Already handled', 'This review reply has already been processed.'), {
       headers: { 'Content-Type': 'text/html' },
     });
   }
@@ -58,7 +71,7 @@ export async function GET(request: NextRequest) {
       .update({ status: 'rejected' })
       .eq('id', pendingReply.id);
 
-    return new NextResponse(resultPage('Got it', 'We won\'t post that reply. Handle it however you see fit.'), {
+    return new NextResponse(resultPage(tenant, 'Got it', 'We won\'t post that reply. Handle it however you see fit.'), {
       headers: { 'Content-Type': 'text/html' },
     });
   }
@@ -78,6 +91,7 @@ export async function GET(request: NextRequest) {
     );
     return new NextResponse(
       resultPage(
+        tenant,
         'This account isn\'t connected',
         'We no longer hold a Google connection for this business, so we can\'t post the reply. ' +
           'Reconnect from your dashboard, or reply on Google directly.',
@@ -109,6 +123,7 @@ export async function GET(request: NextRequest) {
 
     return new NextResponse(
       resultPage(
+        tenant,
         'Reconnect your Google account',
         'We\'ve lost our connection to your Google Business Profile, so we couldn\'t post the reply. ' +
           'Sign in again from your dashboard and we\'ll pick this up. Your reply is saved.',
@@ -135,6 +150,7 @@ export async function GET(request: NextRequest) {
     if (status === 403 || googleStatus === 'PERMISSION_DENIED') {
       return new NextResponse(
         resultPage(
+          tenant,
           'No permission to reply',
           'Google won\'t let this account reply to reviews on that listing. If your access changed recently, ' +
             'ask the listing owner to restore it — then approve this again. We\'ve kept the reply.',
@@ -149,6 +165,7 @@ export async function GET(request: NextRequest) {
       await supabaseAdmin.from('review_replies').update({ status: 'rejected' }).eq('id', pendingReply.id);
       return new NextResponse(
         resultPage(
+          tenant,
           'That review is gone',
           'The reviewer deleted it, or Google removed it, so there\'s nothing left to reply to. ' +
             'Nothing for you to do — we\'ve cleared it.',
@@ -162,6 +179,7 @@ export async function GET(request: NextRequest) {
     // original copy was right about.
     return new NextResponse(
       resultPage(
+        tenant,
         'Google didn\'t take the reply',
         'This is usually temporary. Try the approve link again in a few minutes — the reply is still saved. ' +
           'If it keeps failing you can post it on Google directly.',
@@ -195,32 +213,7 @@ export async function GET(request: NextRequest) {
     console.error(`[auto-reply] could not increment total_auto_replies for profile ${profile.id}:`, countErr.message);
   }
 
-  return new NextResponse(resultPage('Reply published', 'Your reply is now live on Google. Nice one.'), {
+  return new NextResponse(resultPage(tenant, 'Reply published', 'Your reply is now live on Google. Nice one.'), {
     headers: { 'Content-Type': 'text/html' },
   });
-}
-
-function resultPage(title: string, message: string): string {
-  const t = getTenant();
-  return `<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>${title} — ${t.brandName}</title>
-  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;800&display=swap" rel="stylesheet">
-  <style>
-    body { font-family: 'Plus Jakarta Sans', sans-serif; display: flex; align-items: center; justify-content: center; min-height: 100vh; margin: 0; background: #f9fafb; }
-    .card { text-align: center; max-width: 360px; padding: 40px; }
-    h1 { color: ${t.palette.routeAccent}; font-size: 24px; font-weight: 800; margin-bottom: 8px; }
-    p { color: #6b7280; font-size: 15px; line-height: 1.6; }
-  </style>
-</head>
-<body>
-  <div class="card">
-    <h1>${title}</h1>
-    <p>${message}</p>
-  </div>
-</body>
-</html>`;
 }
