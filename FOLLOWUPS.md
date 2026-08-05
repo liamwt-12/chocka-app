@@ -505,7 +505,32 @@ tokens at the end of a matrix run so they exist only for the duration. If they m
 reuse `lib/secrets.ts` and the same `v1.` envelope rather than inventing a second scheme, and
 note the harness would then need `SECRET_ENCRYPTION_KEY` locally.
 
-**Related:** `SECRETS_AT_REST.md`, which explicitly scopes this file out.
+**CLOSED 2026-08-05, as specified above — not encrypted.** Encryption was the wrong tool: the
+envelope scheme defends against someone who can read the database, and a local gitignored file is
+not reachable that way. Giving the harness `SECRET_ENCRYPTION_KEY` would have put the key and the
+ciphertext in the same directory and bought nothing.
+
+What landed in `scripts/live-matrix.ts`:
+
+- **`0600` on write**, via `writeStore()`. `chmodSync` runs unconditionally after `writeFileSync`,
+  because the `mode` option only applies when a file is *created* — a file that predates this change
+  would otherwise keep its old permissions forever.
+- **`readStore()` warns on a loose mode** and tightens it, rather than silently repairing. Tightening
+  now does not undo who has already read it, and that is worth saying.
+- **`live:run` revokes every token at Google and deletes the file when it finishes.** `--keep` opts
+  out for iterating, with a warning; `npm run live:revoke` tears down on demand.
+- **Revoke before delete.** Deleting alone leaves the *grant* standing in the test account with no
+  token left to revoke it with and nothing that would ever clean it up. If a revoke fails the file is
+  left in place, so the problem stays visible instead of the tokens being lost while still valid.
+- **Teardown runs on NO-GO as well as GO** — a failed run leaves live credentials behind just as
+  readily, and it is the run you are most likely to walk away from.
+
+**The cost, stated plainly:** a full matrix run now needs one consent click per label, every time,
+because the previous run revoked the grants. That is the trade the entry above asked for and it is
+the right one, but it does make the harness meaningfully more tedious. `--keep` exists for the
+iterating case.
+
+**Related:** `SECRETS_AT_REST.md`, which scoped this file out and now records why it stayed out.
 
 ### Decide deliberately whether `chocka-app` should be a public repo  [deferred — decision, not a task]
 **Context:** `github.com/liamwt-12/chocka-app` is **public** (`visibility: public` from the GitHub

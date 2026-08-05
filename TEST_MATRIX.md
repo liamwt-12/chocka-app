@@ -44,10 +44,22 @@ those from the tables below.
 npm run live:connect -- manager    # consent as each account, once. Labels:
 npm run live:connect -- group      #   owner | manager | manager-multi | group |
 npm run live:connect -- denied     #   empty | revoked | mixed | denied
-npm run live:run                   # runs all assertions for connected labels
+npm run live:run                   # runs all assertions, then revokes + deletes the tokens
+npm run live:run -- --keep         # ... but keep them, for iterating
+npm run live:revoke                # revoke + delete now
 ```
 `live:run` prints a PASS/FAIL/INCONCLUSIVE table and a logic-level GO/NO-GO on the three
-gating cases. Captured tokens live in `.gbp-tokens.json` (gitignored — treat as secrets).
+gating cases.
+
+Captured tokens live in `.gbp-tokens.json` (gitignored — treat as secrets). They are **live
+refresh tokens for real Business Profiles**, so the harness does not leave them lying around:
+the file is written `0600`, and `live:run` revokes every token at Google and deletes the file
+when it finishes — pass `--keep` if you are iterating, and `npm run live:revoke` when you stop.
+
+The cost is one consent click per label per full run. That is deliberate: the alternative is
+working credentials for someone else's Google Business Profile sitting on disk indefinitely.
+Teardown runs on NO-GO as well as GO, because a failed run is the one you are most likely to
+walk away from.
 
 > Case 8's *setup* (an account with account-level manage role but no per-location rights on
 > a listing it can still enumerate) is the hard one to reproduce. If you can't produce it,
