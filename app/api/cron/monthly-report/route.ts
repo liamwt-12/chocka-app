@@ -9,7 +9,7 @@ export async function GET(request: NextRequest) {
   if (!verifyCronSecret(request)) return unauthorizedResponse();
 
   try {
-    const users = await getActiveUsersWithProfiles(supabaseAdmin);
+    const users = await getActiveUsersWithProfiles(supabaseAdmin, 'monthly-report');
     const now = new Date();
     const lastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
     const lastMonthEnd = new Date(now.getFullYear(), now.getMonth(), 0);

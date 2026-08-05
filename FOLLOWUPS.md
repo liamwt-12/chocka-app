@@ -131,9 +131,32 @@ in SQL and can move back into the query. Prefer whichever makes the *default* sa
 actually happened was a filter silently excluding everyone, and it was invisible because excluding
 users produces no error, no log and no user complaint until someone asks why nothing has posted.
 
-**Worth a guard either way:** a cron run that processes **zero** users is currently indistinguishable
-from a healthy quiet day. A one-line log of the candidate and admitted counts per run would have made
-this visible in a week rather than never.
+**Worth a guard either way — DONE 2026-08-05, ahead of the schema decision.** A cron run that
+processed **zero** users was indistinguishable from a healthy quiet day. `admitEntitled()` in
+`lib/cron.ts` now filters *and* counts in one place: every route logs
+`candidates=N admitted=M (chocka M/N, stellar M/N)`, and warns explicitly when it had candidates and
+admitted none. Both query paths go through it — `getActiveUsersWithProfiles` and
+`onboarding-sequence`'s own query — so the filter can no longer be taken without the log, which is
+the practical answer to "a third caller that forgets is a silent repeat of the original bug".
+
+The per-tenant breakdown is the load-bearing part: an aggregate of `admitted=8 candidates=9` reads
+healthy in precisely the case where the 1 excluded is every retailer on the other brand.
+
+**What this immediately revealed (production, 2026-08-05).** `getActiveUsersWithProfiles()` currently
+admits **nobody at all**. Of 13 users, 12 are `token_status = 'offboarded'` (the 2026-07-28
+offboarding) and so never reach the gate; the single remaining valid-token user is a **Chocka**
+account with `subscription_status = null`, which the gate correctly excludes. The one Stellar
+retailer — the tenant the entitlement fix was written for — is offboarded and therefore filtered out
+in SQL before entitlement is ever consulted.
+
+So every cron route is a no-op today. That may well be correct (nobody is paying, and the free-tenant
+retailer has no live token), but it was not *knowable* before this guard, which is the entire point.
+It also means the entitlement predicate is currently untested by production traffic: whatever replaces
+it will land with no live signal either way.
+
+**Still deferred — the schema half.** Choosing between `users.automation_enabled`/`entitled_at` and
+`tenants.price_monthly_gbp` commits a production migration and is not a code-only call. See the
+decision note below.
 
 ### Stellar onboarding still routes through Stripe checkout  [CLOSED 2026-08-03 — Stripe is now unreachable for a free tenant]
 **What it is.** `submitPhone` in `app/onboarding/page.tsx` POSTs to `/api/checkout` for every tenant.

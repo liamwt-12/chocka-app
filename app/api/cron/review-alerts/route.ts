@@ -12,7 +12,7 @@ export async function GET(request: NextRequest) {
   if (!verifyCronSecret(request)) return unauthorizedResponse();
 
   try {
-    const users = await getActiveUsersWithProfiles(supabaseAdmin);
+    const users = await getActiveUsersWithProfiles(supabaseAdmin, 'review-alerts');
     let processed = 0;
 
     for (const user of users) {
