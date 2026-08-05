@@ -1,6 +1,15 @@
 # Legitimate interests assessment — the Stellar retailer records
 
-**Status: DRAFT for review. Not agreed, not relied upon, nothing published from it.**
+**Status: reviewed and agreed 2026-08-05. This is the record behind the lawful basis stated on
+`/privacy` for the Stellar tenant, and it is relied upon.**
+
+Agreed by the business owner, not by a solicitor. The points in §7 remain open, and §4's conclusion
+stands: this assessment does **not** authorise the invite send, which is gated by PECR rather than by
+anything decided here.
+
+**Publishing the notice is not the same as giving it.** Article 14 requires the information to be
+*provided* to the data subject; a page they have never visited does not do that. The obligation
+described in §6.5 is still outstanding for all 180.
 
 **Not legal advice.** This is an engineer's structured reading of ICO guidance, written so the
 reasoning is visible and can be checked by someone qualified. Two conclusions below are
