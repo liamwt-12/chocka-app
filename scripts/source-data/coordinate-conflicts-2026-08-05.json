@@ -1,0 +1,1042 @@
+{
+ "generated_for": "resolving the 37 postcode/lat-lng conflicts found by verify-all.py",
+ "source": "verification-2026-08-03.json + retailers-locations.csv",
+ "ground_truth": "postcodes.io (ONS/OS open data) — deliberately NOT the matched Google candidate, see the module docstring",
+ "near_metres": 250,
+ "applied_to_csv": false,
+ "applied_to_database": false,
+ "rows": 37,
+ "counts": {
+  "LATLNG_IS_WRONG": 34,
+  "NOT_A_SOURCE_CONFLICT": 3
+ },
+ "results": [
+  {
+   "id": "29849",
+   "name": "Carpet Creations",
+   "town": "Poynton",
+   "source_postcode": "SK12 1RD",
+   "postcode_used": "SK12 1RD",
+   "postcode_corrected_upstream": false,
+   "source_latitude": 55.48413,
+   "source_longitude": -5.09448,
+   "matched_candidate": {
+    "name": "Carpet Creations",
+    "address": "77-79 Park Ln, Poynton, Stockport SK12 1RD, UK",
+    "distance_from_source_coords_m": 305662
+   },
+   "verification_verdict": "CONFIRMED",
+   "postcode_centroid": {
+    "latitude": 53.34895,
+    "longitude": -2.119714,
+    "quality": 1,
+    "admin_district": "Cheshire East"
+   },
+   "distance_source_coords_to_own_postcode_m": 305583,
+   "resolution": "LATLNG_IS_WRONG",
+   "why": "the row's own coordinates are 305583m from its own postcode SK12 1RD, and the matched business carries that postcode in its Google address — two independent sources place this business at the postcode, so the lat/lng is the field at fault",
+   "corrected_latitude": 53.34895,
+   "corrected_longitude": -2.119714,
+   "correction_source": "postcodes.io centroid of the row postcode"
+  },
+  {
+   "id": "29463",
+   "name": "Bespoke Flooring",
+   "town": "Saint Helens",
+   "source_postcode": "WA11 8HD",
+   "postcode_used": "WA11 8HD",
+   "postcode_corrected_upstream": false,
+   "source_latitude": 53.7247837,
+   "source_longitude": -2.6614353,
+   "matched_candidate": {
+    "name": "Bespoke Flooring St Helens",
+    "address": "2, Old Smithy, Church Rd, Rainford, Saint Helens WA11 8HD, UK",
+    "distance_from_source_coords_m": 26401
+   },
+   "verification_verdict": "CONFIRMED",
+   "postcode_centroid": {
+    "latitude": 53.499182,
+    "longitude": -2.786196,
+    "quality": 1,
+    "admin_district": "St. Helens"
+   },
+   "distance_source_coords_to_own_postcode_m": 26401,
+   "resolution": "LATLNG_IS_WRONG",
+   "why": "the row's own coordinates are 26401m from its own postcode WA11 8HD, and the matched business carries that postcode in its Google address — two independent sources place this business at the postcode, so the lat/lng is the field at fault",
+   "corrected_latitude": 53.499182,
+   "corrected_longitude": -2.786196,
+   "correction_source": "postcodes.io centroid of the row postcode"
+  },
+  {
+   "id": "29739",
+   "name": "Sawston Carpets & Flooring",
+   "town": "Cambridge",
+   "source_postcode": "CB22 3EE",
+   "postcode_used": "CB22 3EE",
+   "postcode_corrected_upstream": false,
+   "source_latitude": 52.1950788,
+   "source_longitude": 0.1312729,
+   "matched_candidate": {
+    "name": "Sawston Carpet & Flooring Ltd",
+    "address": "Unit 32 Eastern Counties Leather Site, London Rd, Pampisford, Cambridge CB22 3EE, UK",
+    "distance_from_source_coords_m": 9606
+   },
+   "verification_verdict": "CONFIRMED",
+   "postcode_centroid": {
+    "latitude": 52.111805,
+    "longitude": 0.171652,
+    "quality": 1,
+    "admin_district": "South Cambridgeshire"
+   },
+   "distance_source_coords_to_own_postcode_m": 9661,
+   "resolution": "LATLNG_IS_WRONG",
+   "why": "the row's own coordinates are 9661m from its own postcode CB22 3EE, and the matched business carries that postcode in its Google address — two independent sources place this business at the postcode, so the lat/lng is the field at fault",
+   "corrected_latitude": 52.111805,
+   "corrected_longitude": 0.171652,
+   "correction_source": "postcodes.io centroid of the row postcode"
+  },
+  {
+   "id": "29760",
+   "name": "Calder Valley Flooring",
+   "town": "Halifax",
+   "source_postcode": "HX6 4EH",
+   "postcode_used": "HX6 4EH",
+   "postcode_corrected_upstream": false,
+   "source_latitude": 53.723099,
+   "source_longitude": -1.86161,
+   "matched_candidate": {
+    "name": "Calder Valley Flooring and Carpets",
+    "address": "Unit 4, Oldham Rd, Ripponden, Halifax HX6 4EH, UK",
+    "distance_from_source_coords_m": 8288
+   },
+   "verification_verdict": "CONFIRMED",
+   "postcode_centroid": {
+    "latitude": 53.668067,
+    "longitude": -1.948292,
+    "quality": 1,
+    "admin_district": "Calderdale"
+   },
+   "distance_source_coords_to_own_postcode_m": 8367,
+   "resolution": "LATLNG_IS_WRONG",
+   "why": "the row's own coordinates are 8367m from its own postcode HX6 4EH, and the matched business carries that postcode in its Google address — two independent sources place this business at the postcode, so the lat/lng is the field at fault",
+   "corrected_latitude": 53.668067,
+   "corrected_longitude": -1.948292,
+   "correction_source": "postcodes.io centroid of the row postcode"
+  },
+  {
+   "id": "29743",
+   "name": "Carpet GIANT Maidstone",
+   "town": "Maidstone",
+   "source_postcode": "ME15 9NL",
+   "postcode_used": "ME15 9NL",
+   "postcode_corrected_upstream": false,
+   "source_latitude": 51.270363,
+   "source_longitude": 0.522699,
+   "matched_candidate": {
+    "name": "Carpet Giant",
+    "address": "Unit 1, Haslemere Trading Estate, Sutton Rd, Maidstone ME15 9NL, UK",
+    "distance_from_source_coords_m": 4158
+   },
+   "verification_verdict": "CONFIRMED",
+   "postcode_centroid": {
+    "latitude": 51.241238,
+    "longitude": 0.560789,
+    "quality": 1,
+    "admin_district": "Maidstone"
+   },
+   "distance_source_coords_to_own_postcode_m": 4185,
+   "resolution": "LATLNG_IS_WRONG",
+   "why": "the row's own coordinates are 4185m from its own postcode ME15 9NL, and the matched business carries that postcode in its Google address — two independent sources place this business at the postcode, so the lat/lng is the field at fault",
+   "corrected_latitude": 51.241238,
+   "corrected_longitude": 0.560789,
+   "correction_source": "postcodes.io centroid of the row postcode"
+  },
+  {
+   "id": "29720",
+   "name": "Carpetfit Wales",
+   "town": "Aberdare",
+   "source_postcode": "CF44 6DA",
+   "postcode_used": "CF44 6DA",
+   "postcode_corrected_upstream": false,
+   "source_latitude": 51.716154,
+   "source_longitude": -3.451816,
+   "matched_candidate": {
+    "name": "Carpet Fit Wales Ltd",
+    "address": "1, Enterprise Centre, Aberdare CF44 6DA, UK",
+    "distance_from_source_coords_m": 3112
+   },
+   "verification_verdict": "CONFIRMED",
+   "postcode_centroid": {
+    "latitude": 51.697991,
+    "longitude": -3.416839,
+    "quality": 1,
+    "admin_district": "Rhondda Cynon Taf"
+   },
+   "distance_source_coords_to_own_postcode_m": 3144,
+   "resolution": "LATLNG_IS_WRONG",
+   "why": "the row's own coordinates are 3144m from its own postcode CF44 6DA, and the matched business carries that postcode in its Google address — two independent sources place this business at the postcode, so the lat/lng is the field at fault",
+   "corrected_latitude": 51.697991,
+   "corrected_longitude": -3.416839,
+   "correction_source": "postcodes.io centroid of the row postcode"
+  },
+  {
+   "id": "29713",
+   "name": "Inspired Flooring Earby",
+   "town": "Barnoldswick",
+   "source_postcode": "BB18 6XB",
+   "postcode_used": "BB18 6XB",
+   "postcode_corrected_upstream": false,
+   "source_latitude": 53.912877,
+   "source_longitude": -2.1932683,
+   "matched_candidate": {
+    "name": "Inspired Flooring Earby Ltd",
+    "address": "17 Colne Rd, Earby, Barnoldswick BB18 6XB, UK",
+    "distance_from_source_coords_m": 3133
+   },
+   "verification_verdict": "CONFIRMED",
+   "postcode_centroid": {
+    "latitude": 53.914582,
+    "longitude": -2.145859,
+    "quality": 1,
+    "admin_district": "Pendle"
+   },
+   "distance_source_coords_to_own_postcode_m": 3111,
+   "resolution": "LATLNG_IS_WRONG",
+   "why": "the row's own coordinates are 3111m from its own postcode BB18 6XB, and the matched business carries that postcode in its Google address — two independent sources place this business at the postcode, so the lat/lng is the field at fault",
+   "corrected_latitude": 53.914582,
+   "corrected_longitude": -2.145859,
+   "correction_source": "postcodes.io centroid of the row postcode"
+  },
+  {
+   "id": "29685",
+   "name": "Iroka Interiors",
+   "town": "Hayle",
+   "source_postcode": "TR27 5JR",
+   "postcode_used": "TR27 5JR",
+   "postcode_corrected_upstream": false,
+   "source_latitude": 50.188766,
+   "source_longitude": -5.4187704,
+   "matched_candidate": {
+    "name": "Iroka Interiors, Hayle",
+    "address": "15-16, Industrial Park, Hayle TR27 5JR, UK",
+    "distance_from_source_coords_m": 1768
+   },
+   "verification_verdict": "CONFIRMED",
+   "postcode_centroid": {
+    "latitude": 50.193846,
+    "longitude": -5.393854,
+    "quality": 1,
+    "admin_district": "Cornwall"
+   },
+   "distance_source_coords_to_own_postcode_m": 1862,
+   "resolution": "LATLNG_IS_WRONG",
+   "why": "the row's own coordinates are 1862m from its own postcode TR27 5JR, and the matched business carries that postcode in its Google address — two independent sources place this business at the postcode, so the lat/lng is the field at fault",
+   "corrected_latitude": 50.193846,
+   "corrected_longitude": -5.393854,
+   "correction_source": "postcodes.io centroid of the row postcode"
+  },
+  {
+   "id": "29683",
+   "name": "Trinity Flooring",
+   "town": "KENT",
+   "source_postcode": "TN24 8FN",
+   "postcode_used": "TN24 8FN",
+   "postcode_corrected_upstream": false,
+   "source_latitude": 51.1445834,
+   "source_longitude": 0.8684641,
+   "matched_candidate": {
+    "name": "Trinity Flooring - Ashford",
+    "address": "Henwood Industrial Estate, Unit 16, Creative Enterprise Quarter, Javelin Way, Ashford TN24 8FN, UK",
+    "distance_from_source_coords_m": 1678
+   },
+   "verification_verdict": "CONFIRMED",
+   "postcode_centroid": {
+    "latitude": 51.15091,
+    "longitude": 0.890034,
+    "quality": 1,
+    "admin_district": "Ashford"
+   },
+   "distance_source_coords_to_own_postcode_m": 1661,
+   "resolution": "LATLNG_IS_WRONG",
+   "why": "the row's own coordinates are 1661m from its own postcode TN24 8FN, and the matched business carries that postcode in its Google address — two independent sources place this business at the postcode, so the lat/lng is the field at fault",
+   "corrected_latitude": 51.15091,
+   "corrected_longitude": 0.890034,
+   "correction_source": "postcodes.io centroid of the row postcode"
+  },
+  {
+   "id": "29921",
+   "name": "Northumbria Flooring",
+   "town": "North Shields",
+   "source_postcode": "NE29 7TY",
+   "postcode_used": "NE29 7TY",
+   "postcode_corrected_upstream": false,
+   "source_latitude": 55.02256,
+   "source_longitude": -1.47287,
+   "matched_candidate": {
+    "name": "Northumbria Flooring",
+    "address": "Norham Rd, North Shields NE29 7TY, UK",
+    "distance_from_source_coords_m": 1558
+   },
+   "verification_verdict": "CONFIRMED",
+   "postcode_centroid": {
+    "latitude": 55.009349,
+    "longitude": -1.483419,
+    "quality": 1,
+    "admin_district": "North Tyneside"
+   },
+   "distance_source_coords_to_own_postcode_m": 1616,
+   "resolution": "LATLNG_IS_WRONG",
+   "why": "the row's own coordinates are 1616m from its own postcode NE29 7TY, and the matched business carries that postcode in its Google address — two independent sources place this business at the postcode, so the lat/lng is the field at fault",
+   "corrected_latitude": 55.009349,
+   "corrected_longitude": -1.483419,
+   "correction_source": "postcodes.io centroid of the row postcode"
+  },
+  {
+   "id": "29431",
+   "name": "Inverness Flooring & Furniture",
+   "town": "Inverness",
+   "source_postcode": "IV3 8LL",
+   "postcode_used": "IV3 8LL",
+   "postcode_corrected_upstream": false,
+   "source_latitude": 57.477773,
+   "source_longitude": -4.224721,
+   "matched_candidate": {
+    "name": "Inverness Flooring & Furniture",
+    "address": "Flooring, Carse Industrial Estate, Carsegate Rd S, Inverness IV3 8LL, UK",
+    "distance_from_source_coords_m": 1592
+   },
+   "verification_verdict": "CONFIRMED",
+   "postcode_centroid": {
+    "latitude": 57.48657,
+    "longitude": -4.244824,
+    "quality": 1,
+    "admin_district": "Highland"
+   },
+   "distance_source_coords_to_own_postcode_m": 1549,
+   "resolution": "LATLNG_IS_WRONG",
+   "why": "the row's own coordinates are 1549m from its own postcode IV3 8LL, and the matched business carries that postcode in its Google address — two independent sources place this business at the postcode, so the lat/lng is the field at fault",
+   "corrected_latitude": 57.48657,
+   "corrected_longitude": -4.244824,
+   "correction_source": "postcodes.io centroid of the row postcode"
+  },
+  {
+   "id": "29888",
+   "name": "Bainton Flooring",
+   "town": "Bournemouth",
+   "source_postcode": "BH9 3JU",
+   "postcode_used": "BH9 3JU",
+   "postcode_corrected_upstream": false,
+   "source_latitude": 50.751869,
+   "source_longitude": -1.85095,
+   "matched_candidate": {
+    "name": "Bainton Flooring",
+    "address": "92-94 Castle Ln W, Bournemouth BH9 3JU, UK",
+    "distance_from_source_coords_m": 1277
+   },
+   "verification_verdict": "CONFIRMED",
+   "postcode_centroid": {
+    "latitude": 50.757956,
+    "longitude": -1.866561,
+    "quality": 1,
+    "admin_district": "Bournemouth, Christchurch and Poole"
+   },
+   "distance_source_coords_to_own_postcode_m": 1290,
+   "resolution": "LATLNG_IS_WRONG",
+   "why": "the row's own coordinates are 1290m from its own postcode BH9 3JU, and the matched business carries that postcode in its Google address — two independent sources place this business at the postcode, so the lat/lng is the field at fault",
+   "corrected_latitude": 50.757956,
+   "corrected_longitude": -1.866561,
+   "correction_source": "postcodes.io centroid of the row postcode"
+  },
+  {
+   "id": "30088",
+   "name": "CM Flooring",
+   "town": "Consett",
+   "source_postcode": "DH8 7BL",
+   "postcode_used": "DH8 7BL",
+   "postcode_corrected_upstream": false,
+   "source_latitude": 54.831928,
+   "source_longitude": -1.83645,
+   "matched_candidate": {
+    "name": "C M Flooring Ltd",
+    "address": "Unit 9, Bessemer Court, Consett DH8 7BL, UK",
+    "distance_from_source_coords_m": 1156
+   },
+   "verification_verdict": "CONFIRMED",
+   "postcode_centroid": {
+    "latitude": 54.842866,
+    "longitude": -1.835466,
+    "quality": 1,
+    "admin_district": "County Durham"
+   },
+   "distance_source_coords_to_own_postcode_m": 1218,
+   "resolution": "LATLNG_IS_WRONG",
+   "why": "the row's own coordinates are 1218m from its own postcode DH8 7BL, and the matched business carries that postcode in its Google address — two independent sources place this business at the postcode, so the lat/lng is the field at fault",
+   "corrected_latitude": 54.842866,
+   "corrected_longitude": -1.835466,
+   "correction_source": "postcodes.io centroid of the row postcode"
+  },
+  {
+   "id": "29438",
+   "name": "A Wood Idea",
+   "town": "Blaydon-on-Tyne",
+   "source_postcode": "NE21 5TR",
+   "postcode_used": "NE21 5TR",
+   "postcode_corrected_upstream": false,
+   "source_latitude": 54.9658904,
+   "source_longitude": -1.7128176,
+   "matched_candidate": {
+    "name": "A Wood Idea",
+    "address": "4, Blaydon Trade Park, Blaydon-on-Tyne NE21 5TR, UK",
+    "distance_from_source_coords_m": 1019
+   },
+   "verification_verdict": "CONFIRMED",
+   "postcode_centroid": {
+    "latitude": 54.965178,
+    "longitude": -1.695808,
+    "quality": 1,
+    "admin_district": "Gateshead"
+   },
+   "distance_source_coords_to_own_postcode_m": 1089,
+   "resolution": "LATLNG_IS_WRONG",
+   "why": "the row's own coordinates are 1089m from its own postcode NE21 5TR, and the matched business carries that postcode in its Google address — two independent sources place this business at the postcode, so the lat/lng is the field at fault",
+   "corrected_latitude": 54.965178,
+   "corrected_longitude": -1.695808,
+   "correction_source": "postcodes.io centroid of the row postcode"
+  },
+  {
+   "id": "29704",
+   "name": "Gloucester Carpet Outlet",
+   "town": "Gloucester",
+   "source_postcode": "GL1 5SQ",
+   "postcode_used": "GL1 5SQ",
+   "postcode_corrected_upstream": false,
+   "source_latitude": 51.847221,
+   "source_longitude": -2.26114,
+   "matched_candidate": {
+    "name": "Gloucester Carpet Outlet",
+    "address": "Unit 4, Mill Place, 1, 90 Bristol Rd, Gloucester GL1 5SQ, UK",
+    "distance_from_source_coords_m": 936
+   },
+   "verification_verdict": "CONFIRMED",
+   "postcode_centroid": {
+    "latitude": 51.854622,
+    "longitude": -2.255617,
+    "quality": 1,
+    "admin_district": "Gloucester"
+   },
+   "distance_source_coords_to_own_postcode_m": 906,
+   "resolution": "LATLNG_IS_WRONG",
+   "why": "the row's own coordinates are 906m from its own postcode GL1 5SQ, and the matched business carries that postcode in its Google address — two independent sources place this business at the postcode, so the lat/lng is the field at fault",
+   "corrected_latitude": 51.854622,
+   "corrected_longitude": -2.255617,
+   "correction_source": "postcodes.io centroid of the row postcode"
+  },
+  {
+   "id": "29709",
+   "name": "Banks Flooring Solutions ltd",
+   "town": "Leyland",
+   "source_postcode": "PR25 3UQ",
+   "postcode_used": "PR25 3UQ",
+   "postcode_corrected_upstream": false,
+   "source_latitude": 53.697931,
+   "source_longitude": -2.695478,
+   "matched_candidate": {
+    "name": "Banks Flooring Solutions",
+    "address": "Unit 8a, Farington, Leyland PR25 3UQ, UK",
+    "distance_from_source_coords_m": 791
+   },
+   "verification_verdict": "CONFIRMED",
+   "postcode_centroid": {
+    "latitude": 53.705171,
+    "longitude": -2.691622,
+    "quality": 1,
+    "admin_district": "South Ribble"
+   },
+   "distance_source_coords_to_own_postcode_m": 844,
+   "resolution": "LATLNG_IS_WRONG",
+   "why": "the row's own coordinates are 844m from its own postcode PR25 3UQ, and the matched business carries that postcode in its Google address — two independent sources place this business at the postcode, so the lat/lng is the field at fault",
+   "corrected_latitude": 53.705171,
+   "corrected_longitude": -2.691622,
+   "correction_source": "postcodes.io centroid of the row postcode"
+  },
+  {
+   "id": "29705",
+   "name": "Northumbria Flooring & Furniture",
+   "town": "Blyth",
+   "source_postcode": "NE24 5 SU",
+   "postcode_used": "NE24 5 SU",
+   "postcode_corrected_upstream": false,
+   "source_latitude": 55.1326581,
+   "source_longitude": -1.5149871,
+   "matched_candidate": {
+    "name": "Northumbria Flooring",
+    "address": "1 Crawford Business Park, Cowpen Road, Blyth NE24 5SU, UK",
+    "distance_from_source_coords_m": 900
+   },
+   "verification_verdict": "CONFIRMED",
+   "postcode_centroid": {
+    "latitude": 55.131632,
+    "longitude": -1.528016,
+    "quality": 1,
+    "admin_district": "Northumberland"
+   },
+   "distance_source_coords_to_own_postcode_m": 836,
+   "resolution": "LATLNG_IS_WRONG",
+   "why": "the row's own coordinates are 836m from its own postcode NE24 5 SU, and the matched business carries that postcode in its Google address — two independent sources place this business at the postcode, so the lat/lng is the field at fault",
+   "corrected_latitude": 55.131632,
+   "corrected_longitude": -1.528016,
+   "correction_source": "postcodes.io centroid of the row postcode"
+  },
+  {
+   "id": "29742",
+   "name": "Carpet GIANT Croydon",
+   "town": "Croydon",
+   "source_postcode": "CR0 3BT",
+   "postcode_used": "CR0 3BT",
+   "postcode_corrected_upstream": false,
+   "source_latitude": 51.3936468,
+   "source_longitude": -0.1148065,
+   "matched_candidate": {
+    "name": "Carpet Giant",
+    "address": "Unit 4/Peall Rd Ind Est/Shamrock Rd, Croydon CR0 3BT, UK",
+    "distance_from_source_coords_m": 640
+   },
+   "verification_verdict": "CONFIRMED",
+   "postcode_centroid": {
+    "latitude": 51.389745,
+    "longitude": -0.123062,
+    "quality": 1,
+    "admin_district": "Croydon"
+   },
+   "distance_source_coords_to_own_postcode_m": 719,
+   "resolution": "LATLNG_IS_WRONG",
+   "why": "the row's own coordinates are 719m from its own postcode CR0 3BT, and the matched business carries that postcode in its Google address — two independent sources place this business at the postcode, so the lat/lng is the field at fault",
+   "corrected_latitude": 51.389745,
+   "corrected_longitude": -0.123062,
+   "correction_source": "postcodes.io centroid of the row postcode"
+  },
+  {
+   "id": "29919",
+   "name": "Carpet and Vinyl Warehouse",
+   "town": "Skegness",
+   "source_postcode": "PE25 2EJ",
+   "postcode_used": "PE25 2EJ",
+   "postcode_corrected_upstream": false,
+   "source_latitude": 53.14322,
+   "source_longitude": 0.31598,
+   "matched_candidate": {
+    "name": "Carpet And Vinyl Warehouse",
+    "address": "Rear Of, 154 Burlington Rd, Wainfleet Rd, Skegness PE25 2EJ, UK",
+    "distance_from_source_coords_m": 613
+   },
+   "verification_verdict": "CONFIRMED",
+   "postcode_centroid": {
+    "latitude": 53.144494,
+    "longitude": 0.324997,
+    "quality": 1,
+    "admin_district": "East Lindsey"
+   },
+   "distance_source_coords_to_own_postcode_m": 618,
+   "resolution": "LATLNG_IS_WRONG",
+   "why": "the row's own coordinates are 618m from its own postcode PE25 2EJ, and the matched business carries that postcode in its Google address — two independent sources place this business at the postcode, so the lat/lng is the field at fault",
+   "corrected_latitude": 53.144494,
+   "corrected_longitude": 0.324997,
+   "correction_source": "postcodes.io centroid of the row postcode"
+  },
+  {
+   "id": "29915",
+   "name": "Regency Flooring",
+   "town": "Canterbury",
+   "source_postcode": "CT2 0QH",
+   "postcode_used": "CT2 0QH",
+   "postcode_corrected_upstream": false,
+   "source_latitude": 51.30482,
+   "source_longitude": 1.10808,
+   "matched_candidate": {
+    "name": "Regency Flooring",
+    "address": "21 Shalloak Rd, Broad Oak, Canterbury CT2 0QH, UK",
+    "distance_from_source_coords_m": 507
+   },
+   "verification_verdict": "CONFIRMED",
+   "postcode_centroid": {
+    "latitude": 51.310341,
+    "longitude": 1.108262,
+    "quality": 1,
+    "admin_district": "Canterbury"
+   },
+   "distance_source_coords_to_own_postcode_m": 614,
+   "resolution": "LATLNG_IS_WRONG",
+   "why": "the row's own coordinates are 614m from its own postcode CT2 0QH, and the matched business carries that postcode in its Google address — two independent sources place this business at the postcode, so the lat/lng is the field at fault",
+   "corrected_latitude": 51.310341,
+   "corrected_longitude": 1.108262,
+   "correction_source": "postcodes.io centroid of the row postcode"
+  },
+  {
+   "id": "29907",
+   "name": "Corraff Carpets",
+   "town": "Greater London",
+   "source_postcode": "NW11 6JT",
+   "postcode_used": "NW11 6JT",
+   "postcode_corrected_upstream": false,
+   "source_latitude": 51.586472,
+   "source_longitude": -0.18847,
+   "matched_candidate": {
+    "name": "Coraff Flooring",
+    "address": "51, The, Market Pl, London NW11 6JT, UK",
+    "distance_from_source_coords_m": 502
+   },
+   "verification_verdict": "SUSPECT_WEAK",
+   "postcode_centroid": {
+    "latitude": 51.585941,
+    "longitude": -0.181491,
+    "quality": 1,
+    "admin_district": "Barnet"
+   },
+   "distance_source_coords_to_own_postcode_m": 486,
+   "resolution": "LATLNG_IS_WRONG",
+   "why": "the row's own coordinates are 486m from its own postcode NW11 6JT, and the matched business carries that postcode in its Google address — two independent sources place this business at the postcode, so the lat/lng is the field at fault",
+   "corrected_latitude": 51.585941,
+   "corrected_longitude": -0.181491,
+   "correction_source": "postcodes.io centroid of the row postcode"
+  },
+  {
+   "id": "30245",
+   "name": "Image Flooring Chelmsford",
+   "town": "Chelmsford",
+   "source_postcode": "CM2 0HY",
+   "postcode_used": "CM2 0HY",
+   "postcode_corrected_upstream": false,
+   "source_latitude": 51.726879,
+   "source_longitude": 0.46762,
+   "matched_candidate": {
+    "name": "Image Flooring Chelmsford",
+    "address": "38 Moulsham St, Chelmsford CM2 0HY, UK",
+    "distance_from_source_coords_m": 445
+   },
+   "verification_verdict": "CONFIRMED",
+   "postcode_centroid": {
+    "latitude": 51.729587,
+    "longitude": 0.472022,
+    "quality": 1,
+    "admin_district": "Chelmsford"
+   },
+   "distance_source_coords_to_own_postcode_m": 427,
+   "resolution": "LATLNG_IS_WRONG",
+   "why": "the row's own coordinates are 427m from its own postcode CM2 0HY, and the matched business carries that postcode in its Google address — two independent sources place this business at the postcode, so the lat/lng is the field at fault",
+   "corrected_latitude": 51.729587,
+   "corrected_longitude": 0.472022,
+   "correction_source": "postcodes.io centroid of the row postcode"
+  },
+  {
+   "id": "30193",
+   "name": "Burgess Flooring and Blinds",
+   "town": "Worthing",
+   "source_postcode": "BN13 2JP",
+   "postcode_used": "BN13 2JP",
+   "postcode_corrected_upstream": false,
+   "source_latitude": 50.835369,
+   "source_longitude": -0.4052,
+   "matched_candidate": {
+    "name": "Burgess Flooring and Carpets Worthing",
+    "address": "2, Manor Parade, Salvington Rd, Durrington, Worthing BN13 2JP, UK",
+    "distance_from_source_coords_m": 419
+   },
+   "verification_verdict": "SUSPECT_WEAK",
+   "postcode_centroid": {
+    "latitude": 50.835314,
+    "longitude": -0.411251,
+    "quality": 1,
+    "admin_district": "Worthing"
+   },
+   "distance_source_coords_to_own_postcode_m": 425,
+   "resolution": "LATLNG_IS_WRONG",
+   "why": "the row's own coordinates are 425m from its own postcode BN13 2JP, and the matched business carries that postcode in its Google address — two independent sources place this business at the postcode, so the lat/lng is the field at fault",
+   "corrected_latitude": 50.835314,
+   "corrected_longitude": -0.411251,
+   "correction_source": "postcodes.io centroid of the row postcode"
+  },
+  {
+   "id": "29756",
+   "name": "Carpet and flooring Services",
+   "town": "Oban",
+   "source_postcode": "PA34 4PL",
+   "postcode_used": "PA34 4PL",
+   "postcode_corrected_upstream": false,
+   "source_latitude": 56.4103521,
+   "source_longitude": -5.4730807,
+   "matched_candidate": {
+    "name": "Carpet & Flooring Services Oban",
+    "address": "Unit 1 Lochavullin Indsutrial Estate, Lochavullin Road, Oban PA34 4PL, UK",
+    "distance_from_source_coords_m": 393
+   },
+   "verification_verdict": "CONFIRMED",
+   "postcode_centroid": {
+    "latitude": 56.406694,
+    "longitude": -5.475053,
+    "quality": 1,
+    "admin_district": "Argyll and Bute"
+   },
+   "distance_source_coords_to_own_postcode_m": 424,
+   "resolution": "LATLNG_IS_WRONG",
+   "why": "the row's own coordinates are 424m from its own postcode PA34 4PL, and the matched business carries that postcode in its Google address — two independent sources place this business at the postcode, so the lat/lng is the field at fault",
+   "corrected_latitude": 56.406694,
+   "corrected_longitude": -5.475053,
+   "correction_source": "postcodes.io centroid of the row postcode"
+  },
+  {
+   "id": "30246",
+   "name": "Image Flooring Benfleet",
+   "town": "South Benfleet",
+   "source_postcode": "SS7 5HY",
+   "postcode_used": "SS7 5HY",
+   "postcode_corrected_upstream": false,
+   "source_latitude": 51.55,
+   "source_longitude": 0.556,
+   "matched_candidate": {
+    "name": "Image Flooring Benfleet",
+    "address": "197 High Rd, South Benfleet, Benfleet SS7 5HY, UK",
+    "distance_from_source_coords_m": 439
+   },
+   "verification_verdict": "CONFIRMED",
+   "postcode_centroid": {
+    "latitude": 51.551377,
+    "longitude": 0.561681,
+    "quality": 1,
+    "admin_district": "Castle Point"
+   },
+   "distance_source_coords_to_own_postcode_m": 422,
+   "resolution": "LATLNG_IS_WRONG",
+   "why": "the row's own coordinates are 422m from its own postcode SS7 5HY, and the matched business carries that postcode in its Google address — two independent sources place this business at the postcode, so the lat/lng is the field at fault",
+   "corrected_latitude": 51.551377,
+   "corrected_longitude": 0.561681,
+   "correction_source": "postcodes.io centroid of the row postcode"
+  },
+  {
+   "id": "29718",
+   "name": "Solihull Carpets",
+   "town": "Solihull",
+   "source_postcode": "B90 2AJ",
+   "postcode_used": "B90 2AJ",
+   "postcode_corrected_upstream": false,
+   "source_latitude": 52.4013434,
+   "source_longitude": -1.8282628,
+   "matched_candidate": {
+    "name": "Solihull Carpets",
+    "address": "6 Shakespeare Dr, Shirley, Solihull B90 2AJ, UK",
+    "distance_from_source_coords_m": 396
+   },
+   "verification_verdict": "CONFIRMED",
+   "postcode_centroid": {
+    "latitude": 52.402234,
+    "longitude": -1.82263,
+    "quality": 1,
+    "admin_district": "Solihull"
+   },
+   "distance_source_coords_to_own_postcode_m": 395,
+   "resolution": "LATLNG_IS_WRONG",
+   "why": "the row's own coordinates are 395m from its own postcode B90 2AJ, and the matched business carries that postcode in its Google address — two independent sources place this business at the postcode, so the lat/lng is the field at fault",
+   "corrected_latitude": 52.402234,
+   "corrected_longitude": -1.82263,
+   "correction_source": "postcodes.io centroid of the row postcode"
+  },
+  {
+   "id": "30190",
+   "name": "Thomas Hearn Furnishings",
+   "town": "Kenilworth",
+   "source_postcode": "CV8 1HL",
+   "postcode_used": "CV8 1HL",
+   "postcode_corrected_upstream": false,
+   "source_latitude": 52.33672,
+   "source_longitude": -1.57421,
+   "matched_candidate": {
+    "name": "Thomas Hearn Furnishings",
+    "address": "102 Warwick Rd, Kenilworth CV8 1HL, UK",
+    "distance_from_source_coords_m": 309
+   },
+   "verification_verdict": "CONFIRMED",
+   "postcode_centroid": {
+    "latitude": 52.339648,
+    "longitude": -1.57622,
+    "quality": 1,
+    "admin_district": "Warwick"
+   },
+   "distance_source_coords_to_own_postcode_m": 353,
+   "resolution": "LATLNG_IS_WRONG",
+   "why": "the row's own coordinates are 353m from its own postcode CV8 1HL, and the matched business carries that postcode in its Google address — two independent sources place this business at the postcode, so the lat/lng is the field at fault",
+   "corrected_latitude": 52.339648,
+   "corrected_longitude": -1.57622,
+   "correction_source": "postcodes.io centroid of the row postcode"
+  },
+  {
+   "id": "29744",
+   "name": "Carpet GIANT Charton",
+   "town": "Charlton",
+   "source_postcode": "SE7 7SW",
+   "postcode_used": "SE7 7SW",
+   "postcode_corrected_upstream": false,
+   "source_latitude": 51.4900403,
+   "source_longitude": 0.0307737,
+   "matched_candidate": {
+    "name": "Carpet Giant Charlton",
+    "address": "Unit 2 Meridian Trade Centre, Bugsby's Wy, London SE7 7SW, UK",
+    "distance_from_source_coords_m": 369
+   },
+   "verification_verdict": "CONFIRMED",
+   "postcode_centroid": {
+    "latitude": 51.490938,
+    "longitude": 0.02618,
+    "quality": 1,
+    "admin_district": "Greenwich"
+   },
+   "distance_source_coords_to_own_postcode_m": 333,
+   "resolution": "LATLNG_IS_WRONG",
+   "why": "the row's own coordinates are 333m from its own postcode SE7 7SW, and the matched business carries that postcode in its Google address — two independent sources place this business at the postcode, so the lat/lng is the field at fault",
+   "corrected_latitude": 51.490938,
+   "corrected_longitude": 0.02618,
+   "correction_source": "postcodes.io centroid of the row postcode"
+  },
+  {
+   "id": "30258",
+   "name": "Upper Street Carpets",
+   "town": "Islington",
+   "source_postcode": "N1 1RQ",
+   "postcode_used": "N1 1RQ",
+   "postcode_corrected_upstream": false,
+   "source_latitude": 51.539928,
+   "source_longitude": -0.10256,
+   "matched_candidate": {
+    "name": "Upper Street Carpet & Flooring",
+    "address": "184 Upper St, London N1 1RQ, UK",
+    "distance_from_source_coords_m": 258
+   },
+   "verification_verdict": "CONFIRMED",
+   "postcode_centroid": {
+    "latitude": 51.54261,
+    "longitude": -0.103323,
+    "quality": 1,
+    "admin_district": "Islington"
+   },
+   "distance_source_coords_to_own_postcode_m": 303,
+   "resolution": "LATLNG_IS_WRONG",
+   "why": "the row's own coordinates are 303m from its own postcode N1 1RQ, and the matched business carries that postcode in its Google address — two independent sources place this business at the postcode, so the lat/lng is the field at fault",
+   "corrected_latitude": 51.54261,
+   "corrected_longitude": -0.103323,
+   "correction_source": "postcodes.io centroid of the row postcode"
+  },
+  {
+   "id": "30262",
+   "name": "Spacers Tile & Wood Flooring Limited",
+   "town": "Maidenhead",
+   "source_postcode": "SL6 1EF",
+   "postcode_used": "SL6 1EF",
+   "postcode_corrected_upstream": false,
+   "source_latitude": 51.518959,
+   "source_longitude": -0.7216,
+   "matched_candidate": {
+    "name": "Spacers Tile & Wood Flooring Centre Ltd",
+    "address": "18 King St, Maidenhead SL6 1EF, UK",
+    "distance_from_source_coords_m": 313
+   },
+   "verification_verdict": "CONFIRMED",
+   "postcode_centroid": {
+    "latitude": 51.5214,
+    "longitude": -0.723142,
+    "quality": 1,
+    "admin_district": "Windsor and Maidenhead"
+   },
+   "distance_source_coords_to_own_postcode_m": 292,
+   "resolution": "LATLNG_IS_WRONG",
+   "why": "the row's own coordinates are 292m from its own postcode SL6 1EF, and the matched business carries that postcode in its Google address — two independent sources place this business at the postcode, so the lat/lng is the field at fault",
+   "corrected_latitude": 51.5214,
+   "corrected_longitude": -0.723142,
+   "correction_source": "postcodes.io centroid of the row postcode"
+  },
+  {
+   "id": "30083",
+   "name": "Supreme Carpets",
+   "town": "Dersingham",
+   "source_postcode": "PE31 6LH",
+   "postcode_used": "PE31 6LH",
+   "postcode_corrected_upstream": false,
+   "source_latitude": 52.841091,
+   "source_longitude": 0.50443,
+   "matched_candidate": {
+    "name": "Supreme Carpets Ltd",
+    "address": "49 Manor Rd, Dersingham, King's Lynn PE31 6LH, UK",
+    "distance_from_source_coords_m": 296
+   },
+   "verification_verdict": "CONFIRMED",
+   "postcode_centroid": {
+    "latitude": 52.839845,
+    "longitude": 0.508064,
+    "quality": 1,
+    "admin_district": "King's Lynn and West Norfolk"
+   },
+   "distance_source_coords_to_own_postcode_m": 281,
+   "resolution": "LATLNG_IS_WRONG",
+   "why": "the row's own coordinates are 281m from its own postcode PE31 6LH, and the matched business carries that postcode in its Google address — two independent sources place this business at the postcode, so the lat/lng is the field at fault",
+   "corrected_latitude": 52.839845,
+   "corrected_longitude": 0.508064,
+   "correction_source": "postcodes.io centroid of the row postcode"
+  },
+  {
+   "id": "30178",
+   "name": "Archer Flooring Ltd",
+   "town": "Nottingham",
+   "source_postcode": "NG9 7AB",
+   "postcode_used": "NG9 7AB",
+   "postcode_corrected_upstream": false,
+   "source_latitude": 52.929489,
+   "source_longitude": -1.27453,
+   "matched_candidate": {
+    "name": "Archer Flooring Ltd",
+    "address": "76 Derby Rd, Stapleford, Nottingham NG9 7AB, UK",
+    "distance_from_source_coords_m": 281
+   },
+   "verification_verdict": "CONFIRMED",
+   "postcode_centroid": {
+    "latitude": 52.928258,
+    "longitude": -1.277776,
+    "quality": 1,
+    "admin_district": "Broxtowe"
+   },
+   "distance_source_coords_to_own_postcode_m": 257,
+   "resolution": "LATLNG_IS_WRONG",
+   "why": "the row's own coordinates are 257m from its own postcode NG9 7AB, and the matched business carries that postcode in its Google address — two independent sources place this business at the postcode, so the lat/lng is the field at fault",
+   "corrected_latitude": 52.928258,
+   "corrected_longitude": -1.277776,
+   "correction_source": "postcodes.io centroid of the row postcode"
+  },
+  {
+   "id": "29916",
+   "name": "St Helens Flooring",
+   "town": "St Helens",
+   "source_postcode": "WA9 1HZ",
+   "postcode_used": "WA9 1HZ",
+   "postcode_corrected_upstream": false,
+   "source_latitude": 53.45882,
+   "source_longitude": -2.7193,
+   "matched_candidate": {
+    "name": "St Helens Flooring",
+    "address": "1, The Barge Business Park, St Helens, Saint Helens WA9 1HZ, UK",
+    "distance_from_source_coords_m": 258
+   },
+   "verification_verdict": "CONFIRMED",
+   "postcode_centroid": {
+    "latitude": 53.461008,
+    "longitude": -2.720483,
+    "quality": 1,
+    "admin_district": "St. Helens"
+   },
+   "distance_source_coords_to_own_postcode_m": 256,
+   "resolution": "LATLNG_IS_WRONG",
+   "why": "the row's own coordinates are 256m from its own postcode WA9 1HZ, and the matched business carries that postcode in its Google address — two independent sources place this business at the postcode, so the lat/lng is the field at fault",
+   "corrected_latitude": 53.461008,
+   "corrected_longitude": -2.720483,
+   "correction_source": "postcodes.io centroid of the row postcode"
+  },
+  {
+   "id": "29885",
+   "name": "Floors on Floors Penarth",
+   "town": "Penarth",
+   "source_postcode": "CF64 2UZ",
+   "postcode_used": "CF64 2UZ",
+   "postcode_corrected_upstream": false,
+   "source_latitude": 51.436588,
+   "source_longitude": -3.1841,
+   "matched_candidate": {
+    "name": "Floors on Floors",
+    "address": "10 Cornerswell Rd, Penarth CF64 2UZ, UK",
+    "distance_from_source_coords_m": 252
+   },
+   "verification_verdict": "CONFIRMED",
+   "postcode_centroid": {
+    "latitude": 51.436959,
+    "longitude": -3.180534,
+    "quality": 1,
+    "admin_district": "Vale of Glamorgan"
+   },
+   "distance_source_coords_to_own_postcode_m": 251,
+   "resolution": "LATLNG_IS_WRONG",
+   "why": "the row's own coordinates are 251m from its own postcode CF64 2UZ, and the matched business carries that postcode in its Google address — two independent sources place this business at the postcode, so the lat/lng is the field at fault",
+   "corrected_latitude": 51.436959,
+   "corrected_longitude": -3.180534,
+   "correction_source": "postcodes.io centroid of the row postcode"
+  },
+  {
+   "id": "30469",
+   "name": "Falkirk Carpets",
+   "town": "Falkirk",
+   "source_postcode": "FK2 7AE",
+   "postcode_used": "FK2 7AE",
+   "postcode_corrected_upstream": false,
+   "source_latitude": 56.005581,
+   "source_longitude": -3.77631,
+   "matched_candidate": {
+    "name": "Falkirk Carpets",
+    "address": "100 Thornhill Rd, Falkirk FK2 7AE, UK",
+    "distance_from_source_coords_m": 275
+   },
+   "verification_verdict": "CONFIRMED",
+   "postcode_centroid": {
+    "latitude": 56.003831,
+    "longitude": -3.774382,
+    "quality": 1,
+    "admin_district": "Falkirk"
+   },
+   "distance_source_coords_to_own_postcode_m": 229,
+   "resolution": "NOT_A_SOURCE_CONFLICT",
+   "why": "the row's coordinates are 229m from its own postcode, within the 250m threshold — the source fields agree with each other, and the gap flagged by verify-all.py is to Google's pin, not evidence of a defect in this row"
+  },
+  {
+   "id": "30084",
+   "name": "Floortek Supplies",
+   "town": "Bicester",
+   "source_postcode": "OX25 3PD",
+   "postcode_used": "OX25 3PD",
+   "postcode_corrected_upstream": false,
+   "source_latitude": 51.878979,
+   "source_longitude": -1.18928,
+   "matched_candidate": {
+    "name": "Grange Farm Industrial Est",
+    "address": "Grange Farm Industrial Estate, Little Chesterton, Bicester OX25 3PD, UK",
+    "distance_from_source_coords_m": 340
+   },
+   "verification_verdict": "SUSPECT_WEAK",
+   "postcode_centroid": {
+    "latitude": 51.877688,
+    "longitude": -1.191831,
+    "quality": 1,
+    "admin_district": "Cherwell"
+   },
+   "distance_source_coords_to_own_postcode_m": 226,
+   "resolution": "NOT_A_SOURCE_CONFLICT",
+   "why": "the row's coordinates are 226m from its own postcode, within the 250m threshold — the source fields agree with each other, and the gap flagged by verify-all.py is to Google's pin, not evidence of a defect in this row"
+  },
+  {
+   "id": "29917",
+   "name": "White Stag Flooring",
+   "town": "Ballater",
+   "source_postcode": "AB35 5QP",
+   "postcode_used": "AB35 5QP",
+   "postcode_corrected_upstream": false,
+   "source_latitude": 57.046959,
+   "source_longitude": -3.03552,
+   "matched_candidate": {
+    "name": "White STAG Flooring Ltd",
+    "address": "28 Bridge St, Ballater AB35 5QP, UK",
+    "distance_from_source_coords_m": 261
+   },
+   "verification_verdict": "CONFIRMED",
+   "postcode_centroid": {
+    "latitude": 57.048046,
+    "longitude": -3.038537,
+    "quality": 1,
+    "admin_district": "Aberdeenshire"
+   },
+   "distance_source_coords_to_own_postcode_m": 219,
+   "resolution": "NOT_A_SOURCE_CONFLICT",
+   "why": "the row's coordinates are 219m from its own postcode, within the 250m threshold — the source fields agree with each other, and the gap flagged by verify-all.py is to Google's pin, not evidence of a defect in this row"
+  }
+ ]
+}
