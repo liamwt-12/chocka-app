@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
 import { createBillingPortalSession } from '@/lib/stripe';
-import { getTenant, getTenantForRow } from '@/lib/tenant';
+import { getTenantForRow } from '@/lib/tenant';
 
 export async function POST(request: NextRequest) {
   try {
@@ -43,7 +43,12 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'No billing account found' }, { status: 400 });
     }
 
-    const appUrl = getTenant().appUrl;
+    // The portal's return URL, from the user's own tenant — see the fuller note
+    // in /api/checkout. Identical defect, same one-line fix: both routes were
+    // gated together and both built their return URL from the non-request-aware
+    // getTenant(). Fixing one and not the other would leave the pair
+    // inconsistent for whoever reads them next.
+    const appUrl = tenant.appUrl;
     const session = await createBillingPortalSession(user.stripe_customer_id, `${appUrl}/settings`);
 
     return NextResponse.json({ url: session.url });
