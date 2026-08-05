@@ -679,6 +679,11 @@ candidate while the row's own lat/lng sits more than 250m away, so those two fie
 source. It does not change any verdict here (the postcode is what the original matched on) but it means
 proximity cannot be trusted as an independent arm for those rows, and it is worth fixing upstream.
 
+**Resolved 2026-08-05 — and it is 34, not 37.** `scripts/source-data/resolve-coordinate-conflicts.py`
+settles which of the two fields is at fault, per row. The **lat/lng** is, in 34 cases; the other 3 sit
+just under the same 250m threshold and are threshold artefacts rather than defects. Evidence per row in
+`coordinate-conflicts-2026-08-05.json`, with a corrected coordinate for each of the 34.
+
 **What the fixed port changes, beyond the four recorded defects.** Token-set similarity alone was
 rejecting obvious matches this list is full of — concatenation (`Lewis Carpets` / `Lewiscarpets
 Canterbury`, jaccard 0.00) and typos (`Hudspeth Floooring` / `Hudspeth Flooring`). A character-level
@@ -1068,9 +1073,25 @@ old test when either side lacks one — 8 of the 180 retailers have no place id 
 best-effort signal and never a gate.
 
 **Still outstanding, and now the cheaper half of the same question:** whether to import lat/lng onto
-`retailers` from `retailers-locations.csv` for a distance check as a second signal. Note the 2026-08-03
-verification found **37 rows whose postcode and lat/lng disagree at source**, so that data needs
-cleaning before it can corroborate anything.
+`retailers` from `retailers-locations.csv` for a distance check as a second signal.
+
+**The blocker on it is cleared (2026-08-05).** The 37 rows whose postcode and lat/lng disagreed have
+been resolved: `scripts/source-data/resolve-coordinate-conflicts.py` establishes that the **lat/lng is
+the field at fault in 34 of them**, and supplies a corrected coordinate for each. The other 3 sit just
+under the 250m threshold and are artefacts of where Google places its pin, not source defects. Full
+evidence in `coordinate-conflicts-2026-08-05.json`; method and worked example in
+`scripts/source-data/README.md`.
+
+Two points that matter if the import is picked up:
+
+- **The corrections come from postcodes.io, not from the matched Google business.** Deriving them from
+  the match would make proximity a tautology — it would then confirm every match forever, including the
+  wrong ones. The postcode route keeps Google out of the input, which is the only thing that makes
+  proximity worth having as a second arm.
+- **Nothing has been applied.** `retailers-locations.csv` is untouched and `retailers` still has no
+  coordinate columns. The import would need to overlay the 34 corrections from the artefact, or it will
+  import the same broken coordinates — one of which (`29849` Carpet Creations) is **306km out, in the
+  sea off Kintyre**, while its name, street and postcode all match its Google profile exactly.
 
 **Also still outstanding — `profiles.tenant_id` is never set on new rows.** Deliberately not folded in
 here: `bindManageableListing` does not currently receive the tenant, so fixing it means threading a new

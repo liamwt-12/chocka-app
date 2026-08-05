@@ -21,6 +21,8 @@ Nothing in the running app imports from this directory.
 | `rematch.py` | The script for round two. Also carries validated ports of `scorePlace` and `bandFor`. |
 | `verify-all.py` | **Round three (2026-08-03) — step 1 of 2.** Gives **all 180** rows the deep standard, with `classifyMatch`'s four defects fixed. Emits a machine-readable verdict per row. Writes a JSON file and **nothing else** — it never touches the database. |
 | `verification-2026-08-03.json` | Its output: verdict + full candidate list + both the fixed and the original judgement per candidate, so the delta is auditable. |
+| `resolve-coordinate-conflicts.py` | **Round four (2026-08-05).** Settles the 37 rows whose postcode and lat/lng disagree, using postcodes.io as independent ground truth. Writes a JSON file and nothing else; needs no API key. |
+| `coordinate-conflicts-2026-08-05.json` | Its output: per-row evidence and a corrected coordinate for each row where the lat/lng is at fault. **Not applied** to `retailers-locations.csv` — see below. |
 
 ## This repository is public
 
@@ -109,6 +111,64 @@ originates upstream, not in the scrape. Do not use the Companies House registere
 Two further postcode defects turned up in the same sweep — see `MATCH_VERIFICATION.md`. None of the
 three corrections have been applied to `retailers-locations.csv`, which stays byte-identical to
 source apart from the two scrubbed email cells.
+
+## The 37 postcode / lat-lng conflicts (2026-08-05)
+
+`verify-all.py` found **37 rows whose postcode and lat/lng disagree**: the row's postcode appears in
+the matched business's Google address, while the row's own coordinates sit more than 250m away. That
+changed no verdict — the postcode is what the original run matched on — but it meant proximity could
+not be trusted as an *independent* second signal for those rows, which is the entire reason for
+wanting lat/lng imported onto `retailers`.
+
+### Which field is wrong
+
+The lat/lng, in 34 of the 37. Established without reference to Google's coordinates:
+
+1. The row's postcode appears verbatim in the matched candidate's Google-formatted address, so
+   Google's own address text places that business at that postcode.
+2. postcodes.io (ONS / Ordnance Survey open data) independently places the postcode at a centroid.
+3. The row's own lat/lng is a long way from that centroid.
+
+Two independent sources agree on the postcode; one field agrees with neither. So the correction is
+to the coordinates, and the corrected value is the postcode centroid.
+
+**Why not just copy the matched business's coordinates.** Because proximity is wanted as an
+independent check *on the match*. Coordinates derived from the match make that check tautological —
+it would then confirm every match forever, including the wrong ones. The postcode route keeps Google
+out of the input entirely.
+
+### The result
+
+| Resolution | n | Meaning |
+|---|---:|---|
+| `LATLNG_IS_WRONG` | 34 | Row coordinates are >250m from the row's own postcode. Corrected coordinate supplied. |
+| `NOT_A_SOURCE_CONFLICT` | 3 | Row's two fields agree with each other; the gap flagged was to Google's pin. |
+
+Worst case is `29849` **Carpet Creations**, Poynton `SK12 1RD`: the row's coordinates are
+`55.48413, -5.09448` — **306km away, in the sea off the Kintyre peninsula** — while name, street
+address and postcode all agree with the Google profile. Nine rows are more than 1km out.
+
+**So "37 source defects" was an over-count: it is 34.** The other three (`30469` Falkirk Carpets
+229m, `30084` Floortek Supplies 226m, `29917` White Stag Flooring 219m) sit *just under* the same
+250m threshold, so treat that as "not evidenced as broken" rather than "confirmed clean" — the
+threshold is a convention carried over from `verify-all.py`, not a measurement.
+
+### Not applied
+
+`retailers-locations.csv` is **unchanged**, byte-identical to the vendor export apart from the
+documented privacy scrub — the same treatment as the three postcode defects recorded in FOLLOWUPS.
+Overwriting it would destroy the record of what Tarkett actually published and make the file
+unreproducible from source. The corrected coordinates live in the JSON artefact, ready for the
+lat/lng import if that is decided on.
+
+Nothing was written to the database. `retailers` has no coordinate columns; that import remains a
+separate, open question.
+
+Re-run with (no API key needed):
+
+```
+python3 scripts/source-data/resolve-coordinate-conflicts.py
+```
 
 ## Related
 
