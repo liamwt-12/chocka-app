@@ -234,6 +234,59 @@ staging apply script deliberately refuses to write to production), register the 
 scheduler runs the others, and run a real refresh. Until a refresh has actually run, the notice's
 "we review that by hand" remains the true statement.
 
+## League and operator console
+
+### Backend built, UI deliberately held  [backend DONE 2026-08-05 · UI blocked on Tarkett]
+
+**Built:** the data layer only — `lib/retailer-league.ts` (ranking, cohort aggregation) and
+`lib/retailer-cohort.ts` (the query behind both the league and the console). Pure logic separated
+from the fetch, 21 tests.
+
+**Not built, on purpose:** any page, route or component. The interface depends on answers nobody has
+— 50 retailers or 180, what Tarkett actually wants to see, whether the league is public to retailers
+or internal. Guessing at the shape now is rework, whereas the ranking rules below are true regardless
+of who ends up looking at them.
+
+**Four constraints are enforced in the data layer rather than left to the UI**, because each one is a
+way of publishing something false about a real business:
+
+1. **Mixed scales throw.** `buildLeague` refuses to rank `batch` (3 public signals) against `live`
+   (14 over OAuth). They share a 0-100 axis and measure different things; a table ranking one against
+   the other looks entirely normal and means nothing. `splitByScale` is the intended answer — two
+   honest tables. This is the single most important line in the module.
+2. **Unverified matches are excluded, not ranked.** A `review` or `not_found` row may be a *different
+   business*; ranking it publishes a stranger's performance against this retailer's name.
+3. **Unscored rows are excluded, not zeroed.** Zeroing the 8 unverifiable rows is what moves the
+   cohort mean from 75.3 to 72.3, and it puts a "0" beside a real trading business.
+4. **Deduplicated on `place_id`.** Three pairs are the same Google profile scored twice — 177
+   distinct businesses, never 180.
+
+Aggregates also carry `measuredFrom`/`measuredTo`, so a figure cannot be quoted undated when the
+batch scores are 2026-06-21 whatever today is.
+
+**Deliberately not modelled: invite state.** `retailer_invites` distinguishes accepted-but-unclaimed
+from claimed through two columns with subtle semantics, and the invite flow is itself on hold. The
+cohort exposes `connected` / `baseline` — the two states the data can actually distinguish today —
+and the console can add invite vocabulary once that flow is settled.
+
+**No API route either.** A route is an interface decision (response shape), and that is the part with
+rework risk. The lib layer is the safe stopping point; a route can be added with the UI in one go.
+
+### Dashboards — retailer, Tarkett, and admin  [FUTURE — explicitly last in the queue]
+
+Three separate surfaces, none of them started, all of them behind everything else currently open.
+Logged so they are on the list rather than in someone's head, not because they are due.
+
+| Surface | For whom | Notes |
+|---|---|---|
+| **Retailer dashboard** | A connected retailer | Partly exists already as `app/dashboard`. The gap is the Stellar-specific view — baseline vs live, and the score-source labelling that `resolveRetailerScore` already computes but no page reads. |
+| **Tarkett dashboard** | The funder | Network-level: how many connected, aggregate movement. Every number on it is governed by the four constraints above, and by the hard rule on quoting the baseline. Cannot be designed before Tarkett says what they want to know. |
+| **Own admin dashboard** | Operator | Overlaps the operator console above; `app/admin` exists but is Chocka-shaped and counts revenue, which is meaningless for a free tenant. |
+
+**Do not start any of these before the Tarkett questions are answered.** Retailer count, what the
+funder is entitled to see, and whether the league is retailer-facing all change the design, and two
+of the three are business decisions rather than engineering ones.
+
 ## NEXT PRIORITY — a staging database
 
 ### There is nowhere to test a schema change before production  [CLOSED 2026-08-05]
