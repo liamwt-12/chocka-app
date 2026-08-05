@@ -201,11 +201,26 @@ notice, because the notice no longer over-promises.
 
 ## NEXT PRIORITY — a staging database
 
-### There is nowhere to test a schema change before production  [NEXT — approach is an open question, do not build yet]
+### There is nowhere to test a schema change before production  [CLOSED 2026-08-05]
 
-**Status, 2026-08-05: agreed as the next real priority, and deliberately NOT started.** Standing this
-up is a more architectural piece of work than a backlog item, and the approach deserves thinking
-about rather than firing off. **Awaiting a decision on the approach before any work begins.**
+**Built 2026-08-05.** Supabase project `chocka-staging` (`pauwvdntclmxlcettfgc`), same org and region
+as production, seeded from a real schema dump rather than from the drifted migrations folder — which
+closes the "migrations don't reproduce prod" problem as a side effect, exactly as intended.
+
+Verified object-for-object against production: 18 tables, 208 columns, 54 constraints, 67 indexes,
+RLS flags, 10 policies, 2 functions, 1 app-owned trigger. The verifier diffs the two **live
+databases**, not the SQL file, because "it applied without error" is not evidence it applied
+correctly. Full write-up, including the three dependencies the first apply caught (a cluster-level
+role, two functions, and a trigger on `auth.users` that a `public`-only dump misses), in
+`supabase/README.md`.
+
+**Cost:** the org is on Pro with 8 existing projects, so the free tier was not available — free
+plan caps at 2 projects and applies per organisation. This is a 9th billed project, roughly $10/month,
+approved on that basis.
+
+**Not seeded with data, deliberately.** Production holds real retailer records and encrypted refresh
+tokens whose AAD is bound to production row ids; copying rows would be a privacy problem and the
+ciphertext would not decrypt under different ids anyway.
 
 **What it blocks.** Three separate entries are currently stalled on exactly this, and each one names
 it in its own words:
