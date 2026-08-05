@@ -242,8 +242,9 @@ unchanged either way: `getTenantForRow()` on a Chocka user resolves to the prima
 `appUrl` is the same `NEXT_PUBLIC_APP_URL` expression these lines already read, preview deploys and
 local dev included.
 
-Untouched and still open: `cancelPage()` in `app/api/posts/cancel/route.ts`, which is a rendered page
-rather than a return URL and has its own note above.
+`cancelPage()` in `app/api/posts/cancel/route.ts` was the remaining case of this class and is now
+closed too — see "Error states" below. It is a rendered page rather than a return URL, so it resolves
+from the Host rather than the user row.
 
 ### The liability clause is anchored to fees paid, and a free retailer pays none  [pre-pilot — needs a solicitor, not a rewrite]
 **What it is.** `app/terms/page.tsx` limits liability to "the fees you have paid in the 12 months prior
@@ -352,13 +353,12 @@ change is a value threaded into two writes with no extractable pure logic. Backf
 profiles created between the column being added and this fix is a separate data task — none exist
 yet, but that stops being true if any signup lands before this deploys.
 
-**Still outstanding — `cancelPage()` in `app/api/posts/cancel/route.ts`.** The HTML page rendered
-after a cancel still calls `getTenant()`, so its title and accent colour are Chocka's on every
-host. Unlike the SMS beside it, this one *does* have request context and should use
-`getRequestTenant()` — but note the early-return paths (missing params, bad hash, post not found)
-render the page before any user row is loaded, so a per-user resolution is not available there.
-Same class as the `/privacy` and `/terms` fix above. Small, and only visible after a retailer
-clicks cancel.
+**`cancelPage()` in `app/api/posts/cancel/route.ts` — CLOSED 2026-08-05.** Done together with
+`/api/reviews/auto-reply`'s identical page, which had the same defect and the same early-return
+constraint; see "Error states" below for the reasoning and what was shared. Resolved from the Host,
+which is available on every path including the early returns, rather than `getRequestTenant()` —
+route handlers in this repo read `x-tenant-slug` off the request directly, as the OAuth callback and
+`/api/invite/accept` do, and that avoids pulling `next/headers` into a route handler.
 
 ### Dashboard ROI renders `Infinity×` for a free tenant  [pre-pilot — blocks first dashboard]
 **Context:** `app/dashboard/page.tsx:24` computes
@@ -524,12 +524,26 @@ that. Five tests in total on the new mapping.
   be a lie. The status-update failure logs loudly as a double-publish risk needing a manual fix; the
   counter failure logs quietly, because an undercounted stat duplicates nothing.
 
-**Deliberately not fixed here — `resultPage()` calls `getTenant()`,** so every screen on this route is
-Chocka-branded on the Stellar host. The approve path could resolve per-user via `getTenantForRow()`,
-but the early returns (invalid link, review not found, already handled) render before any user row is
-loaded, so a partial fix would give one route two brandings depending on which way it failed. Same
-class and same constraint as `cancelPage()` in `app/api/posts/cancel/route.ts` — the two should be
-done together.
+**`resultPage()` / `cancelPage()` branding — CLOSED 2026-08-05, both together.** Both routes rendered
+Chocka's wordmark and accent to every tenant, on links that arrive in Stellar-branded SMS.
+
+Resolved from the **Host** (`getTenantBySlug(request.headers.get('x-tenant-slug'))`, the pattern the
+OAuth callback and `/api/invite/accept` already use), not from the user row. Most exits on both routes
+— invalid link, expired hash, post/review not found, already handled — render before any user row is
+loaded, so a per-user resolution would brand some screens correctly and leave the rest Chocka. One
+answer applied consistently beats two answers applied by accident.
+
+Host is not a compromise here: both links are built by cron from `getTenantForRow(user).appUrl`, so
+the origin a retailer lands on IS their own tenant's and the two resolutions agree by construction.
+
+**The SMS in the cancel route still resolves from the user row, deliberately.** A text message is a
+durable thing sent *to* the account holder and takes the account's brand; the page is transient chrome
+for whoever is looking at the URL now. They diverge only if a link is opened on the wrong host, and
+each is then still right about its own audience. Noted in the code so it does not read as an oversight.
+
+**The two page functions were byte-identical** and are now one shared `lib/result-page.ts`, which also
+makes the template testable for the first time — five cases pinning that it renders the tenant it is
+given, that the accent follows the tenant, and that Chocka's output is unchanged.
 
 ## Deferred — secrets hygiene
 
