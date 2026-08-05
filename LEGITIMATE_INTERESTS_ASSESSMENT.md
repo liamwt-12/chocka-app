@@ -163,22 +163,33 @@ option*, the necessity limb fails. This is not a close call.
    generic ones, or only confirmed corporate bodies.
 5. **Tarkett makes first contact**, removing the "never heard of you" objection where it bites most.
 
-### The retention period, proposed
+### The retention period, as agreed (softened 2026-08-05)
 
 Tied to the stockist relationship rather than an arbitrary clock, because that is what the purpose is
 actually tied to — we hold the record to serve Tarkett's network, so it should last exactly as long
 as membership of that network does:
 
-> We keep it **while you are listed as a stockist on that page — we re-check the list at least once a
-> year — and we delete your record within six months of you no longer appearing on it**, or sooner if
-> you ask us to.
+The first draft promised an annual re-check and deletion within six months of a retailer dropping off
+Tarkett's list. **That was withdrawn**: no refresh job and no deletion job exist, so it would have
+been a policy promising an erasure the system does not perform — the same defect this notice was
+written to correct, reintroduced two paragraphs later.
 
-Concrete, performable, and it gives a retailer a route out that does not depend on them noticing us.
+Agreed wording, which states the **criteria** and is honest that the review is manual:
 
-**It is also a promise nothing currently keeps.** There is no annual refresh job and no deletion job.
-Publishing this without building them repeats precisely the defect the retention correction fixed —
-a policy promising an erasure the system does not perform. Logged in FOLLOWUPS; the notice should not
-go live until the job exists or the wording is softened to what is actually done.
+> We keep it **for as long as you are listed as a stockist on that page and we are providing this
+> service to that network. We review that by hand rather than automatically, so your record may
+> persist for a while after you stop being listed.** You can ask us to delete it at any point and we
+> will — that request we act on straight away.
+
+Article 14(2)(a) expressly permits stating the criteria where a definite period is not possible, so
+this is the supported route rather than a way round the requirement.
+
+**Erasure on request is the one firm commitment here**, and it is one we actually perform — by hand,
+off the privacy mailbox. Everything else is described as it really works.
+
+Building the refresh-and-delete remains worth doing, and would let this wording be tightened. It is
+logged in FOLLOWUPS as an improvement rather than a blocker, which is the correct status now that the
+notice no longer over-promises.
 
 ---
 
@@ -244,11 +255,34 @@ FOLLOWUPS already records that a name match does not establish the address belon
 **So: treat all 180 as owed the notice.** Segmenting risks omitting someone entitled to it, saves
 nothing, and over-notifying a limited company is harmless — it is information, not marketing.
 
-**The 4 with no email** (`29478`, `29705`, `30089`, `29876`) cannot be emailed. `retailers` holds no
-phone number and no address; the addresses exist only in the committed source file. Options, cheapest
-first: **delete those 4 records** and the obligation goes with them; or post a letter, which for four
-records is not disproportionate effort. Do not quietly rely on Article 14(5)(b) — "impossible or
-disproportionate" is a high bar and four letters clears it easily.
+### The four with no email — HELD, not deleted (decided 2026-08-05)
+
+| `source_ref` | Business | Town |
+|---|---|---|
+| `29478` | Northumbria Flooring & Furniture | North Shields |
+| `29705` | Northumbria Flooring & Furniture | Blyth |
+| `30089` | Tees Valley Flooring | Stockton on Tees |
+| `29876` | The Design House | Holmes Chapel |
+
+They cannot be emailed: `retailers` holds no phone and no address, and the addresses exist only in
+the committed source file. Deleting them would have discharged the obligation, and that was
+considered and **rejected** — the records are part of the Tarkett baseline and deleting data to avoid
+having to tell someone about it is the wrong instinct even when it is lawful.
+
+**They are held out of any send batch.** Today that is automatic — you cannot email a null address —
+but the rule is written down because it must survive someone backfilling an address later:
+
+> A send batch is built from `contact_email is not null` **and** excludes these four `source_ref`
+> values. If an email address is ever obtained for one of them, that does **not** make them sendable:
+> they are held pending an Article 14 notice delivered by another route.
+
+This is recorded rather than enforced in code because **no sender exists** — `scripts/send-invites.ts`
+is referenced in FOLLOWUPS but has never been written. Building one to enforce a hold would be
+building the very thing that is on hold. Whoever writes it owns this rule.
+
+Their Article 14 notice therefore has to go by post, or not at all until they are contacted by
+another route. Do not reach for Article 14(5)(b) — "proves impossible or disproportionate effort" is
+a high bar and four letters clears it easily.
 
 ### What it must say
 
@@ -259,13 +293,13 @@ Article 14(1)–(2) sets the required elements. Mapped against the drafted `/pri
 | Controller identity and contact details — 14(1)(a) | Present (`Useful for Humans Ltd`, support/privacy addresses) |
 | Purposes and **lawful basis** — 14(1)(c) | Added — legitimate interests, stated plainly |
 | Categories of personal data — 14(1)(d) | Added — corrected against the real schema |
-| Recipients — 14(1)(e) | Partial. Processors are named generically; **Tarkett's position needs stating** — it receives aggregate counts only, per the confirmed `/terms` wording |
+| Recipients — 14(1)(e) | Added — processors listed, and Tarkett's position stated explicitly: aggregate counts only, and the assessment is not handed back |
 | Retention period — 14(2)(a) | Added — tied to stockist status |
 | The legitimate interests pursued — 14(2)(b) | Added |
 | Rights incl. **objection** — 14(2)(c) | Added, unconditional and not tied to having an account |
 | **Right to complain to the ICO** — 14(2)(e) | Added, and it was missing for *every* tenant (Article 13(2)(d) requires it for directly-collected data too) |
 | **Source of the data** — 14(2)(f) | Added — named, linked, dated, and flagged as publicly accessible |
-| Automated decision-making — 14(2)(g) | **Not yet stated.** The score is not a decision with legal or similarly significant effect, so the honest line is that there is none — but it should be said rather than left silent |
+| Automated decision-making — 14(2)(g) | Added — none engaging Article 22. The score is an assessment of a public listing, not a decision about a person, and nothing acts on it automatically |
 
 ### The trap
 

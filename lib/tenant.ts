@@ -233,16 +233,21 @@ const STELLAR_BASE: Omit<Tenant, 'appUrl' | 'appHost' | 'emailFrom'> = {
     derived:
       'your Google rating, how many reviews and photos your listing has, whether it links to a ' +
       'website, and an identifier for the listing itself — and from those, a score and a band',
-    // Tied to the stockist relationship rather than a fixed clock, because that
-    // is what the purpose is actually tied to.
+    // SOFTENED to match what is actually performed. The earlier draft promised an
+    // annual re-check and deletion within six months — neither of which exists.
+    // Promising an erasure the system does not carry out is the same defect this
+    // notice was written to correct, so the wording states the CRITERIA and is
+    // honest that the review is manual.
     //
-    // WARNING — this promises an annual re-check and a deletion that NOTHING
-    // CURRENTLY PERFORMS. Publishing it without building it repeats the exact
-    // defect the retention correction above fixed: a policy promising an erasure
-    // the system does not carry out. See FOLLOWUPS "no retention policy".
+    // Article 14(2)(a) expressly allows criteria in place of a period where a
+    // period is not possible, so this is the supported route rather than a dodge.
+    //
+    // Erasure on request IS performed — by hand, off the privacy mailbox — so it
+    // is the one thing here stated as a firm commitment.
     retention:
-      'while you are listed as a stockist on that page — we re-check the list at least once a ' +
-      'year — and we delete your record within six months of you no longer appearing on it',
+      'for as long as you are listed as a stockist on that page and we are providing this service ' +
+      'to that network. We review that by hand rather than automatically, so your record may ' +
+      'persist for a while after you stop being listed',
   },
   loginCopy: {
     // No self-serve promise. On the Stellar host this page is invite-only, so a

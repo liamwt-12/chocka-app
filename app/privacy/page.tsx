@@ -62,7 +62,27 @@ export default function PrivacyPage() {
               not need to have an account.
             </p>
             <p>
-              We keep it {src.retention}, or sooner if you ask us to.
+              We keep it {src.retention}. You can ask us to delete it at any point and we will —
+              that request we act on straight away.
+            </p>
+            {/* Article 14(1)(e) — recipients. The generic processor list further
+                down does not answer the question a retailer actually has, which
+                is what their own supplier gets to see. Wording matches the
+                confirmed /terms section. */}
+            <p>
+              <strong className="text-charcoal">What {src.holder} sees.</strong> {src.holder} is told
+              how many retailers are using the service, because that is what it is invoiced for. It
+              is not given your score, your rating, your reviews, your performance figures or your
+              contact details by us. Your record came from {src.holder}&apos;s own published list in
+              the first place, so nothing in it is new to them — but the assessment we made of your
+              listing is ours, and we do not hand it back.
+            </p>
+            {/* Article 14(2)(g) — automated decision-making. There is none of the
+                kind that engages Article 22, and saying so is better than silence. */}
+            <p>
+              We do not make automated decisions about you that have legal or similarly significant
+              effects. The score is our assessment of a public listing, not a decision about you, and
+              nothing is decided automatically on the strength of it.
             </p>
             {/*
               The lawful basis stated above is the conclusion of
