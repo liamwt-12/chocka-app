@@ -139,6 +139,49 @@ hard-zero case specifically, since `score === 0` is not null and so slipped past
 Note this is now belt and braces: the 2026-08-03 apply already left zero `not_found` rows. The point of
 the code fix is that it no longer depends on the data staying that way.
 
+## P1 — data protection gaps found by the legitimate interests assessment (2026-08-05)
+
+Both found while writing `LEGITIMATE_INTERESTS_ASSESSMENT.md`, neither previously logged. Both weigh
+directly against the lawful basis the `/privacy` notice is about to assert, which is what makes them
+urgent rather than tidy-up.
+
+### The Article 14 notice is overdue  [P1 — deadline already passed]
+
+Article 14(3) requires telling people whose data you obtained from a third party within a reasonable
+period and **at the latest one month** after obtaining it. The retailer records were taken from
+Tarkett's store locator in **June 2026**. Nobody has been told. The deadline passed before this was
+noticed.
+
+**This is independent of the lawful basis.** Getting legitimate interests right does not cure a
+missing notice; they are separate obligations and both are owed.
+
+**Who is owed one: all 180, not just the 105 with personal-looking emails.** The duty attaches to the
+record, not the email field — a sole trader is identifiable from their business name and address
+whether their address is `dave@` or `info@`. See LIA §6.5 for the full mapping of required elements
+and the four records with no email at all (`29478`, `29705`, `30089`, `29876`), which need a letter
+or deletion.
+
+**The trap, stated because it is the likely failure:** the notice must NOT carry the invitation.
+A pure privacy notice is not direct marketing. Bundle it with "here is a free service, sign up" and it
+becomes a marketing email, at which point PECR applies and most of the cohort cannot lawfully receive
+it — converting a compliance fix into the breach the LIA says to avoid. Send it clean.
+
+### `retailers` and `score_history` have no retention policy at all  [P1 — blocks the notice going live]
+
+Nothing ever deletes a retailer record. `retailers.user_id` is `on delete set null`, so records
+deliberately survive account deletion, and no job or policy removes them otherwise. Indefinite
+retention of personal data with no stated period weighs against us on the balancing test.
+
+The drafted notice fixes the *statement* — "while you are listed as a stockist on that page, we
+re-check at least once a year, and we delete within six months of you no longer appearing on it".
+
+**Nothing performs that.** There is no annual refresh and no deletion job. Publishing the wording
+without building them repeats exactly the defect the same draft corrects elsewhere — a policy
+promising an erasure the system does not carry out.
+
+**So this blocks the notice**: either build the refresh-and-delete, or soften the wording to what is
+actually done. Do not ship the promise alone.
+
 ## NEXT PRIORITY — a staging database
 
 ### There is nowhere to test a schema change before production  [NEXT — approach is an open question, do not build yet]

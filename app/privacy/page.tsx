@@ -46,21 +46,32 @@ export default function PrivacyPage() {
               <a href={src.url} className="underline" target="_blank" rel="noopener noreferrer">
                 {src.holder}&apos;s {src.description}
               </a>
-              . From it we hold {src.fields}. We also calculated a score for your Google Business
-              Profile from information Google publishes about it — your rating, your review count and
-              how complete the profile is — and we keep that score and the dates we measured it.
+              . From it we hold {src.fields}.
             </p>
             <p>
-              We did not obtain any of this from you, and none of it came from {src.holder} knowing
-              anything about you beyond what it already publishes on that page.
+              We then looked up your Google Business Profile and recorded {src.derived}. We keep
+              those figures and the dates we measured them. None of this came from you, and the
+              score is our own assessment — Google does not publish it and neither does {src.holder}.
+            </p>
+            <p>
+              <strong className="text-charcoal">Our lawful basis is legitimate interests.</strong> We
+              need to know which retailers are in {src.holder}&apos;s network, and how their Google
+              listings are performing, in order to provide the service {src.holder} funds for them.
+              We have weighed that against your rights and recorded the assessment. You can object at
+              any time and we will remove your record — you do not need to give a reason, and you do
+              not need to have an account.
+            </p>
+            <p>
+              We keep it {src.retention}, or sooner if you ask us to.
             </p>
             {/*
-              DECISION NEEDED BEFORE THIS PAGE GOES LIVE — the lawful basis.
-              Article 14(1)(c) requires it to be stated, so this notice is
-              incomplete until it is. FOLLOWUPS records that legitimate interests
-              is arguable but that the balancing test has not been done, and that
-              is a solicitor's call, not ours. Deliberately left unasserted rather
-              than filled in with a plausible-sounding claim.
+              The lawful basis stated above is the conclusion of
+              LEGITIMATE_INTERESTS_ASSESSMENT.md, which records the three-part
+              test rather than asserting the answer. Note what it covers and what
+              it does NOT: holding and scoring the record only. It does not
+              support marketing email, which fails the necessity limb and is
+              separately gated by PECR. Nothing on this page may be read as a
+              basis for contacting a retailer to sell them something.
             */}
           </>
         )}
@@ -118,6 +129,20 @@ export default function PrivacyPage() {
               Email the same address and say so; we do not require a reason.
             </>
           )}
+        </p>
+        {/*
+          Article 13(2)(d) and 14(2)(e) BOTH require telling people they can
+          complain to the supervisory authority, so this was a mandatory element
+          missing for every tenant — not only the one with a data-source notice.
+          Rendered unconditionally, which does change Chocka's page.
+        */}
+        <p>
+          You also have the right to complain to the Information Commissioner&apos;s Office, the UK
+          data protection regulator, at{' '}
+          <a href="https://ico.org.uk/make-a-complaint/" className="underline" target="_blank" rel="noopener noreferrer">
+            ico.org.uk/make-a-complaint
+          </a>
+          . We would rather you raised it with us first, but you are not required to.
         </p>
 
         <h2 className="text-lg font-bold text-charcoal mt-8">Contact</h2>

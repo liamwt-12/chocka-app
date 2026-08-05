@@ -91,7 +91,17 @@ export interface Tenant {
     description: string; // what the list is — "its public UK store locator"
     url: string;         // where a retailer can go and look at it
     obtained: string;    // when we took a copy — "June 2026"
-    fields: string;      // what we actually hold, stated plainly
+    /**
+     * What was taken from the list. Must match the columns actually held —
+     * a notice that names data we do not hold, or omits data we do, is a defect
+     * in itself. Verified against `retailers` and against the committed copy in
+     * `scripts/source-data/` on 2026-08-05.
+     */
+    fields: string;
+    /** What was worked out from public Google data, which the list did not contain. */
+    derived: string;
+    /** How long the record is kept, and what ends it. Article 14(2)(a). */
+    retention: string;
   };
 
   // Every claim the sign-in page makes. These were hardcoded, which meant the
@@ -213,8 +223,26 @@ const STELLAR_BASE: Omit<Tenant, 'appUrl' | 'appHost' | 'emailFrom'> = {
     description: 'its public UK store locator',
     url: 'https://home.tarkett.co.uk/en_GB/store-locator',
     obtained: 'June 2026',
+    // Deliberately covers BOTH stores. The database row holds the name, town and
+    // email; the address, postcode and coordinates are held separately in the
+    // committed source file. Describing only the database would understate what
+    // is held.
     fields:
-      'your business name, address and postcode, your website, and where Tarkett published one, a contact email address',
+      'your business name, the town and country you trade in, your address, postcode and map ' +
+      'position, your website address, and — where Tarkett published one — a contact email address',
+    derived:
+      'your Google rating, how many reviews and photos your listing has, whether it links to a ' +
+      'website, and an identifier for the listing itself — and from those, a score and a band',
+    // Tied to the stockist relationship rather than a fixed clock, because that
+    // is what the purpose is actually tied to.
+    //
+    // WARNING — this promises an annual re-check and a deletion that NOTHING
+    // CURRENTLY PERFORMS. Publishing it without building it repeats the exact
+    // defect the retention correction above fixed: a policy promising an erasure
+    // the system does not carry out. See FOLLOWUPS "no retention policy".
+    retention:
+      'while you are listed as a stockist on that page — we re-check the list at least once a ' +
+      'year — and we delete your record within six months of you no longer appearing on it',
   },
   loginCopy: {
     // No self-serve promise. On the Stellar host this page is invite-only, so a

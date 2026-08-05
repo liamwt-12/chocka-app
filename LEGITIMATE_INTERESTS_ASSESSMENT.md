@@ -24,8 +24,20 @@ Counted from production on 2026-08-05, excluding one synthetic test row (`source
 | Names containing `ltd` / `limited` / `llp` / `plc` | 19 |
 | **Retailers who have signed up** | **0** |
 
-Per record: business name, address, postcode, website, contact email, a computed Google Business
-Profile score, a band, and a score history with measurement dates.
+**Corrected 2026-08-05 against the real schema** — an earlier version of this section named fields
+that are not held, which in a privacy notice is a defect in its own right. What is actually held sits
+in **two places**:
+
+| Store | Fields |
+|---|---|
+| `retailers` (database) | `name`, `town`, `nation`, `contact_email`, plus Google-derived `place_id`, `rating`, `review_count`, `photo_count`, `has_website`, `score`, `band`, `headline_gap`, `scored_at` |
+| `scripts/source-data/retailers-locations.csv` (**committed to a public repo**) | id, name, address lines, city, county, postcode, nation, full address, latitude/longitude, website, Tarkett store URL — emails stripped |
+
+`retailers` has **no address, postcode or phone column**. The address data lives only in the
+committed file. Any notice must describe both, or it understates what is held.
+
+The committed file being public is not a fresh disclosure — it is a copy of what Tarkett already
+publishes — but it is a second copy under our control and it is in scope for an erasure request.
 
 **Whose personal data is this?** A limited company's details are not personal data. But 19 is a
 *name heuristic*, not a Companies House check, and FOLLOWUPS already records that a name match does
@@ -151,6 +163,23 @@ option*, the necessity limb fails. This is not a close call.
    generic ones, or only confirmed corporate bodies.
 5. **Tarkett makes first contact**, removing the "never heard of you" objection where it bites most.
 
+### The retention period, proposed
+
+Tied to the stockist relationship rather than an arbitrary clock, because that is what the purpose is
+actually tied to — we hold the record to serve Tarkett's network, so it should last exactly as long
+as membership of that network does:
+
+> We keep it **while you are listed as a stockist on that page — we re-check the list at least once a
+> year — and we delete your record within six months of you no longer appearing on it**, or sooner if
+> you ask us to.
+
+Concrete, performable, and it gives a retailer a route out that does not depend on them noticing us.
+
+**It is also a promise nothing currently keeps.** There is no annual refresh job and no deletion job.
+Publishing this without building them repeats precisely the defect the retention correction fixed —
+a policy promising an erasure the system does not perform. Logged in FOLLOWUPS; the notice should not
+go live until the job exists or the wording is softened to what is actually done.
+
 ---
 
 ## 4. The point that overrides all of the above for P2
@@ -197,6 +226,56 @@ agreement and ideally to a solicitor's eye:
 > Tarkett funds for them. We have weighed that against your rights and recorded the assessment. You
 > can object at any time, and we will remove your record — you do not need a reason, and you do not
 > need to have an account.
+
+## 6.5 Giving the notice — who must receive it, and what it must say
+
+### Who
+
+**Not just the 105.** The Article 14 duty attaches to the *record*, not to the email field. A sole
+trader is identifiable from their business name and address whether their address is `dave@` or
+`info@` — so a generic email does not make the record non-personal, it only makes that one field
+less personal. The 105 is the set where the email is *obviously* personal data, not the set that is
+owed a notice.
+
+The population owed a notice is **every record about a natural person** — i.e. all 180 minus
+confirmed corporate bodies. That corporate set has never been confirmed: 19 is a name heuristic, and
+FOLLOWUPS already records that a name match does not establish the address belongs to that company.
+
+**So: treat all 180 as owed the notice.** Segmenting risks omitting someone entitled to it, saves
+nothing, and over-notifying a limited company is harmless — it is information, not marketing.
+
+**The 4 with no email** (`29478`, `29705`, `30089`, `29876`) cannot be emailed. `retailers` holds no
+phone number and no address; the addresses exist only in the committed source file. Options, cheapest
+first: **delete those 4 records** and the obligation goes with them; or post a letter, which for four
+records is not disproportionate effort. Do not quietly rely on Article 14(5)(b) — "impossible or
+disproportionate" is a high bar and four letters clears it easily.
+
+### What it must say
+
+Article 14(1)–(2) sets the required elements. Mapped against the drafted `/privacy` section:
+
+| Required | Where |
+|---|---|
+| Controller identity and contact details — 14(1)(a) | Present (`Useful for Humans Ltd`, support/privacy addresses) |
+| Purposes and **lawful basis** — 14(1)(c) | Added — legitimate interests, stated plainly |
+| Categories of personal data — 14(1)(d) | Added — corrected against the real schema |
+| Recipients — 14(1)(e) | Partial. Processors are named generically; **Tarkett's position needs stating** — it receives aggregate counts only, per the confirmed `/terms` wording |
+| Retention period — 14(2)(a) | Added — tied to stockist status |
+| The legitimate interests pursued — 14(2)(b) | Added |
+| Rights incl. **objection** — 14(2)(c) | Added, unconditional and not tied to having an account |
+| **Right to complain to the ICO** — 14(2)(e) | Added, and it was missing for *every* tenant (Article 13(2)(d) requires it for directly-collected data too) |
+| **Source of the data** — 14(2)(f) | Added — named, linked, dated, and flagged as publicly accessible |
+| Automated decision-making — 14(2)(g) | **Not yet stated.** The score is not a decision with legal or similarly significant effect, so the honest line is that there is none — but it should be said rather than left silent |
+
+### The trap
+
+**The notice must not carry the invitation.** Sending "we hold your data" is discharging a legal
+obligation and is not direct marketing. Bundling it with "and here is a free service, sign up" makes
+it a **marketing email**, at which point PECR applies and §4 says most of the cohort cannot lawfully
+receive it. The temptation to combine the two will be strong because it saves a send. It would
+convert a compliance fix into the exact breach this assessment says to avoid.
+
+Send the notice clean. Let Tarkett make the introduction separately.
 
 ## 7. What still needs a solicitor
 
