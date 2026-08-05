@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach, vi } from 'vitest';
-import { getManageableListings, getLocationFull, GbpError, placeIdFromMapsUri } from './google';
+import { getManageableListings, getLocationFull, replyToReview, GbpError, placeIdFromMapsUri } from './google';
 
 // ── Mock helpers ──────────────────────────────────────────────────────────
 // These stub Google's HTTP responses in the exact shapes each scenario
@@ -214,6 +214,52 @@ describe('getLocationFull error mapping', () => {
     global.fetch = vi.fn(async () => resp(true, 200, { name: 'locations/x', title: 'Shop' })) as any;
     const out = await getLocationFull('t', 'locations/x');
     expect(out.title).toBe('Shop');
+  });
+});
+
+// ── replyToReview: status-aware errors the approval page maps to screens ────
+// It used to throw a bare Error, so the approval page could only ever say
+// "Something went wrong" and offer the same advice for three unrelated
+// failures — one of which (the review is gone) has nothing to retry at all.
+describe('replyToReview error mapping', () => {
+  it('403 PERMISSION_DENIED → GbpError carrying status 403 + PERMISSION_DENIED', async () => {
+    global.fetch = vi.fn(async () => resp(false, 403, {}, JSON.stringify({ error: { status: 'PERMISSION_DENIED' } }))) as any;
+    const err = await replyToReview('t', 'locations/x/reviews/y', 'thanks!').catch(e => e);
+    expect(err).toBeInstanceOf(GbpError);
+    expect(err.status).toBe(403);
+    expect(err.googleStatus).toBe('PERMISSION_DENIED');
+  });
+
+  it('404 NOT_FOUND → GbpError carrying status 404 + NOT_FOUND', async () => {
+    // The reviewer deleted it. The page clears the pending reply rather than
+    // inviting a retry against something that no longer exists.
+    global.fetch = vi.fn(async () => resp(false, 404, {}, JSON.stringify({ error: { status: 'NOT_FOUND' } }))) as any;
+    const err = await replyToReview('t', 'locations/x/reviews/y', 'thanks!').catch(e => e);
+    expect(err).toBeInstanceOf(GbpError);
+    expect(err.status).toBe(404);
+    expect(err.googleStatus).toBe('NOT_FOUND');
+  });
+
+  it('429 → GbpError with no googleStatus, which the page treats as retryable', async () => {
+    global.fetch = vi.fn(async () => resp(false, 429, {}, 'rate limited')) as any;
+    const err = await replyToReview('t', 'locations/x/reviews/y', 'thanks!').catch(e => e);
+    expect(err).toBeInstanceOf(GbpError);
+    expect(err.status).toBe(429);
+    expect(err.googleStatus).toBeNull();
+  });
+
+  it('keeps the message it always threw, for the callers that only log it', () => {
+    // review-alerts and profile-fix catch this and log; changing the text would
+    // have silently changed what shows up in their logs.
+    global.fetch = vi.fn(async () => resp(false, 400, {}, 'bad request')) as any;
+    return replyToReview('t', 'locations/x/reviews/y', 'thanks!').catch((e) => {
+      expect(e.message).toBe('Failed to reply: bad request');
+    });
+  });
+
+  it('200 → returns the payload', async () => {
+    global.fetch = vi.fn(async () => resp(true, 200, { comment: 'thanks!' })) as any;
+    expect((await replyToReview('t', 'locations/x/reviews/y', 'thanks!')).comment).toBe('thanks!');
   });
 });
 

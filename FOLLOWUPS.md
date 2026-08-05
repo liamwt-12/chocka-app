@@ -484,6 +484,53 @@ place. Budget for that lead time rather than discovering it at launch.
 screen — already-connected users are not re-prompted. So the blast radius of a wrong brand name
 is future signups, and it grows quietly rather than breaking anything visibly.
 
+## Error states
+
+### The last bare "Something went wrong"  [CLOSED 2026-08-05]
+**What it was.** `app/api/reviews/auto-reply/route.ts` caught every failure of the approve path in one
+`catch` and rendered `Something went wrong` / "Try again or handle it on Google directly." It was the
+last bare error screen in the app — `/api/audit` and the onboarding screens were given honest,
+discriminated states earlier; this one was missed because it renders server-side HTML rather than
+going through the React error paths.
+
+The copy was wrong for two of the three failures behind it. "Try again" is useless advice when the
+grant is dead (it will fail identically forever) and actively wasteful when the review has been
+deleted (there is nothing left to reply to, on Google or anywhere else).
+
+**Now five discriminated outcomes**, each saying what actually happened and what the retailer can do:
+
+| Cause | Screen | Retryable? |
+|---|---|---|
+| No user / no stored credential behind the review | "This account isn't connected" | No — reconnect |
+| `refreshAccessToken` fails (revoked or expired grant) | "Reconnect your Google account" | No — reconnect |
+| Google 403 / `PERMISSION_DENIED` | "No permission to reply" | Yes, once access is restored |
+| Google 404 / `NOT_FOUND` | "That review is gone" | No — nothing exists to reply to |
+| 429 / 5xx / network / unexpected 400 | "Google didn't take the reply" | Yes — genuinely transient |
+
+**Enabling change:** `replyToReview` in `lib/google.ts` threw a bare `Error`, so the caller had nothing
+to discriminate on. It now throws `GbpError` like `getLocationFull`, carrying `status` and
+`googleStatus`. The message is byte-identical to what it threw before (`Failed to reply: <text>`), so
+`review-alerts` and `profile-fix`, which catch and log it, are unaffected — there is a test pinning
+that. Five tests in total on the new mapping.
+
+**Two things found while in there, and fixed alongside:**
+
+- **The dead-grant path now records `token_status='invalid'`**, as `/api/audit` does, so the dashboard
+  prompts a reconnect instead of the retailer discovering it again at the next review.
+- **The two post-publish writes were unchecked.** `supabase-js` returns errors rather than throwing, so
+  a failed status update left the reply `pending` *after it had already gone live on Google* — meaning
+  it could be offered for approval and published a **second time**. Both writes are now checked. They
+  deliberately do not change what the retailer sees: the reply IS live, so telling them it failed would
+  be a lie. The status-update failure logs loudly as a double-publish risk needing a manual fix; the
+  counter failure logs quietly, because an undercounted stat duplicates nothing.
+
+**Deliberately not fixed here — `resultPage()` calls `getTenant()`,** so every screen on this route is
+Chocka-branded on the Stellar host. The approve path could resolve per-user via `getTenantForRow()`,
+but the early returns (invalid link, review not found, already handled) render before any user row is
+loaded, so a partial fix would give one route two brandings depending on which way it failed. Same
+class and same constraint as `cancelPage()` in `app/api/posts/cancel/route.ts` — the two should be
+done together.
+
 ## Deferred — secrets hygiene
 
 ### `.gbp-tokens.json` stores harness refresh tokens in plaintext  [deferred — local-only, lower stakes]
