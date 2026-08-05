@@ -23,7 +23,7 @@ export async function POST(request: NextRequest) {
 
     const { data: user } = await supabaseAdmin
       .from('users')
-      .select('id, google_refresh_token')
+      .select('id, google_refresh_token, tenant_id')
       .eq('id', userId)
       .single();
     if (!user?.google_refresh_token) {
@@ -67,6 +67,16 @@ export async function POST(request: NextRequest) {
       google_place_id: chosen.placeId ?? null,
       audit_score: null,
       audit_score_after: null,
+
+      // The profile's tenant is its owner's tenant — read from the user row, not
+      // from this request's Host, for the reason spelled out on the callback's
+      // bindManageableListing. Applied on the update path too: re-picking a
+      // listing never changes whose account it is, so writing the owner's tenant
+      // is a repair for any row the old insert left null, not a re-tag.
+      //
+      // Omitted entirely when the user carries no tenant, so an untagged owner
+      // can never null out a profile that already has one.
+      ...(user.tenant_id ? { tenant_id: user.tenant_id } : {}),
     };
 
     // One profile per user (unchanged 1:1 model) — update in place if it

@@ -259,14 +259,34 @@ tenancy columns side by side. `getTenantForRow()` resolves the tenant from a row
 per user inside the loop instead of once per run. `lib/email.ts` takes an optional tenant
 throughout.
 
-**Also outstanding — `profiles.tenant_id` is never set on new rows.** All 6 existing profiles carry
-it, but neither insert site sets it: `app/api/auth/callback/google/route.ts:235` and
-`app/api/listings/select/route.ts:79`. New profiles will therefore be null while their owning user
-row is populated, so the two columns drift apart. Nothing reads `profiles.tenant_id` today — cron
-resolves through `users.tenant_id` — so this is a data-integrity issue rather than a live fault,
-but it will quietly undermine any future per-tenant query or RLS policy written against profiles.
-Fix both insert sites together; the callback already has the tenant id in hand, and the listings
-route has request context.
+**`profiles.tenant_id` is never set on new rows.  [CLOSED 2026-08-05]** All 6 existing profiles
+carried it, but neither insert site set it, so new profiles were null while their owning user row
+was populated and the two columns drifted apart. Nothing reads `profiles.tenant_id` today — cron
+resolves through `users.tenant_id` — so this was a data-integrity issue rather than a live fault,
+but it would have quietly undermined any future per-tenant query or RLS policy written against
+profiles.
+
+Both insert sites now set it, from **the owning user row** rather than the request Host. That
+differs from the "the listings route has request context" suggestion this entry originally carried,
+and deliberately: a profile belongs to exactly one user, so its tenant is by definition that user's
+tenant. Host-derived tagging would let a retailer who opened the other brand's host once bind a
+profile tagged to a brand their own row does not belong to — the same silent cross-brand drift the
+callback's `tenant_id` comment refuses to introduce for `users`. Reading the owner's row makes the
+two columns agree by construction.
+
+- `bindManageableListing()` takes the tenant id as a parameter: `newUser.tenant_id` on the
+  create path, `existingUser.tenant_id` read back off the row on the returning-user path (the one
+  place it was *not* already in hand).
+- `app/api/listings/select` selects `tenant_id` on the user row it already fetches and applies it on
+  the **update** path as well as the insert — a re-pick never changes whose account it is, so this
+  repairs any row the old insert left null rather than re-tagging it.
+- Both sites omit the column entirely when the user carries no tenant, so an untagged owner can
+  never null out a profile that already has one, and Chocka's insert stays byte-identical.
+
+Not covered by a test: this repo has no route-handler test harness (only `lib/*.test.ts`), and the
+change is a value threaded into two writes with no extractable pure logic. Backfilling the null
+profiles created between the column being added and this fix is a separate data task — none exist
+yet, but that stops being true if any signup lands before this deploys.
 
 **Still outstanding — `cancelPage()` in `app/api/posts/cancel/route.ts`.** The HTML page rendered
 after a cancel still calls `getTenant()`, so its title and accent colour are Chocka's on every

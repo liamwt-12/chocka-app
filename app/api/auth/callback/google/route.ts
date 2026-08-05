@@ -162,7 +162,14 @@ export async function GET(request: NextRequest) {
       } else {
         let result: BindResult = 'no_profile';
         try {
-          result = await bindManageableListing(existingUser.id, tokens.access_token);
+          // The returning-user path is the one place the tenant id is NOT already
+          // in hand — it was decided when this account was created, so it is read
+          // back off the row (select('*') above) rather than re-derived here.
+          result = await bindManageableListing(
+            existingUser.id,
+            tokens.access_token,
+            existingUser.tenant_id ?? null,
+          );
         } catch (err) {
           console.error('Failed to enumerate GBP listings for returning user:', err);
         }
@@ -315,7 +322,15 @@ export async function GET(request: NextRequest) {
     // one → auto-bind and start onboarding; several → picker; none → no-profile.
     let result: BindResult = 'no_profile';
     try {
-      result = await bindManageableListing(newUser.id, tokens.access_token);
+      // Read back off the inserted row rather than reusing `tenantRow?.id`, so
+      // the profile is tagged with what the database actually stored for its
+      // owner. The two cannot disagree today, but only one of them is the
+      // column the invariant is about.
+      result = await bindManageableListing(
+        newUser.id,
+        tokens.access_token,
+        newUser.tenant_id ?? null,
+      );
     } catch (err) {
       console.error('Failed to enumerate GBP listings for new user:', err);
     }
@@ -621,7 +636,19 @@ type BindResult = 'onboarding' | 'select' | 'no_profile';
 //   'onboarding' — exactly one listing, profile bound, go straight to the audit
 //   'select'     — several listings, nothing bound yet, send to the picker
 //   'no_profile' — nothing manageable, show the no-profile screen
-async function bindManageableListing(userId: string, accessToken: string): Promise<BindResult> {
+//
+// `tenantId` comes from the OWNING USER ROW, never from the request Host. A
+// profile belongs to exactly one user, so its tenant is whatever that user's
+// tenant is — deriving it from the Host would let a retailer who opened the
+// other brand's host once bind a profile tagged to a brand their own row does
+// not belong to, which is the same drift the users.tenant_id comment above
+// refuses to introduce. Passing null leaves the column unset, exactly as
+// before: a user row with no tenant cannot lend one to its profile.
+async function bindManageableListing(
+  userId: string,
+  accessToken: string,
+  tenantId: string | null,
+): Promise<BindResult> {
   const listings = await getManageableListings(accessToken);
   // Says which of the three outcomes was taken and why. Without it, /no-profile and
   // /onboarding are indistinguishable in the logs from a failure earlier in the
@@ -634,6 +661,12 @@ async function bindManageableListing(userId: string, accessToken: string): Promi
   const only = listings[0];
   await supabaseAdmin.from('profiles').insert({
     user_id: userId,
+
+    // Spread rather than written as `tenant_id: tenantId ?? null`, so a user row
+    // that carries no tenant produces the byte-identical insert this path has
+    // always produced instead of an explicit null.
+    ...(tenantId ? { tenant_id: tenantId } : {}),
+
     google_account_id: only.accountName,
     google_location_name: only.locationName,
     business_name: only.title,
