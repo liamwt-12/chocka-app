@@ -259,6 +259,61 @@ built but unscheduled. Changing it to claim an automatic review would re-introdu
 this entry exists to fix — a policy describing behaviour the system does not perform. It can tighten
 once the cron is actually scheduled and has run, and not before.
 
+**A scheduler now exists — for the other six, deliberately not for this one (2026-08-17, PR #21).**
+Netlify scheduled functions in `netlify/functions/`, one per route, each a thin wrapper calling its
+`app/api/cron/*` route over HTTP. So the open question above is closed in one direction: nothing had
+ever invoked them, and now something does.
+
+`retailer-retention` was **left off the schedule on purpose**, and that is the whole of this entry's
+point. It deletes retailer records; `/privacy` says the review is by hand. Scheduling it would make a
+published privacy statement untrue in the same breath as the job started running — the exact defect
+this entry exists to prevent, arriving through the door marked "progress". **The notice changes
+first, then the schedule.** Whoever picks that up: update `/privacy` to state the real period, deploy
+it, and only then add `netlify/functions/cron-retailer-retention.mts`.
+
+## Cron at 180 retailers — what the schedule does not fix
+
+### `monday-stats` cannot survive its own fan-out  [P2 — latent, bites at ~40+ profiles]
+
+**The arithmetic.** The route loops users, and per profile costs one `refreshAccessToken` plus
+`getPerformanceMetrics`, which is **five separate Performance API calls** (`lib/google.ts:380` — one
+per metric, deliberately, to dodge a single-object-vs-array ambiguity). That is **six Google requests
+per profile, sequentially**. At 180 retailers: ~1,080 requests in one invocation.
+
+Two ceilings, and the quota is the less urgent one:
+
+- **Rate.** The project's Business Profile quota is **300 requests/minute** (confirmed in the Cloud
+  console 2026-08-17). 1,080 requests breaches it if the run is fast.
+- **Wall clock.** It will not be fast. 1,080 sequential round-trips does not fit inside a serverless
+  function timeout, so the run dies part-way with some profiles updated and the rest silently not.
+
+`post-publisher` had the same shape and was fixed by jittering the schedule (`lib/post-schedule.ts`)
+so the work arrives in twelve small batches instead of one. **`monday-stats` cannot be fixed the same
+way** — it is not reacting to due rows, it sweeps every profile on a timer, so there is nothing to
+spread. It needs actual batching: a cursor or a `limit`/`offset` over profiles, run more often.
+
+**Do not "fix" this by parallelising the loop.** Concurrency makes the timeout better and the quota
+strictly worse, and 300/min is a hard project ceiling shared with every other job awake at the time.
+
+**Why it is P2 and not P1.** It is unreachable today — the entitlement gate admits nobody, and there
+are 6 profiles rather than 180. It becomes real the moment retailers start connecting, which is
+exactly when nobody will be watching a Monday-morning stats job.
+
+### Cron "10am" is 10:00 UTC, not 10:00 UK  [minor — product decision, not a bug]
+
+`setHours` is server-local and production runs UTC, so the posting window opens at 10:00 UTC: 10am in
+winter, **11am under BST**. Inherited unchanged from `getNextMonday10am` when the jitter landed,
+because moving posting times is a product call. Flagged because a UK-facing product whose "Monday
+10am" silently shifts by an hour twice a year gets discovered by a confused retailer, not by us.
+
+### The cron secret travels in the query string  [deferred — pre-existing, low stakes today]
+
+`verifyCronSecret` reads `?secret=` (`lib/cron.ts:5`), so the shared secret sits in a URL and
+therefore in access logs, and now in the scheduled functions' fetch calls too. A header would be
+better. Not changed alongside the scheduler because moving it means changing both sides at once, and
+the failure mode of getting that half-done is every cron 401ing silently — the precise thing
+`runCron` throws to make visible. Worth doing as its own small change.
+
 ## League and operator console
 
 ### Backend built, UI deliberately held  [backend DONE 2026-08-05 · UI blocked on Tarkett]
