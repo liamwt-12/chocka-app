@@ -245,6 +245,75 @@ export async function getManageableListings(accessToken: string): Promise<Listin
   return listings;
 }
 
+// ── Manager invitations (Route 1 activation) ──
+//
+// When a rep adds Stellar as a manager in the retailer's own Google screen,
+// Google raises an *invitation* against our account. Nothing is manageable
+// until it is accepted, so without these two calls the rep flow needs a human
+// clicking Accept in the Google UI once per shop.
+//
+// WHAT DECIDES is not here. `lib/gbp-invitations.ts` holds the rules — most
+// importantly that an OWNER invitation is never accepted automatically, because
+// we promise the retailer stays the owner. This module only fetches and posts.
+
+/**
+ * Invitations pending on one account.
+ *
+ * Deliberately unfiltered: Google supports `?filter=target_type=...`, but the
+ * ones we will NOT accept are exactly the ones somebody needs to see (a rep who
+ * picked Owner by mistake is a stuck activation, not noise). Filtering server
+ * side would hide them.
+ */
+export async function listInvitations(accessToken: string, accountName: string) {
+  const url = `https://mybusinessaccountmanagement.googleapis.com/v1/${accountName}/invitations`;
+  const res = await fetchRetryingTransient(url, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  if (!res.ok) throw await gbpError(res, `Failed to list invitations for ${accountName}`);
+  const data = await res.json();
+  return (data.invitations || []) as any[];
+}
+
+/**
+ * Every pending invitation across every account this token can see.
+ *
+ * Unlike getManageableListings, accounts are NOT filtered by MANAGE_ROLES here.
+ * An invitation is precisely the state of *not yet* having a role, so filtering
+ * on the role we do not have yet would drop the thing we came to find.
+ *
+ * A failure on one account propagates rather than being swallowed: a partial
+ * list read as complete would report a shop as "never invited" when in fact its
+ * invitation was sitting there unaccepted.
+ */
+export async function listAllInvitations(accessToken: string) {
+  const { accounts } = await getAccounts(accessToken);
+  const all: any[] = [];
+  for (const account of accounts || []) {
+    if (!account?.name) continue;
+    all.push(...(await listInvitations(accessToken, account.name)));
+  }
+  return all;
+}
+
+/**
+ * Accept one invitation. `invitationName` is the full resource name,
+ * `accounts/{account}/invitations/{invitation}`.
+ *
+ * Empty request body and empty success body, per the API. Call this only with a
+ * name that `invitationDecision` returned `accept` for — the safety rules are
+ * there and not here, so bypassing them is a deliberate act rather than an
+ * oversight.
+ */
+export async function acceptInvitation(accessToken: string, invitationName: string) {
+  const url = `https://mybusinessaccountmanagement.googleapis.com/v1/${invitationName}:accept`;
+  const res = await fetchRetryingTransient(url, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+    body: '{}',
+  });
+  if (!res.ok) throw await gbpError(res, `Failed to accept invitation ${invitationName}`);
+}
+
 // ── NEW: Full location for audit ──
 
 export async function getLocationFull(accessToken: string, locationName: string) {
