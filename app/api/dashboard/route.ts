@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
 import { refreshAccessToken, getLocationFull, getReviews, getLocalPosts, getMedia, getPerformanceMetrics, parseStarRating, getPlaceReviews, findPlaceId } from '@/lib/google';
 import { decryptSecret, userTokenAad } from '@/lib/secrets';
+import { resolveAccess, MANAGER_EMBED } from '@/lib/managed-access';
 
 async function searchCompetitors(category: string, lat: number, lng: number) {
   const apiKey = process.env.GOOGLE_PLACES_API_KEY;
@@ -29,7 +30,7 @@ export async function GET(request: NextRequest) {
     const userId = request.cookies.get('chocka_user_id')?.value;
     if (!userId) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
 
-    const { data: user } = await supabaseAdmin.from('users').select('*').eq('id', userId).single();
+    const { data: user } = await supabaseAdmin.from('users').select(`*, ${MANAGER_EMBED}`).eq('id', userId).single();
     if (!user) return NextResponse.json({ error: 'User not found' }, { status: 404 });
 
     const { data: profile } = await supabaseAdmin.from('profiles').select('*').eq('user_id', userId).single();
@@ -44,10 +45,14 @@ export async function GET(request: NextRequest) {
     let google: any = null;
     let competitors: any[] = [];
 
-    if (user.google_refresh_token && profile?.google_location_name) {
+    // Access, not "is there a token on this row" — a managed retailer's
+    // credential lives on the operator account, so the old truthiness check
+    // would render every Route 1 dashboard as if Google were disconnected.
+    const access = resolveAccess(user);
+    if (access.ok && profile?.google_location_name) {
       try {
         const accessToken = await refreshAccessToken(
-          decryptSecret(user.google_refresh_token, userTokenAad(user.id)),
+          decryptSecret(access.encryptedToken, userTokenAad(access.aadUserId)),
         );
         const locName = profile.google_location_name;
         const acctId = profile.google_account_id;

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
 import { refreshAccessToken, getManageableListings } from '@/lib/google';
 import { decryptSecret, userTokenAad } from '@/lib/secrets';
+import { resolveAccess, MANAGER_EMBED } from '@/lib/managed-access';
 
 // Feed for the onboarding / settings listing picker. Re-enumerates live on
 // every call (no stored candidate list) and returns only what the picker
@@ -16,15 +17,20 @@ export async function GET(request: NextRequest) {
 
     const { data: user } = await supabaseAdmin
       .from('users')
-      .select('id, google_refresh_token')
+      .select(`id, google_refresh_token, token_status, managed_by_user_id, ${MANAGER_EMBED}`)
       .eq('id', userId)
       .single();
-    if (!user?.google_refresh_token) {
+    // A managed retailer (Route 1) legitimately has no token of their own — the
+    // credential belongs to the operator account managing their listing — so the
+    // question is "is there access", not "is there a token on this row".
+    const access = resolveAccess(user);
+    if (!access.ok) {
+      console.warn('[listings] no Google access for user', user?.id, '—', access.reason);
       return NextResponse.json({ error: 'Google not connected', code: 'google_disconnected' }, { status: 400 });
     }
 
     const accessToken = await refreshAccessToken(
-      decryptSecret(user.google_refresh_token, userTokenAad(user.id)),
+      decryptSecret(access.encryptedToken, userTokenAad(access.aadUserId)),
     );
     const listings = await getManageableListings(accessToken);
 

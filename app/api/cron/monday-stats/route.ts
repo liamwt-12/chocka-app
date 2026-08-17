@@ -5,6 +5,7 @@ import { refreshAccessToken, getPerformanceMetrics } from '@/lib/google';
 import { sendSMS, logSMS } from '@/lib/twilio';
 import { getTenantForRow } from '@/lib/tenant';
 import { decryptSecret, userTokenAad } from '@/lib/secrets';
+import { resolveAccess } from '@/lib/managed-access';
 
 export async function GET(request: NextRequest) {
   if (!verifyCronSecret(request)) return unauthorizedResponse();
@@ -24,8 +25,16 @@ export async function GET(request: NextRequest) {
       const t = getTenantForRow(user);
 
       try {
+        // Self token, or a manager's for a Route 1 retailer who never signed
+        // in themselves. resolveAccess also decides WHICH id the AAD is built
+        // from — the row the ciphertext lives on — which is not always this user.
+        const access = resolveAccess(user);
+        if (!access.ok) {
+          console.warn(`[cron:monday-stats] skipping user ${user.id} — ${access.reason}`);
+          continue;
+        }
         const accessToken = await refreshAccessToken(
-          decryptSecret(user.google_refresh_token, userTokenAad(user.id)),
+          decryptSecret(access.encryptedToken, userTokenAad(access.aadUserId)),
         );
         // getPerformanceMetrics now returns {views, calls, directions, websiteClicks} directly
         const metrics = await getPerformanceMetrics(accessToken, profile.google_location_name);

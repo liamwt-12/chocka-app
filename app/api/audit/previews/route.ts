@@ -4,6 +4,7 @@ import { refreshAccessToken, getLocationFull, getGoogleUpdated, getAttributes, g
 import { generateDescription, generateServices, generatePost, generateReviewReply, suggestCategories } from '@/lib/ai';
 import { scoreProfile } from '@/lib/audit';
 import { decryptSecret, userTokenAad } from '@/lib/secrets';
+import { resolveAccess, MANAGER_EMBED } from '@/lib/managed-access';
 
 function getSeason(): string {
   const m = new Date().getMonth();
@@ -18,14 +19,21 @@ export async function POST(request: NextRequest) {
     const userId = request.cookies.get('chocka_user_id')?.value;
     if (!userId) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
 
-    const { data: userData } = await supaAdmin.from('users').select('id, google_refresh_token').eq('id', userId).single();
-    if (!userData?.google_refresh_token) return NextResponse.json({ error: 'Google not connected' }, { status: 400 });
+    const { data: userData } = await supaAdmin.from('users').select(`id, google_refresh_token, token_status, managed_by_user_id, ${MANAGER_EMBED}`).eq('id', userId).single();
+    // A managed retailer (Route 1) legitimately has no token of their own — the
+    // credential belongs to the operator account managing their listing — so the
+    // question is "is there access", not "is there a token on this row".
+    const access = resolveAccess(userData);
+    if (!access.ok) {
+      console.warn('[audit/previews] no Google access for user', userData?.id, '—', access.reason);
+      return NextResponse.json({ error: 'Google not connected', code: 'google_disconnected' }, { status: 400 });
+    }
 
     const { data: profile } = await supaAdmin.from('profiles').select('*').eq('user_id', userId).single();
     if (!profile) return NextResponse.json({ error: 'No profile' }, { status: 400 });
 
     const accessToken = await refreshAccessToken(
-      decryptSecret(userData.google_refresh_token, userTokenAad(userData.id)),
+      decryptSecret(access.encryptedToken, userTokenAad(access.aadUserId)),
     );
     const locName = profile.google_location_name;
     const acctId = profile.google_account_id;
