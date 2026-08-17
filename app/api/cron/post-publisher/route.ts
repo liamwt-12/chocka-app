@@ -6,6 +6,15 @@ import { sendSMS, logSMS } from '@/lib/twilio';
 import { getTenantForRow } from '@/lib/tenant';
 import { decryptSecret, userTokenAad } from '@/lib/secrets';
 
+/**
+ * Most posts this route will publish in a single invocation.
+ *
+ * 40 posts ≈ 80 Google requests, which sits inside both the 300/min project
+ * quota and a serverless function's timeout with room to spare, while still
+ * being several times any batch the jittered schedule should actually produce.
+ */
+const MAX_POSTS_PER_RUN = 40;
+
 export async function GET(request: NextRequest) {
   if (!verifyCronSecret(request)) return unauthorizedResponse();
 
@@ -21,7 +30,24 @@ export async function GET(request: NextRequest) {
         )
       `)
       .eq('status', 'pending_approval')
-      .lte('scheduled_for', new Date().toISOString());
+      .lte('scheduled_for', new Date().toISOString())
+      // A ceiling on how much work one invocation can take on.
+      //
+      // The loop below is sequential and each iteration costs two Google
+      // round-trips, so an unbounded run is bounded by the function timeout
+      // instead — which fails in the worst way available: part of the batch
+      // published, the rest still `pending_approval`, and no error belonging to
+      // any particular post to explain why.
+      //
+      // Nothing should ever reach this cap in normal operation. The jittered
+      // schedule (lib/post-schedule.ts) spreads 180 retailers across three
+      // hours and this route runs every 15 minutes, so a typical run sees
+      // single figures. It is here for the abnormal case — a backlog after an
+      // outage, or a schedule change that bunches posts — where the right
+      // behaviour is to publish what fits and pick the rest up on the next run
+      // fifteen minutes later, not to die halfway.
+      .order('scheduled_for', { ascending: true })
+      .limit(MAX_POSTS_PER_RUN);
 
     let published = 0;
 

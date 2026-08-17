@@ -4,6 +4,7 @@ import { verifyCronSecret, unauthorizedResponse, getActiveUsersWithProfiles, gen
 import { generatePost } from '@/lib/ai';
 import { sendEmail, postPreviewEmail } from '@/lib/email';
 import { getTenantForRow } from '@/lib/tenant';
+import { nextMondaySlot } from '@/lib/post-schedule';
 
 export async function GET(request: NextRequest) {
   if (!verifyCronSecret(request)) return unauthorizedResponse();
@@ -54,8 +55,12 @@ export async function GET(request: NextRequest) {
           recentPosts: (recentPosts || []).map((p: any) => p.content),
         });
 
-        // Schedule for Monday 10am
-        const monday = getNextMonday10am();
+        // Monday morning, but on this profile's own minute inside the window
+        // rather than 10:00 sharp for everyone — see lib/post-schedule.ts. At
+        // six profiles the difference is invisible; at 180 it is the difference
+        // between twelve small publisher runs and one that breaches the API
+        // quota and then times out half-finished.
+        const monday = nextMondaySlot(profile.id, now);
 
         const { data: post } = await supabaseAdmin
           .from('scheduled_posts')
@@ -100,11 +105,3 @@ function getSeason(month: number): string {
   return 'winter';
 }
 
-function getNextMonday10am(): Date {
-  const now = new Date();
-  const daysUntilMonday = ((8 - now.getDay()) % 7) || 7;
-  const monday = new Date(now);
-  monday.setDate(now.getDate() + daysUntilMonday);
-  monday.setHours(10, 0, 0, 0);
-  return monday;
-}

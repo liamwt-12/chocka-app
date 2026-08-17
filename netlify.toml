@@ -4,3 +4,18 @@
 
 [[plugins]]
   package = "@netlify/plugin-nextjs"
+
+# The scheduler. Each file in this directory is a Netlify scheduled function
+# that calls one `app/api/cron/*` route over HTTP — the schedules themselves are
+# declared in the files, next to the reasoning for each one.
+#
+# Before this, nothing invoked the cron routes: no schedule here, no scheduled
+# functions, no workflow, no external service. Six built and tested jobs had
+# never run in production.
+#
+# Deliberately NOT scheduled: retailer-retention. It deletes retailer records,
+# and /privacy currently tells people that review "is by hand rather than
+# automatically". Scheduling it would make a published privacy statement untrue,
+# so the notice has to be updated first — see FOLLOWUPS.md.
+[functions]
+  directory = "netlify/functions"
