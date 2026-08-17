@@ -5,6 +5,7 @@ import { refreshAccessToken, createLocalPost } from '@/lib/google';
 import { sendSMS, logSMS } from '@/lib/twilio';
 import { getTenantForRow } from '@/lib/tenant';
 import { decryptSecret, userTokenAad } from '@/lib/secrets';
+import { resolveAccess, MANAGER_EMBED } from '@/lib/managed-access';
 
 /**
  * Most posts this route will publish in a single invocation.
@@ -26,7 +27,7 @@ export async function GET(request: NextRequest) {
         *,
         profiles!inner (
           *,
-          users:user_id ( *, tenants ( slug ) )
+          users:user_id ( *, tenants ( slug ), ${MANAGER_EMBED} )
         )
       `)
       .eq('status', 'pending_approval')
@@ -59,10 +60,23 @@ export async function GET(request: NextRequest) {
       // Per post, not per run — one pass serves every tenant.
       const t = getTenantForRow(user);
 
+      // Self token, or a manager's for a Route 1 retailer who never signed in
+      // themselves. resolveAccess also decides WHICH id the AAD is built from —
+      // the row the ciphertext lives on, which is not always this user.
+      //
+      // Resolved OUTSIDE the try on purpose: the catch below records a token
+      // failure, and it has to record it against the account that actually owns
+      // the credential.
+      const access = resolveAccess(user);
+      if (!access.ok) {
+        console.warn(`[cron:post-publisher] skipping user ${user.id} — ${access.reason}`);
+        continue;
+      }
+
       try {
         // Refresh Google access token
         const accessToken = await refreshAccessToken(
-          decryptSecret(user.google_refresh_token, userTokenAad(user.id)),
+          decryptSecret(access.encryptedToken, userTokenAad(access.aadUserId)),
         );
 
         // Publish to GBP
@@ -101,15 +115,31 @@ export async function GET(request: NextRequest) {
 
         // Check if it's a token error
         if (err.message?.includes('Token refresh failed') || err.message?.includes('401')) {
+          // Against the row the credential lives on, NOT necessarily this user.
+          // For a managed retailer the dead token is the operator's, and marking
+          // the retailer invalid would flag every shop in the estate as broken
+          // while leaving the one account that actually needs reconnecting
+          // looking healthy.
           await supabaseAdmin
             .from('users')
             .update({
               token_status: 'invalid',
               token_invalid_at: new Date().toISOString(),
             })
-            .eq('id', user.id);
+            .eq('id', access.aadUserId);
 
-          if (user.sms_enabled && user.phone_number) {
+          if (access.via === 'manager') {
+            console.error(
+              `[cron:post-publisher] MANAGER TOKEN FAILED (${access.aadUserId}). Every retailer ` +
+                `managed by this account is now unable to publish. This needs the operator ` +
+                `account reconnected — it is not a per-retailer problem.`,
+            );
+          }
+
+          // Only ask someone to reconnect an account they actually control.
+          // Telling 180 retailers to reconnect a Google account they never
+          // connected — and cannot reach — would be both wrong and alarming.
+          if (access.via === 'self' && user.sms_enabled && user.phone_number) {
             const smsBody = `Your Google connection has expired. Please reconnect at ${t.appHost}/settings so we can keep posting for you. - ${t.brandName}`;
             const sid = await sendSMS({ to: user.phone_number, body: smsBody });
             await logSMS(supabaseAdmin, user.id, user.phone_number, 'token_broken', smsBody, sid);

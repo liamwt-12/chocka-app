@@ -5,6 +5,7 @@ import { generateReviewHash } from '@/lib/cron';
 import { getTenantBySlug } from '@/lib/tenant';
 import { resultPage } from '@/lib/result-page';
 import { decryptSecret, userTokenAad } from '@/lib/secrets';
+import { resolveAccess, MANAGER_EMBED } from '@/lib/managed-access';
 
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
@@ -46,7 +47,7 @@ export async function GET(request: NextRequest) {
       review_replies (*),
       profiles!inner (
         *,
-        users:user_id (*)
+        users:user_id ( *, ${MANAGER_EMBED} )
       )
     `)
     .eq('id', reviewId)
@@ -84,10 +85,14 @@ export async function GET(request: NextRequest) {
   // whose owner was deleted. Checked explicitly because the old code read these
   // fields inside the catch-all try, where a TypeError became "Something went
   // wrong"; without the try there is nothing left to turn it into a page at all.
-  if (!user || !user.google_refresh_token) {
+  // Resolved here rather than checking for a token on this row: a managed
+  // retailer (Route 1) never consented in our app, so their own token is always
+  // absent and the credential belongs to the operator managing their listing.
+  const access = resolveAccess(user);
+  if (!user || !access.ok) {
     console.error(
       `[auto-reply] no usable credential behind review ${reviewId} (reply ${pendingReply.id}): ` +
-        `user=${user ? user.id : 'absent'} token=${user?.google_refresh_token ? 'present' : 'absent'}`,
+        `user=${user ? user.id : 'absent'} — ${access.reason}`,
     );
     return new NextResponse(
       resultPage(
@@ -105,10 +110,13 @@ export async function GET(request: NextRequest) {
   // "Approve" again will fail identically forever — so it must not be dressed up
   // as "try again". Same treatment as /api/audit, which records the dead token so
   // the dashboard can prompt a reconnect.
+  // `access` is resolved above, before the guard, so the catch below can
+  // attribute a dead credential to the account that actually owns it — which for
+  // a managed retailer is the operator, not this retailer.
   let accessToken: string;
   try {
     accessToken = await refreshAccessToken(
-      decryptSecret(user.google_refresh_token, userTokenAad(user.id)),
+      decryptSecret(access.encryptedToken, userTokenAad(access.aadUserId)),
     );
   } catch (err: any) {
     console.error(
@@ -118,7 +126,7 @@ export async function GET(request: NextRequest) {
     const { error: tokErr } = await supabaseAdmin
       .from('users')
       .update({ token_status: 'invalid', token_invalid_at: new Date().toISOString() })
-      .eq('id', user.id);
+      .eq('id', access.aadUserId);
     if (tokErr) console.error('[auto-reply] failed to record token_status=invalid:', tokErr);
 
     return new NextResponse(

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
 import { refreshAccessToken, getManageableListings } from '@/lib/google';
 import { decryptSecret, userTokenAad } from '@/lib/secrets';
+import { resolveAccess, MANAGER_EMBED } from '@/lib/managed-access';
 
 // Bind (or re-bind) the user's single profile to a listing they chose.
 // Reached from the onboarding picker and the settings "change listing" path.
@@ -23,10 +24,18 @@ export async function POST(request: NextRequest) {
 
     const { data: user } = await supabaseAdmin
       .from('users')
-      .select('id, google_refresh_token, tenant_id')
+      .select(`id, google_refresh_token, token_status, tenant_id, managed_by_user_id, ${MANAGER_EMBED}`)
       .eq('id', userId)
       .single();
-    if (!user?.google_refresh_token) {
+    if (!user) {
+      return NextResponse.json({ error: 'Not authenticated', code: 'not_authenticated' }, { status: 401 });
+    }
+    // A managed retailer (Route 1) legitimately has no token of their own — the
+    // credential belongs to the operator account managing their listing — so the
+    // question is "is there access", not "is there a token on this row".
+    const access = resolveAccess(user);
+    if (!access.ok) {
+      console.warn('[listings/select] no Google access for user', user?.id, '—', access.reason);
       return NextResponse.json({ error: 'Google not connected', code: 'google_disconnected' }, { status: 400 });
     }
 
@@ -36,7 +45,7 @@ export async function POST(request: NextRequest) {
     // membership here is proof the user can manage this exact pairing — a
     // hand-crafted POST cannot bind an account/location the user doesn't hold.
     const accessToken = await refreshAccessToken(
-      decryptSecret(user.google_refresh_token, userTokenAad(user.id)),
+      decryptSecret(access.encryptedToken, userTokenAad(access.aadUserId)),
     );
     const listings = await getManageableListings(accessToken);
     const chosen = listings.find(

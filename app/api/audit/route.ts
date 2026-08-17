@@ -3,14 +3,19 @@ import { supabaseAdmin as supaAdmin } from '@/lib/supabase';
 import { refreshAccessToken, getLocationFull, getGoogleUpdated, getAttributes, getMedia, getReviews, getLocalPosts, GbpError } from '@/lib/google';
 import { scoreProfile, predictedScore } from '@/lib/audit';
 import { decryptSecret, userTokenAad } from '@/lib/secrets';
+import { resolveAccess, MANAGER_EMBED } from '@/lib/managed-access';
 
 export async function POST(request: NextRequest) {
   const userId = request.cookies.get('chocka_user_id')?.value;
   try {
     if (!userId) { console.error('Audit: no userId cookie'); return NextResponse.json({ error: 'Not authenticated', code: 'not_authenticated' }, { status: 401 }); }
 
-    const { data: userData } = await supaAdmin.from('users').select('id, google_refresh_token').eq('id', userId).single();
-    if (!userData?.google_refresh_token) { console.error('Audit: no refresh token for user', userId); return NextResponse.json({ error: 'Google not connected', code: 'google_disconnected' }, { status: 400 }); }
+    const { data: userData } = await supaAdmin.from('users').select(`id, google_refresh_token, token_status, managed_by_user_id, ${MANAGER_EMBED}`).eq('id', userId).single();
+    // A managed retailer (Route 1) legitimately has no token of their own — the
+    // credential belongs to the operator account managing their listing — so the
+    // question is "is there access", not "is there a token on this row".
+    const access = resolveAccess(userData);
+    if (!access.ok) { console.error('Audit: no Google access for user', userId, '—', access.reason); return NextResponse.json({ error: 'Google not connected', code: 'google_disconnected' }, { status: 400 }); }
 
     const { data: profile } = await supaAdmin.from('profiles').select('*').eq('user_id', userId).single();
     if (!profile) { console.error('Audit: no profile for user', userId); return NextResponse.json({ error: 'No profile found', code: 'no_profile' }, { status: 400 }); }
@@ -23,12 +28,17 @@ export async function POST(request: NextRequest) {
     let accessToken: string;
     try {
       accessToken = await refreshAccessToken(
-        decryptSecret(userData.google_refresh_token, userTokenAad(userData.id)),
+        decryptSecret(access.encryptedToken, userTokenAad(access.aadUserId)),
       );
     } catch (e: any) {
       console.error('Audit: token refresh failed for user', userId, String(e?.message).slice(0, 200));
-      const { error: tokErr } = await supaAdmin.from('users').update({ token_status: 'invalid', token_invalid_at: new Date().toISOString() }).eq('id', userId);
+      // Recorded against the row the credential lives on, which for a managed
+      // retailer is the operator, not this user. Marking the retailer would flag
+      // a shop as broken while the account that actually needs reconnecting
+      // still reads as healthy.
+      const { error: tokErr } = await supaAdmin.from('users').update({ token_status: 'invalid', token_invalid_at: new Date().toISOString() }).eq('id', access.aadUserId);
       if (tokErr) console.error('Failed to record token_status=invalid:', tokErr);
+      if (access.via === 'manager') console.error(`Audit: MANAGER TOKEN FAILED (${access.aadUserId}) — affects every retailer it manages, not just ${userId}.`);
       return NextResponse.json({ error: 'Google not connected', code: 'google_disconnected' }, { status: 400 });
     }
 

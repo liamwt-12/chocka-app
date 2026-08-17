@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getTenantForRow, type TenantEmbeddedRow } from './tenant';
+import { MANAGER_EMBED } from './managed-access';
 
 // Verify cron secret from query param
 export function verifyCronSecret(request: NextRequest): boolean {
@@ -140,9 +141,24 @@ export async function getActiveUsersWithProfiles(supabaseAdmin: any, routeLabel:
     .select(`
       *,
       profiles (*),
-      tenants ( slug )
+      tenants ( slug ),
+      ${MANAGER_EMBED}
     `)
-    .eq('token_status', 'valid')
+    // Two shapes qualify, and the second one is new.
+    //
+    // A SELF-MANAGED user needs their own token to be valid. A MANAGED user
+    // (Route 1 — a rep added Stellar as a manager, so the retailer never
+    // consented in our app) has no token of their own at all, and their
+    // token_status is therefore not 'valid' and never will be. The old
+    // `.eq('token_status','valid')` would have excluded every Route 1 retailer
+    // in SQL, before entitlement or logging could see them — which is precisely
+    // the silent-exclusion failure admitEntitled below exists to make visible,
+    // reappearing one layer further down where that logging cannot reach it.
+    //
+    // So the SQL admits both, and resolveAccess decides per user whether there
+    // is actually a usable credential. That keeps the refusal in one place, with
+    // a reason attached.
+    .or('token_status.eq.valid,managed_by_user_id.not.is.null')
     .or('pause_until.is.null,pause_until.lt.now()');
 
   if (error) throw error;
