@@ -221,3 +221,9 @@ export function generateReviewHash(reviewId: string): string {
     .digest('hex')
     .substring(0, 16);
 }
+
+/** Constant-time comparison for the short hex link hashes above. */
+export function linkHashMatches(given: string | null | undefined, expected: string): boolean {
+  if (!given || given.length !== expected.length) return false;
+  return timingSafeEqual(Buffer.from(given), Buffer.from(expected));
+}

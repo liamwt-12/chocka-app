@@ -2,13 +2,36 @@ import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
 import { refreshAccessToken } from '@/lib/google';
 import { loggedReplyToReview } from '@/lib/change-log';
-import { generateReviewHash } from '@/lib/cron';
+import { generateReviewHash, linkHashMatches } from '@/lib/cron';
 import { getTenantBySlug } from '@/lib/tenant';
-import { resultPage } from '@/lib/result-page';
+import { resultPage, confirmPage } from '@/lib/result-page';
 import { decryptSecret, userTokenAad } from '@/lib/secrets';
 import { resolveAccess, MANAGER_EMBED } from '@/lib/managed-access';
 
+/**
+ * GET only shows a confirmation page. Approving publishes a reply to Google, and
+ * email security scanners open every link in a message, so acting on GET meant a
+ * scanner could publish a reply to a bad review that nobody had approved. The
+ * button POSTs back to this same URL, and POST does the work.
+ */
 export async function GET(request: NextRequest) {
+  const tenant = getTenantBySlug(request.headers.get('x-tenant-slug'));
+  const url = new URL(request.url);
+  const action = url.searchParams.get('action');
+  const reviewId = url.searchParams.get('review_id');
+  const hash = url.searchParams.get('hash');
+  if (!action || !reviewId || !['approve', 'reject'].includes(action) || !linkHashMatches(hash, generateReviewHash(reviewId))) {
+    return new NextResponse(resultPage(tenant, 'Invalid link', 'This link has expired or is invalid.'), {
+      headers: { 'Content-Type': 'text/html' },
+    });
+  }
+  const page = action === 'approve'
+    ? confirmPage(tenant, 'Publish this reply?', 'Your reply will be posted on your Google listing.', 'Yes, publish the reply', `${url.pathname}${url.search}`)
+    : confirmPage(tenant, 'Handle it yourself?', 'We will not post our suggested reply.', 'Yes, I will handle it', `${url.pathname}${url.search}`);
+  return new NextResponse(page, { headers: { 'Content-Type': 'text/html', 'Cache-Control': 'no-store' } });
+}
+
+export async function POST(request: NextRequest) {
   const { searchParams } = new URL(request.url);
 
   // The brand for every page this route renders. Host-derived, for the same
@@ -34,7 +57,7 @@ export async function GET(request: NextRequest) {
 
   // Verify HMAC hash
   const expectedHash = generateReviewHash(reviewId);
-  if (!hash || hash !== expectedHash) {
+  if (!linkHashMatches(hash, expectedHash)) {
     return new NextResponse(resultPage(tenant, 'Invalid link', 'This link has expired or is invalid.'), {
       headers: { 'Content-Type': 'text/html' },
     });

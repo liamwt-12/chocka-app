@@ -44,3 +44,49 @@ export function resultPage(t: Tenant, title: string, message: string): string {
 </body>
 </html>`;
 }
+
+function escapeHtml(s: string): string {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+/**
+ * A confirmation page whose button POSTs back to the same link.
+ *
+ * WHY: the cancel and approve links in our emails used to act on a plain GET.
+ * Email security scanners (Outlook Safe Links, Microsoft Defender, Mimecast and
+ * others) open every link in a message to check it, so a scanner could cancel a
+ * retailer's post, or publish a reply to a bad review, without anyone clicking.
+ * Scanners follow links; they do not submit forms. So the GET now only shows
+ * this page, and the action happens on the POST the button sends.
+ *
+ * `actionPath` is the path plus query string of the link itself. It is escaped
+ * here because it comes from the request URL.
+ */
+export function confirmPage(t: Tenant, title: string, message: string, buttonLabel: string, actionPath: string): string {
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="robots" content="noindex">
+  <title>${escapeHtml(title)} | ${escapeHtml(t.brandName)}</title>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;800&display=swap" rel="stylesheet">
+  <style>
+    body { font-family: 'Plus Jakarta Sans', sans-serif; display: flex; align-items: center; justify-content: center; min-height: 100vh; margin: 0; background: #f9fafb; }
+    .card { text-align: center; max-width: 360px; padding: 40px; }
+    h1 { color: ${t.palette.routeAccent}; font-size: 24px; font-weight: 800; margin-bottom: 8px; }
+    p { color: #6b7280; font-size: 15px; line-height: 1.6; }
+    button { margin-top: 16px; background: ${t.palette.routeAccent}; color: #fff; border: 0; border-radius: 10px; padding: 14px 22px; font: 600 15px 'Plus Jakarta Sans', sans-serif; cursor: pointer; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>${escapeHtml(title)}</h1>
+    <p>${escapeHtml(message)}</p>
+    <form method="POST" action="${escapeHtml(actionPath)}">
+      <button type="submit">${escapeHtml(buttonLabel)}</button>
+    </form>
+  </div>
+</body>
+</html>`;
+}
