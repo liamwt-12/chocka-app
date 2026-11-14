@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
-import { refreshAccessToken, replyToReview } from '@/lib/google';
+import { refreshAccessToken } from '@/lib/google';
+import { loggedReplyToReview } from '@/lib/change-log';
 import { generateReviewHash } from '@/lib/cron';
 import { getTenantBySlug } from '@/lib/tenant';
 import { resultPage } from '@/lib/result-page';
@@ -142,7 +143,12 @@ export async function GET(request: NextRequest) {
 
   const reviewName = `${profile.google_location_name}/reviews/${review.google_review_id}`;
   try {
-    await replyToReview(accessToken, reviewName, pendingReply.reply_content);
+    // Previous reply passed as undefined (not known): this page only has our
+    // stored copy, so the log says so rather than guessing.
+    await loggedReplyToReview(
+      { db: supabaseAdmin, source: 'auto-reply', userId: user.id, profileId: profile.id },
+      accessToken, reviewName, pendingReply.reply_content,
+    );
   } catch (err: any) {
     const status = err?.status;
     const googleStatus = err?.googleStatus;

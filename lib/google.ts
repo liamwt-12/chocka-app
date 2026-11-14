@@ -371,6 +371,40 @@ export async function getLocalPosts(accessToken: string, locationName: string, a
   return res.json();
 }
 
+/**
+ * Read exactly the fields named in an update mask, so lib/change-log.ts can
+ * snapshot a listing's values immediately before the app changes them. `name`
+ * is always added because the API requires a non-empty read mask and it is
+ * harmless. Throws GbpError, so a failed snapshot stops the write.
+ */
+export async function getLocationFields(accessToken: string, locationName: string, fields: string[]) {
+  const mask = Array.from(new Set(['name', ...fields])).join(',');
+  const res = await fetch(
+    `${GBP_API_BASE}/${locationName}?readMask=${mask}`,
+    { headers: { Authorization: `Bearer ${accessToken}` } }
+  );
+  if (!res.ok) throw await gbpError(res, 'Failed to snapshot location');
+  return res.json();
+}
+
+/** Delete a local post by its full v4 resource name. Used only by the revert script. */
+export async function deleteLocalPost(accessToken: string, postName: string) {
+  const res = await fetch(`${GBP_POSTS_BASE}/${postName}`, {
+    method: 'DELETE',
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  if (!res.ok) throw await gbpError(res, 'Failed to delete post');
+}
+
+/** Delete the owner's reply to a review. Used only by the revert script. */
+export async function deleteReviewReply(accessToken: string, reviewName: string) {
+  const res = await fetch(`${GBP_POSTS_BASE}/${reviewName}/reply`, {
+    method: 'DELETE',
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  if (!res.ok) throw await gbpError(res, 'Failed to delete reply');
+}
+
 // ── NEW: Update functions ──
 
 export async function updateLocation(
