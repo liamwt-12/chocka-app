@@ -8,7 +8,8 @@ import { refreshAccessToken } from '@/lib/google';
 import { decryptSecret, userTokenAad } from '@/lib/secrets';
 import { resolveAccess } from '@/lib/managed-access';
 import { livePresenceScore } from '@/lib/presence-score';
-import { loadMetricRows, totalsFor, previousMonth } from '@/lib/metrics';
+import { loadMetricRows, totalsFor, previousMonth, type MetricRow } from '@/lib/metrics';
+import { compareAdPeriod, comparisonRange, adComparisonEmailSection } from '@/lib/ad-comparison';
 
 /** A month with fewer stored days than this shows no figures rather than a partial one. */
 const MIN_DAYS_FOR_MONTHLY_FIGURES = 20;
@@ -23,6 +24,32 @@ export async function GET(request: NextRequest) {
     const lastMonthEnd = new Date(now.getFullYear(), now.getMonth(), 0);
     const monthName = lastMonth.toLocaleString('en-GB', { month: 'long', year: 'numeric' });
     let sent = 0;
+
+    // "Change during your ads": shops with an ad start date are compared with
+    // shops that have none, over the same weeks. The comparison set and each
+    // shop's stored rows are loaded once per run and reused.
+    const { data: retailerRows } = await supabaseAdmin
+      .from('retailers')
+      .select('user_id, ad_start_date')
+      .not('user_id', 'is', null);
+    const adStartByUser = new Map<string, string>();
+    const comparisonUserIds: string[] = [];
+    for (const r of retailerRows || []) {
+      if (r.ad_start_date) adStartByUser.set(r.user_id, r.ad_start_date);
+      else comparisonUserIds.push(r.user_id);
+    }
+    const comparisonProfileIds = users
+      .filter((u: any) => comparisonUserIds.includes(u.id))
+      .map((u: any) => u.profiles?.[0]?.id)
+      .filter(Boolean) as string[];
+    const comparisonCache = new Map<string, MetricRow[][]>();
+    const comparisonRowsFor = async (start: string): Promise<MetricRow[][]> => {
+      if (!comparisonCache.has(start)) {
+        const { from, to } = comparisonRange(start);
+        comparisonCache.set(start, await Promise.all(comparisonProfileIds.map((id) => loadMetricRows(supabaseAdmin, id, from, to))));
+      }
+      return comparisonCache.get(start)!;
+    };
 
     for (const user of users) {
       const profile = user.profiles?.[0];
@@ -63,6 +90,18 @@ export async function GET(request: NextRequest) {
         const totalDirections = enoughDays ? monthTotals.directions : null;
         const totalWebsiteClicks = enoughDays ? monthTotals.websiteClicks : null;
 
+        let adComparisonHtml = '';
+        const adStart = adStartByUser.get(user.id);
+        if (adStart) {
+          try {
+            const { from, to } = comparisonRange(adStart);
+            const comparison = compareAdPeriod(adStart, await loadMetricRows(supabaseAdmin, profile.id, from, to), await comparisonRowsFor(adStart), now);
+            adComparisonHtml = adComparisonEmailSection(comparison);
+          } catch (e: any) {
+            console.warn(`[cron:monthly-report] ad comparison skipped for user ${user.id}: ${String(e?.message).slice(0, 200)}`);
+          }
+        }
+
         // Live presence score (one-pager item 3). Best effort: if Google cannot
         // be reached the report still goes, without the score, rather than not at
         // all. Compared only with the score at activation (profiles.audit_score),
@@ -99,6 +138,7 @@ export async function GET(request: NextRequest) {
             presenceScore,
             presenceBand,
             presenceScoreAtStart: profile.audit_score ?? null,
+            adComparisonHtml,
             tenant: t,
           }),
           tenant: t,

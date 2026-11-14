@@ -149,6 +149,8 @@ export function monthlyReportEmail(params: {
   presenceBand?: string | null;
   /** Score at activation (profiles.audit_score), for the comparison line. */
   presenceScoreAtStart?: number | null;
+  /** Pre-rendered "Change during your ads" section (lib/ad-comparison.ts), or empty. */
+  adComparisonHtml?: string;
   tenant?: Tenant;
 }): string {
   const t = params.tenant ?? getTenant();
@@ -183,6 +185,7 @@ export function monthlyReportEmail(params: {
     <p style="font-size: 15px; line-height: 1.6; margin: 0 0 6px;">Hi ${firstName},</p>
     <p style="font-size: 15px; line-height: 1.6; margin: 0 0 28px; color: #555;">Here's what ${t.brandName} did for ${params.businessName} in ${params.month}.</p>
 ${scoreBlock}
+${params.adComparisonHtml ?? ''}
 
     <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom: 28px;">
       <tr>
