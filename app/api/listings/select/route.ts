@@ -4,6 +4,7 @@ import { refreshAccessToken, getManageableListings } from '@/lib/google';
 import { decryptSecret, userTokenAad } from '@/lib/secrets';
 import { resolveAccess, MANAGER_EMBED } from '@/lib/managed-access';
 import { getSessionUserId } from '@/lib/session';
+import { statusForChosenListing, SHOP_MESSAGES } from '@/lib/ownership';
 
 // Bind (or re-bind) the user's single profile to a listing they chose.
 // Reached from the onboarding picker and the settings "change listing" path.
@@ -105,9 +106,24 @@ export async function POST(request: NextRequest) {
       if (error) throw error;
     }
 
+    // Ownership detection: record whether the shop picked the listing we expected.
+    const { data: retailer } = await supabaseAdmin
+      .from('retailers').select('id, place_id').eq('user_id', userId).maybeSingle();
+    let connection = null;
+    if (retailer) {
+      const result = statusForChosenListing(chosen, retailer.place_id ?? null);
+      const { error: statusError } = await supabaseAdmin
+        .from('retailers')
+        .update({ connection_status: result.status, connection_detail: result.detail, connection_checked_at: new Date().toISOString() })
+        .eq('id', retailer.id);
+      if (statusError) console.error('[listings/select] could not record connection status:', statusError.message);
+      connection = { status: result.status, ...SHOP_MESSAGES[result.status] };
+    }
+
     return NextResponse.json({
       ok: true,
       listing: { title: chosen.title, address: chosen.address, accountDisplay: chosen.accountDisplay },
+      connection,
     });
   } catch (error: any) {
     console.error('Listing select error:', error);
