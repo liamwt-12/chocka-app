@@ -4,6 +4,10 @@ import { verifyCronSecret, unauthorizedResponse, getActiveUsersWithProfiles } fr
 import { sendEmail, monthlyReportEmail } from '@/lib/email';
 import { sendSMS, logSMS } from '@/lib/twilio';
 import { getTenantForRow } from '@/lib/tenant';
+import { refreshAccessToken } from '@/lib/google';
+import { decryptSecret, userTokenAad } from '@/lib/secrets';
+import { resolveAccess } from '@/lib/managed-access';
+import { livePresenceScore } from '@/lib/presence-score';
 
 export async function GET(request: NextRequest) {
   if (!verifyCronSecret(request)) return unauthorizedResponse();
@@ -45,13 +49,34 @@ export async function GET(request: NextRequest) {
         // Sum views and calls from weekly_stats last month
         const { data: weeklyStats } = await supabaseAdmin
           .from('weekly_stats')
-          .select('views, calls')
+          .select('views, calls, direction_requests')
           .eq('profile_id', profile.id)
           .gte('week_start', lastMonth.toISOString().split('T')[0])
           .lte('week_start', lastMonthEnd.toISOString().split('T')[0]);
 
         const totalViews = (weeklyStats || []).reduce((sum: number, w: any) => sum + (w.views || 0), 0);
         const totalCalls = (weeklyStats || []).reduce((sum: number, w: any) => sum + (w.calls || 0), 0);
+        const totalDirections = (weeklyStats || []).reduce((sum: number, w: any) => sum + (w.direction_requests || 0), 0);
+
+        // Live presence score (one-pager item 3). Best effort: if Google cannot
+        // be reached the report still goes, without the score, rather than not at
+        // all. Compared only with the score at activation (profiles.audit_score),
+        // never the June batch score, which is on a different scale.
+        let presenceScore: number | null = null;
+        let presenceBand: string | null = null;
+        const access = resolveAccess(user);
+        if (access.ok && profile.google_location_name) {
+          try {
+            const token = await refreshAccessToken(decryptSecret(access.encryptedToken, userTokenAad(access.aadUserId)));
+            const result = await livePresenceScore(token, profile.google_location_name, profile.google_account_id);
+            presenceScore = result.score;
+            presenceBand = result.band;
+          } catch (e: any) {
+            console.warn(`[cron:monthly-report] presence score unavailable for user ${user.id}: ${String(e?.message).slice(0, 200)}`);
+          }
+        } else {
+          console.warn(`[cron:monthly-report] presence score skipped for user ${user.id}: ${access.ok ? 'no location' : access.reason}`);
+        }
 
         await sendEmail({
           to: user.email,
@@ -63,6 +88,10 @@ export async function GET(request: NextRequest) {
             reviewsReplied: reviewsReplied || 0,
             totalViews,
             totalCalls,
+            totalDirections,
+            presenceScore,
+            presenceBand,
+            presenceScoreAtStart: profile.audit_score ?? null,
             tenant: t,
           }),
           tenant: t,

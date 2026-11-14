@@ -5,27 +5,6 @@ import { decryptSecret, userTokenAad } from '@/lib/secrets';
 import { resolveAccess, MANAGER_EMBED } from '@/lib/managed-access';
 import { getSessionUserId } from '@/lib/session';
 
-async function searchCompetitors(category: string, lat: number, lng: number) {
-  const apiKey = process.env.GOOGLE_PLACES_API_KEY;
-  if (!apiKey || !lat || !lng) return [];
-  try {
-    const res = await fetch('https://places.googleapis.com/v1/places:searchText', {
-      method: 'POST',
-      headers: { 'X-Goog-Api-Key': apiKey, 'X-Goog-FieldMask': 'places.id,places.displayName,places.rating,places.userRatingCount,places.formattedAddress', 'Content-Type': 'application/json' },
-      body: JSON.stringify({ textQuery: `${category} near me`, locationBias: { circle: { center: { latitude: lat, longitude: lng }, radius: 5000 } }, maxResultCount: 6, languageCode: 'en' }),
-    });
-    if (!res.ok) return [];
-    const data = await res.json();
-    return (data.places || []).map((p: any) => ({
-      name: p.displayName?.text || 'Unknown',
-      rating: p.rating || 0,
-      reviewCount: p.userRatingCount || 0,
-      address: p.formattedAddress || '',
-      placeId: p.id,
-    }));
-  } catch { return []; }
-}
-
 export async function GET(request: NextRequest) {
   try {
     const userId = getSessionUserId(request);
@@ -44,7 +23,6 @@ export async function GET(request: NextRequest) {
     ]);
 
     let google: any = null;
-    let competitors: any[] = [];
 
     // Access, not "is there a token on this row" — a managed retailer's
     // credential lives on the operator account, so the old truthiness check
@@ -117,27 +95,12 @@ export async function GET(request: NextRequest) {
         const phone = location?.phoneNumbers?.primaryPhone || null;
         const website = location?.websiteUri || null;
         const mapsUri = location?.metadata?.mapsUri || null;
-        const lat = location?.latlng?.latitude || profile?.latitude || 0;
-        const lng = location?.latlng?.longitude || profile?.longitude || 0;
         const serviceNames = svcs.map((s: any) => s.freeFormServiceItem?.label?.displayName || s.structuredServiceItem?.description || '').filter(Boolean);
 
         const views = gMetrics?.views || 0;
         const calls = gMetrics?.calls || 0;
         const directions = gMetrics?.directions || 0;
         const websiteClicks = gMetrics?.websiteClicks || 0;
-
-        // Competitor search
-        if (primaryCat && lat && lng) {
-          const rawComps = await searchCompetitors(primaryCat, lat, lng);
-          // Filter out self and score them
-          competitors = rawComps.filter((c: any) => c.name !== profile.business_name).slice(0, 4).map((c: any) => {
-            const score = Math.min(100, Math.round((c.rating / 5) * 50 + Math.min(c.reviewCount, 50)));
-            return { ...c, score };
-          });
-        }
-
-        // Calculate own competitor score
-        const ownScore = profile?.audit_score_after || profile?.audit_score || Math.min(100, Math.round((avgRating / 5) * 50 + Math.min(totalReviews, 50)));
 
         google = {
           reviews: { total: totalReviews, avgRating: Math.round(avgRating * 10) / 10, replied: repliedCount, unreplied: unrepliedCount, list: reviewsFull },
@@ -151,7 +114,6 @@ export async function GET(request: NextRequest) {
             hasPhone: !!phone, hasWebsite: !!website, mapsUri,
           },
           metrics: { views, calls, directions, websiteClicks, totalActions: calls + directions + websiteClicks },
-          competitors: { own: { name: profile.business_name, score: ownScore }, list: competitors },
         };
       } catch (e: any) { console.error('Google fetch failed:', e.message); }
     }
