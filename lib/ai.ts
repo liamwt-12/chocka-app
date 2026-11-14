@@ -1,3 +1,4 @@
+import { replyBreaksRules } from './safe-automation';
 const ANTHROPIC_API = 'https://api.anthropic.com/v1/messages';
 
 // Model id from the environment, so a retirement is a config change rather than
@@ -69,6 +70,10 @@ export function validateContent(
   if (/£\d|\$/.test(text)) {
     return { valid: false, reason: 'contains pricing' };
   }
+  if (contentType === 'reply') {
+    const broken = replyBreaksRules(text);
+    if (broken) return { valid: false, reason: broken };
+  }
   if (/\b(gas\s+safe|niceic|trustmark|oftec|certified|accredited|guaranteed|100%|best\s+in)\b/i.test(text)) {
     return { valid: false, reason: 'contains unverifiable claim' };
   }
@@ -123,7 +128,7 @@ export async function generateReviewReply(params: {
   rating: number; comment: string;
 }): Promise<string> {
   const tone = params.rating >= 4 ? 'warm, grateful, genuine' : 'professional, empathetic, constructive';
-  const system = `You write review replies for UK tradespeople. British English. Sound real, not corporate. Be ${tone}. 2-3 sentences. Use reviewer's first name. Never defensive about negatives.` + SAFETY_RULES;
+  const system = `You write review replies for UK tradespeople. British English. Sound real, not corporate. Be ${tone}. 2-3 sentences. Use reviewer's first name. Never defensive about negatives. Never admit fault, apologise for a specific failing, or offer a refund, discount, compensation or anything free. Never promise future action.` + SAFETY_RULES;
   const user = `Business: ${params.businessName}\nTrade: ${params.category}\nReviewer: ${params.reviewerName}\nRating: ${params.rating}/5\nComment: ${params.comment || '(no comment)'}\n\nWrite a reply.`;
   return generateWithValidation(system, user, 'reply');
 }
