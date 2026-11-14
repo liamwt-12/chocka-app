@@ -1,11 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
 import { cancelSubscription } from '@/lib/stripe';
+import { getSessionUserId, clearSessionCookies } from '@/lib/session';
 
 // PATCH — update user settings
 export async function PATCH(request: NextRequest) {
   try {
-    const userId = request.cookies.get('chocka_user_id')?.value;
+    const userId = getSessionUserId(request);
     if (!userId) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
 
     const body = await request.json();
@@ -57,7 +58,7 @@ export async function PATCH(request: NextRequest) {
 // DELETE — delete account and all data
 export async function DELETE(request: NextRequest) {
   try {
-    const userId = request.cookies.get('chocka_user_id')?.value;
+    const userId = getSessionUserId(request);
     if (!userId) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
 
     // Get user for Stripe cancellation
@@ -87,7 +88,7 @@ export async function DELETE(request: NextRequest) {
 
     // Clear session cookie
     const response = NextResponse.json({ success: true });
-    response.cookies.delete('chocka_user_id');
+    clearSessionCookies(response);
     return response;
   } catch (err) {
     console.error('Account deletion error:', err);

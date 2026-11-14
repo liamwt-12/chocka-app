@@ -4,10 +4,11 @@ import { refreshAccessToken, updateLocation, replyToReview, getReviews, parseSta
 import { generateReviewReply } from '@/lib/ai';
 import { decryptSecret, userTokenAad } from '@/lib/secrets';
 import { resolveAccess, MANAGER_EMBED } from '@/lib/managed-access';
+import { getSessionUserId } from '@/lib/session';
 
 export async function POST(request: NextRequest) {
   try {
-    const userId = request.cookies.get('chocka_user_id')?.value;
+    const userId = getSessionUserId(request);
     if (!userId) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
 
     const body = await request.json();

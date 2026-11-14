@@ -6,6 +6,7 @@ import { getTenantBySlug } from '@/lib/tenant';
 import { PRIMARY_TENANT_SLUG } from '@/lib/tenant-registry';
 import { encryptSecret, isEncrypted, userTokenAad } from '@/lib/secrets';
 import { parseInviteRef } from '@/lib/invite-token';
+import { setSessionCookie } from '@/lib/session';
 
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
@@ -190,12 +191,7 @@ export async function GET(request: NextRequest) {
       await linkInviteToUser(parsedState.invite, existingUser.id, tenant.slug);
 
       const response = NextResponse.redirect(new URL(dest, baseUrl));
-      response.cookies.set('chocka_user_id', existingUser.id, {
-        httpOnly: true,
-        secure: true,
-        sameSite: 'lax',
-        maxAge: 60 * 60 * 24 * 30,
-      });
+      setSessionCookie(response, existingUser.id);
       return response;
     }
 
@@ -359,12 +355,7 @@ export async function GET(request: NextRequest) {
     await linkInviteToUser(parsedState.invite, newUser.id, tenant.slug);
 
     const response = NextResponse.redirect(new URL(dest, baseUrl));
-    response.cookies.set('chocka_user_id', newUser.id, {
-      httpOnly: true,
-      secure: true,
-      sameSite: 'lax',
-      maxAge: 60 * 60 * 24 * 30,
-    });
+    setSessionCookie(response, newUser.id);
     return response;
 
   } catch (err) {

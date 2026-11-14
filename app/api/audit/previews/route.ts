@@ -5,6 +5,7 @@ import { generateDescription, generateServices, generatePost, generateReviewRepl
 import { scoreProfile } from '@/lib/audit';
 import { decryptSecret, userTokenAad } from '@/lib/secrets';
 import { resolveAccess, MANAGER_EMBED } from '@/lib/managed-access';
+import { getSessionUserId } from '@/lib/session';
 
 function getSeason(): string {
   const m = new Date().getMonth();
@@ -16,7 +17,7 @@ function getSeason(): string {
 
 export async function POST(request: NextRequest) {
   try {
-    const userId = request.cookies.get('chocka_user_id')?.value;
+    const userId = getSessionUserId(request);
     if (!userId) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
 
     const { data: userData } = await supaAdmin.from('users').select(`id, google_refresh_token, token_status, managed_by_user_id, ${MANAGER_EMBED}`).eq('id', userId).single();

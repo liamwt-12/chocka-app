@@ -3,6 +3,7 @@ import { supabaseAdmin } from '@/lib/supabase';
 import { refreshAccessToken, getManageableListings } from '@/lib/google';
 import { decryptSecret, userTokenAad } from '@/lib/secrets';
 import { resolveAccess, MANAGER_EMBED } from '@/lib/managed-access';
+import { getSessionUserId } from '@/lib/session';
 
 // Feed for the onboarding / settings listing picker. Re-enumerates live on
 // every call (no stored candidate list) and returns only what the picker
@@ -10,7 +11,7 @@ import { resolveAccess, MANAGER_EMBED } from '@/lib/managed-access';
 // select endpoint needs to re-validate the choice.
 export async function GET(request: NextRequest) {
   try {
-    const userId = request.cookies.get('chocka_user_id')?.value;
+    const userId = getSessionUserId(request);
     if (!userId) {
       return NextResponse.json({ error: 'Not authenticated', code: 'not_authenticated' }, { status: 401 });
     }
