@@ -1,6 +1,9 @@
 import { defineConfig } from 'vitest/config';
+import { fileURLToPath } from 'node:url';
 
 export default defineConfig({
+  // Same '@/' alias as tsconfig, so route handlers can be tested directly.
+  resolve: { alias: { '@': fileURLToPath(new URL('.', import.meta.url)) } },
   test: {
     // `.netlify/` holds generated Deno edge-function bundles, including a
     // vendored utils.test.ts that imports over https: and cannot be loaded by
