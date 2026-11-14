@@ -5,6 +5,7 @@ import { generateDescription, generateServices, generatePost, generateReviewRepl
 import { scoreProfile } from '@/lib/audit';
 import { decryptSecret, userTokenAad } from '@/lib/secrets';
 import { resolveAccess, MANAGER_EMBED } from '@/lib/managed-access';
+import { ONBOARDING_REPLY_CAP } from '@/lib/review-intake';
 
 function getSeason(): string {
   const m = new Date().getMonth();
@@ -80,7 +81,7 @@ export async function POST(request: NextRequest) {
         const rating = parseStarRating(sample.starRating);
         const name = sample.reviewer?.displayName || 'Customer';
         const reply = await generateReviewReply({ businessName: profile.business_name, category: primaryCat, reviewerName: name, rating, comment: sample.comment || '' });
-        reviewPreview = { reviewerName: name, rating, comment: sample.comment || '(no comment)', suggestedReply: reply, totalUnreplied: unreplied.length };
+        reviewPreview = { reviewerName: name, rating, comment: sample.comment || '(no comment)', suggestedReply: reply, totalUnreplied: Math.min(unreplied.length, ONBOARDING_REPLY_CAP) };
       } catch {
         reviewPreview = null;
       }

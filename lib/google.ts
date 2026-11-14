@@ -421,14 +421,59 @@ export async function createLocalPost(accessToken: string, locationName: string,
   return res.json();
 }
 
-export async function getReviews(accessToken: string, locationName: string, accountId?: string) {
+/** Google's maximum page size for reviews.list. */
+export const REVIEWS_PAGE_SIZE = 50;
+/**
+ * Safety cap: 40 pages = 2,000 reviews. No flooring retailer is anywhere near it,
+ * and it stops a looping nextPageToken from running a cron function out of time.
+ * Hitting it is reported as `truncated: true`, never silently.
+ */
+export const REVIEWS_MAX_PAGES = 40;
+
+/**
+ * Every review on a location, across all pages.
+ *
+ * This used to fetch only the first page, so for any listing with more reviews
+ * than one page holds, the rest were invisible: review-alerts never saw them,
+ * onboarding never offered to reply to them, and reply-rate stats were computed
+ * from a partial set. The response shape is unchanged (`reviews`,
+ * `averageRating`, `totalReviewCount`), plus `truncated` if the cap was hit.
+ * Google returns newest first, so page one is still what any "latest" view reads.
+ */
+export async function getReviews(
+  accessToken: string,
+  locationName: string,
+  accountId?: string,
+  maxPages: number = REVIEWS_MAX_PAGES,
+) {
   const v4Path = accountId ? `${accountId}/${locationName}` : locationName;
-  const res = await fetch(
-    `${GBP_POSTS_BASE}/${v4Path}/reviews`,
-    { headers: { Authorization: `Bearer ${accessToken}` } }
-  );
-  if (!res.ok) throw new Error(`Failed to get reviews: ${await res.text()}`);
-  return res.json();
+  const reviews: any[] = [];
+  let averageRating: number | undefined;
+  let totalReviewCount: number | undefined;
+  let pageToken: string | undefined;
+  let truncated = false;
+
+  for (let page = 0; ; page++) {
+    if (page >= maxPages) { truncated = true; break; }
+    const qs = new URLSearchParams({ pageSize: String(REVIEWS_PAGE_SIZE) });
+    if (pageToken) qs.set('pageToken', pageToken);
+    const res = await fetch(
+      `${GBP_POSTS_BASE}/${v4Path}/reviews?${qs}`,
+      { headers: { Authorization: `Bearer ${accessToken}` } }
+    );
+    if (!res.ok) throw new Error(`Failed to get reviews: ${await res.text()}`);
+    const data = await res.json();
+    reviews.push(...(data.reviews || []));
+    if (averageRating === undefined) averageRating = data.averageRating;
+    if (totalReviewCount === undefined) totalReviewCount = data.totalReviewCount;
+    pageToken = data.nextPageToken;
+    if (!pageToken) break;
+  }
+
+  if (truncated) {
+    console.warn(`[getReviews] ${locationName}: stopped at ${maxPages} pages (${reviews.length} of ${totalReviewCount ?? '?'} reviews)`);
+  }
+  return { reviews, averageRating, totalReviewCount, truncated };
 }
 
 export async function replyToReview(accessToken: string, reviewName: string, comment: string) {

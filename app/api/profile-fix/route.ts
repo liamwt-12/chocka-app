@@ -4,6 +4,7 @@ import { refreshAccessToken, updateLocation, replyToReview, getReviews, parseSta
 import { generateReviewReply } from '@/lib/ai';
 import { decryptSecret, userTokenAad } from '@/lib/secrets';
 import { resolveAccess, MANAGER_EMBED } from '@/lib/managed-access';
+import { ONBOARDING_REPLY_CAP } from '@/lib/review-intake';
 
 export async function POST(request: NextRequest) {
   try {
@@ -76,7 +77,8 @@ export async function POST(request: NextRequest) {
     if (replyToReviews) {
       try {
         const revData = await getReviews(accessToken, locName, acctId);
-        const unrep = (revData.reviews || []).filter((r: any) => !r.reviewReply);
+        const allUnrep = (revData.reviews || []).filter((r: any) => !r.reviewReply);
+        const unrep = allUnrep.slice(0, ONBOARDING_REPLY_CAP);
         let count = 0;
         for (const rev of unrep) {
           try {
@@ -88,7 +90,7 @@ export async function POST(request: NextRequest) {
             count++;
           } catch { /* continue */ }
         }
-        results.push({ step: 'reviews', success: true, detail: `${count}/${unrep.length} replied` });
+        results.push({ step: 'reviews', success: true, detail: `${count}/${unrep.length} replied${allUnrep.length > unrep.length ? ` (${allUnrep.length} unreplied in total; capped at ${ONBOARDING_REPLY_CAP})` : ''}` });
       } catch (e: any) { results.push({ step: 'reviews', success: false, detail: e.message }); }
     }
 
