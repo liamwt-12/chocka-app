@@ -92,10 +92,14 @@ export async function GET(request: NextRequest) {
             }
           } catch (e: any) { console.error('[dashboard] Places fallback failed:', e.message); }
         } else {
-          totalReviews = revList.length;
-          avgRating = totalReviews > 0 ? revList.reduce((s: number, r: any) => s + parseStarRating(r.starRating), 0) / totalReviews : 0;
+          // getReviews now returns every page. Google's own totals are preferred
+          // when present, since they stay exact even if the page cap was hit.
+          const fetched = revList.length;
+          const totals = gReviews as { totalReviewCount?: number; averageRating?: number };
+          totalReviews = totals?.totalReviewCount || fetched;
+          avgRating = totals?.averageRating || (fetched > 0 ? revList.reduce((s: number, r: any) => s + parseStarRating(r.starRating), 0) / fetched : 0);
           repliedCount = revList.filter((r: any) => r.reviewReply).length;
-          unrepliedCount = totalReviews - repliedCount;
+          unrepliedCount = fetched - repliedCount;
           reviewsFull = revList.slice(0, 8).map((r: any) => ({
             name: r.reviewer?.displayName || 'Customer', rating: parseStarRating(r.starRating),
             comment: r.comment || '', date: r.createTime, hasReply: !!r.reviewReply, replyText: r.reviewReply?.comment || null,

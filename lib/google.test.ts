@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach, vi } from 'vitest';
-import { getManageableListings, getLocationFull, replyToReview, GbpError, placeIdFromMapsUri } from './google';
+import { getManageableListings, getLocationFull, replyToReview, GbpError, placeIdFromMapsUri, getReviews, REVIEWS_PAGE_SIZE } from './google';
 
 // ── Mock helpers ──────────────────────────────────────────────────────────
 // These stub Google's HTTP responses in the exact shapes each scenario
@@ -371,5 +371,61 @@ describe('placeIdFromMapsUri', () => {
     expect(placeIdFromMapsUri('')).toBeUndefined();
     expect(placeIdFromMapsUri(null)).toBeUndefined();
     expect(placeIdFromMapsUri(undefined)).toBeUndefined();
+  });
+});
+
+// ── getReviews: every page, not just the first ───────────────────────────────
+
+
+describe('getReviews pagination', () => {
+  function pagedFetch(pages: Array<{ reviews: any[]; nextPageToken?: string }>) {
+    const urls: string[] = [];
+    global.fetch = vi.fn(async (url: any) => {
+      urls.push(String(url));
+      const token = new URL(String(url)).searchParams.get('pageToken');
+      const idx = token ? Number(token.replace('p', '')) : 0;
+      const body = { ...pages[idx], averageRating: 4.6, totalReviewCount: 120 };
+      return new Response(JSON.stringify(body), { status: 200 });
+    }) as any;
+    return urls;
+  }
+  const revs = (n: number, from = 0) => Array.from({ length: n }, (_, i) => ({ name: `r${from + i}` }));
+
+  it('follows nextPageToken until the last page', async () => {
+    const urls = pagedFetch([
+      { reviews: revs(50), nextPageToken: 'p1' },
+      { reviews: revs(50, 50), nextPageToken: 'p2' },
+      { reviews: revs(20, 100) },
+    ]);
+    const res = await getReviews('t', 'locations/1', 'accounts/9');
+    expect(res.reviews).toHaveLength(120);
+    expect(res.reviews[119].name).toBe('r119');
+    expect(res).toMatchObject({ averageRating: 4.6, totalReviewCount: 120, truncated: false });
+    expect(urls).toHaveLength(3);
+    expect(urls[0]).toContain(`pageSize=${REVIEWS_PAGE_SIZE}`);
+    expect(urls[0]).toContain('accounts/9/locations/1/reviews');
+    expect(urls[2]).toContain('pageToken=p2');
+  });
+
+  it('stops at the page cap and says so', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    pagedFetch([{ reviews: revs(50), nextPageToken: 'p1' }, { reviews: revs(50), nextPageToken: 'p0' }]);
+    const res = await getReviews('t', 'locations/1', undefined, 3);
+    expect(res.reviews).toHaveLength(150);
+    expect(res.truncated).toBe(true);
+  });
+
+  it('handles a location with no reviews', async () => {
+    pagedFetch([{ reviews: undefined as any }]);
+    const res = await getReviews('t', 'locations/1');
+    expect(res.reviews).toEqual([]);
+  });
+
+  it('throws on a failed page rather than returning a partial set', async () => {
+    let n = 0;
+    global.fetch = vi.fn(async () => (n++ === 0
+      ? new Response(JSON.stringify({ reviews: revs(50), nextPageToken: 'p1' }), { status: 200 })
+      : new Response('quota', { status: 429 }))) as any;
+    await expect(getReviews('t', 'locations/1')).rejects.toThrow(/Failed to get reviews/);
   });
 });

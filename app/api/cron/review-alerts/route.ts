@@ -9,6 +9,7 @@ import { sendEmail, reviewAlertEmail } from '@/lib/email';
 import { getTenantForRow } from '@/lib/tenant';
 import { decryptSecret, userTokenAad } from '@/lib/secrets';
 import { resolveAccess } from '@/lib/managed-access';
+import { splitNewReviews, reviewKey, BACKLOG_DAYS } from '@/lib/review-intake';
 
 export async function GET(request: NextRequest) {
   if (!verifyCronSecret(request)) return unauthorizedResponse();
@@ -38,19 +39,40 @@ export async function GET(request: NextRequest) {
         const accessToken = await refreshAccessToken(
           decryptSecret(access.encryptedToken, userTokenAad(access.aadUserId)),
         );
+        // Every page of reviews, not just the first (see getReviews).
         const reviewsData = await getReviews(accessToken, profile.google_location_name, profile.google_account_id);
 
-        for (const review of reviewsData.reviews || []) {
-          const googleReviewId = review.reviewId || review.name;
+        // One query for everything already seen on this listing, instead of one
+        // per review, now that a listing can return hundreds.
+        const { data: seenRows } = await supabaseAdmin
+          .from('reviews')
+          .select('google_review_id')
+          .eq('profile_id', profile.id);
+        const seen = new Set<string>((seenRows || []).map((r: any) => r.google_review_id));
 
-          // Check if already processed
-          const { data: existing } = await supabaseAdmin
-            .from('reviews')
-            .select('id')
-            .eq('google_review_id', googleReviewId)
-            .single();
+        // Recent reviews are handled (capped per run); old ones are recorded
+        // without a reply or alert. See lib/review-intake.ts for why.
+        const { toHandle, backlog, deferred } = splitNewReviews(reviewsData.reviews || [], seen);
+        if (backlog.length) {
+          const { error: backlogErr } = await supabaseAdmin.from('reviews').upsert(
+            backlog.map((r: any) => ({
+              profile_id: profile.id,
+              google_review_id: reviewKey(r),
+              reviewer_name: r.reviewer?.displayName || 'A customer',
+              rating: parseStarRating(r.starRating),
+              comment: r.comment || '',
+              review_date: r.createTime || new Date().toISOString(),
+            })),
+            { onConflict: 'google_review_id', ignoreDuplicates: true },
+          );
+          if (backlogErr) console.error(`[cron:review-alerts] backlog record failed for profile ${profile.id}:`, backlogErr.message);
+        }
+        if (backlog.length || deferred.length) {
+          console.log(`[cron:review-alerts] profile ${profile.id}: ${toHandle.length} handled, ${backlog.length} older than ${BACKLOG_DAYS} days recorded without reply, ${deferred.length} deferred to next run`);
+        }
 
-          if (existing) continue;
+        for (const review of toHandle as any[]) {
+          const googleReviewId = reviewKey(review);
 
           const rating = parseStarRating(review.starRating);
           const reviewerName = review.reviewer?.displayName || 'A customer';
