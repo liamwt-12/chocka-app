@@ -136,10 +136,14 @@ export function monthlyReportEmail(params: {
   month: string;
   postsPublished: number;
   reviewsReplied: number;
-  totalViews: number;
-  totalCalls: number;
+  /** Google Search plus Maps impressions for the month; null = not enough stored days to report. */
+  totalViews: number | null;
+  totalCalls: number | null;
+  /** The Search share of totalViews, shown under it when known. */
+  searchViews?: number | null;
+  totalWebsiteClicks?: number | null;
   /** Direction requests from weekly_stats. Optional so older callers still compile. */
-  totalDirections?: number;
+  totalDirections?: number | null;
   /** Live presence score 0-100, or null if Google could not be reached this month. */
   presenceScore?: number | null;
   presenceBand?: string | null;
@@ -157,14 +161,24 @@ export function monthlyReportEmail(params: {
       ${params.presenceBand ? `<div style="font-size: 13px; color: #555; margin-top: 2px;">${params.presenceBand}</div>` : ''}
       <div style="font-size: 13px; color: #555; margin-top: 8px;">${presenceComparison(params.presenceScore, params.presenceScoreAtStart)}</div>
     </div>` : '';
-  const directionsRow = typeof params.totalDirections === 'number' ? `
+  const fmt = (n: number | null | undefined) => (typeof n === 'number' ? n.toLocaleString() : '&ndash;');
+  const metricsKnown = typeof params.totalViews === 'number';
+  const extraRow = metricsKnown && (typeof params.totalDirections === 'number' || typeof params.totalWebsiteClicks === 'number') ? `
       <tr><td colspan="3" style="padding: 5px 0;"></td></tr>
       <tr>
-        <td colspan="3" style="background: #F0EDE8; border-radius: 12px; padding: 18px; text-align: center;">
-          <div style="font-size: 32px; font-weight: 700; color: #1A1A1A; font-family: 'Courier New', monospace;">${params.totalDirections.toLocaleString()}</div>
+        <td width="48%" style="background: #F0EDE8; border-radius: 12px; padding: 18px; text-align: center;">
+          <div style="font-size: 32px; font-weight: 700; color: #1A1A1A; font-family: 'Courier New', monospace;">${fmt(params.totalDirections)}</div>
           <div style="font-size: 11px; color: #999; margin-top: 4px; text-transform: uppercase; letter-spacing: 0.06em;">Direction Requests</div>
         </td>
+        <td width="4%"></td>
+        <td width="48%" style="background: #F0EDE8; border-radius: 12px; padding: 18px; text-align: center;">
+          <div style="font-size: 32px; font-weight: 700; color: #1A1A1A; font-family: 'Courier New', monospace;">${fmt(params.totalWebsiteClicks)}</div>
+          <div style="font-size: 11px; color: #999; margin-top: 4px; text-transform: uppercase; letter-spacing: 0.06em;">Website Clicks</div>
+        </td>
       </tr>` : '';
+  const searchLine = metricsKnown && typeof params.searchViews === 'number'
+    ? `<div style="font-size: 11px; color: #999; margin-top: 2px;">${params.searchViews.toLocaleString()} from Google Search</div>` : '';
+  const notYet = metricsKnown ? '' : `<p style="font-size: 13px; color: #999; margin: -16px 0 24px;">Google hasn't given us a full month of figures for you yet. They'll appear in next month's report.</p>`;
   return emailWrapper(`
     <p style="font-size: 15px; line-height: 1.6; margin: 0 0 6px;">Hi ${firstName},</p>
     <p style="font-size: 15px; line-height: 1.6; margin: 0 0 28px; color: #555;">Here's what ${t.brandName} did for ${params.businessName} in ${params.month}.</p>
@@ -185,16 +199,17 @@ ${scoreBlock}
       <tr><td colspan="3" style="padding: 5px 0;"></td></tr>
       <tr>
         <td width="48%" style="background: #F0EDE8; border-radius: 12px; padding: 18px; text-align: center;">
-          <div style="font-size: 32px; font-weight: 700; color: #1A1A1A; font-family: 'Courier New', monospace;">${params.totalViews.toLocaleString()}</div>
-          <div style="font-size: 11px; color: #999; margin-top: 4px; text-transform: uppercase; letter-spacing: 0.06em;">People Found You</div>
+          <div style="font-size: 32px; font-weight: 700; color: #1A1A1A; font-family: 'Courier New', monospace;">${fmt(params.totalViews)}</div>
+          <div style="font-size: 11px; color: #999; margin-top: 4px; text-transform: uppercase; letter-spacing: 0.06em;">People Found You</div>${searchLine}
         </td>
         <td width="4%"></td>
         <td width="48%" style="background: #E8F5EE; border-radius: 12px; padding: 18px; text-align: center;">
-          <div style="font-size: 32px; font-weight: 700; color: #2D7A4F; font-family: 'Courier New', monospace;">${params.totalCalls}</div>
+          <div style="font-size: 32px; font-weight: 700; color: #2D7A4F; font-family: 'Courier New', monospace;">${fmt(params.totalCalls)}</div>
           <div style="font-size: 11px; color: #2D7A4F; margin-top: 4px; text-transform: uppercase; letter-spacing: 0.06em;">Phone Calls</div>
         </td>
-      </tr>${directionsRow}
+      </tr>${extraRow}
     </table>
+${notYet}
 
     <p style="font-size: 14px; color: #555; line-height: 1.6; margin: 0;">All handled automatically. No effort from you. That's the point.</p>
   `, t);
