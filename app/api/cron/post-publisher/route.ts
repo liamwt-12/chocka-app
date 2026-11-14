@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
 import { verifyCronSecret, unauthorizedResponse } from '@/lib/cron';
-import { refreshAccessToken, createLocalPost } from '@/lib/google';
+import { refreshAccessToken } from '@/lib/google';
+import { loggedCreatePost } from '@/lib/change-log';
 import { sendSMS, logSMS } from '@/lib/twilio';
 import { getTenantForRow } from '@/lib/tenant';
 import { decryptSecret, userTokenAad } from '@/lib/secrets';
@@ -80,7 +81,10 @@ export async function GET(request: NextRequest) {
         );
 
         // Publish to GBP
-        const result = await createLocalPost(accessToken, profile.google_location_name, post.content, profile.google_account_id);
+        const result = await loggedCreatePost(
+          { db: supabaseAdmin, source: 'post-publisher', userId: user.id, profileId: profile.id },
+          accessToken, profile.google_location_name, post.content, profile.google_account_id,
+        );
 
         // Update post status
         await supabaseAdmin

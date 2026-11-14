@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
 import { verifyCronSecret, unauthorizedResponse, getActiveUsersWithProfiles, generateReviewHash } from '@/lib/cron';
-import { refreshAccessToken, getReviews, replyToReview, parseStarRating } from '@/lib/google';
+import { refreshAccessToken, getReviews, parseStarRating } from '@/lib/google';
+import { loggedReplyToReview } from '@/lib/change-log';
 import { generateReviewReply } from '@/lib/ai';
 import { sendSMS, logSMS } from '@/lib/twilio';
 import { sendEmail, reviewAlertEmail } from '@/lib/email';
@@ -83,7 +84,10 @@ export async function GET(request: NextRequest) {
           if (rating >= 4) {
             // Auto-publish for 4-5 star reviews
             try {
-              await replyToReview(accessToken, review.name, replyContent);
+              await loggedReplyToReview(
+                { db: supabaseAdmin, source: 'review-alerts', userId: user.id, profileId: profile.id },
+                accessToken, review.name, replyContent, review.reviewReply?.comment ?? null,
+              );
 
               await supabaseAdmin.from('review_replies').insert({
                 review_id: newReview.id,

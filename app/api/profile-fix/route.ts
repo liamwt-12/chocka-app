@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin as supaAdmin } from '@/lib/supabase';
-import { refreshAccessToken, updateLocation, replyToReview, getReviews, parseStarRating } from '@/lib/google';
+import { refreshAccessToken, getReviews, parseStarRating } from '@/lib/google';
+import { loggedUpdateLocation, loggedReplyToReview, type WriteContext } from '@/lib/change-log';
 import { generateReviewReply } from '@/lib/ai';
 import { decryptSecret, userTokenAad } from '@/lib/secrets';
 import { resolveAccess, MANAGER_EMBED } from '@/lib/managed-access';
@@ -35,11 +36,13 @@ export async function POST(request: NextRequest) {
     console.log('[profile-fix] Token refreshed OK, location:', locName, 'account:', acctId);
     console.log('[profile-fix] Fix request body:', JSON.stringify(body).slice(0, 300));
     const results: Array<{ step: string; success: boolean; detail?: string }> = [];
+    // Every listing write below is recorded in change_log with its before-value.
+    const log: WriteContext = { db: supaAdmin, source: 'onboarding', userId, profileId: profile.id };
 
     // 1. Description
     if (description) {
       try {
-        await updateLocation(accessToken, locName, 'profile', { profile: { description } });
+        await loggedUpdateLocation(log, accessToken, locName, 'profile', { profile: { description } });
         results.push({ step: 'description', success: true });
       } catch (e: any) { results.push({ step: 'description', success: false, detail: e.message }); }
     }
@@ -50,7 +53,7 @@ export async function POST(request: NextRequest) {
         const serviceItems = services.map((name: string) => ({
           freeFormServiceItem: { category: profile.category || '', label: { displayName: name, languageCode: 'en' } },
         }));
-        await updateLocation(accessToken, locName, 'serviceItems', { serviceItems });
+        await loggedUpdateLocation(log, accessToken, locName, 'serviceItems', { serviceItems });
         results.push({ step: 'services', success: true });
       } catch (e: any) { results.push({ step: 'services', success: false, detail: e.message }); }
     }
@@ -58,7 +61,7 @@ export async function POST(request: NextRequest) {
     // 3. Categories
     if (categories?.length) {
       try {
-        await updateLocation(accessToken, locName, 'categories', {
+        await loggedUpdateLocation(log, accessToken, locName, 'categories', {
           categories: { primaryCategory: { displayName: profile.category || '' }, additionalCategories: categories.map((n: string) => ({ displayName: n })) },
         });
         results.push({ step: 'categories', success: true });
@@ -68,7 +71,7 @@ export async function POST(request: NextRequest) {
     // 4. Hours
     if (hours) {
       try {
-        await updateLocation(accessToken, locName, 'regularHours', { regularHours: hours });
+        await loggedUpdateLocation(log, accessToken, locName, 'regularHours', { regularHours: hours });
         results.push({ step: 'hours', success: true });
       } catch (e: any) { results.push({ step: 'hours', success: false, detail: e.message }); }
     }
@@ -84,7 +87,7 @@ export async function POST(request: NextRequest) {
             const rating = parseStarRating(rev.starRating);
             const rName = rev.reviewer?.displayName || 'Customer';
             const reply = await generateReviewReply({ businessName: profile.business_name, category: profile.category || '', reviewerName: rName, rating, comment: rev.comment || '' });
-            await replyToReview(accessToken, rev.name, reply);
+            await loggedReplyToReview(log, accessToken, rev.name, reply, rev.reviewReply?.comment ?? null);
             await supaAdmin.from('reviews').upsert({ profile_id: profile.id, google_review_id: rev.reviewId || rev.name, reviewer_name: rName, rating, comment: rev.comment || '', review_date: rev.createTime }, { onConflict: 'google_review_id' });
             count++;
           } catch { /* continue */ }
