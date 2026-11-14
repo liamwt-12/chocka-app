@@ -1,0 +1,128 @@
+import { NextRequest, NextResponse } from 'next/server';
+import { supabaseAdmin } from '@/lib/supabase';
+import { getTenantBySlug } from '@/lib/tenant';
+import { MANAGER_EMBED, resolveAccess } from '@/lib/managed-access';
+import {
+  verifyAdminAuth, validateNewRetailer, pilotStatus, mintInvites,
+  PILOT_TENANT_SLUG, MANUAL_SOURCE, type PilotInvite, type PilotUser,
+} from '@/lib/pilot';
+
+/**
+ * Pilot admin API, behind ADMIN_PASSWORD like /api/admin.
+ *
+ * POST { action: 'list' }                                  every Stellar retailer and where it is in the pilot
+ * POST { action: 'add', name, town?, contactEmail? }       add a retailer (one Tarkett supplied)
+ * POST { action: 'invite', retailerIds: string[] }         generate invite links; NOTHING IS SENT
+ * POST { action: 'revoke', retailerId }                    revoke a retailer's pending link
+ *
+ * There is deliberately no 'send' action. Tarkett makes first contact.
+ */
+export async function POST(request: NextRequest) {
+  if (!process.env.ADMIN_PASSWORD) return NextResponse.json({ error: 'Not configured' }, { status: 500 });
+  if (!verifyAdminAuth(request.headers.get('authorization'), process.env.ADMIN_PASSWORD)) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
+  let body: any;
+  try { body = await request.json(); } catch { return NextResponse.json({ error: 'Bad request' }, { status: 400 }); }
+
+  const { data: tenantRow, error: tenantErr } = await supabaseAdmin.from('tenants').select('id').eq('slug', PILOT_TENANT_SLUG).single();
+  if (tenantErr || !tenantRow) return NextResponse.json({ error: 'Stellar tenant not found' }, { status: 500 });
+
+  try {
+    switch (body?.action) {
+      case 'list': return NextResponse.json(await list(tenantRow.id));
+
+      case 'add': {
+        const v = validateNewRetailer(body);
+        if (!v.ok) return NextResponse.json({ error: v.error }, { status: 400 });
+        const { data, error } = await supabaseAdmin
+          .from('retailers')
+          .insert({ ...v.value, tenant_id: tenantRow.id, source: MANUAL_SOURCE })
+          .select('id, name')
+          .single();
+        if (error) return NextResponse.json({ error: `Could not add: ${error.message}` }, { status: 500 });
+        return NextResponse.json({ added: data });
+      }
+
+      case 'invite': {
+        const ids = Array.isArray(body.retailerIds) ? body.retailerIds : [];
+        // Only this tenant's retailers, whatever ids were posted.
+        const { data: own } = await supabaseAdmin.from('retailers').select('id').eq('tenant_id', tenantRow.id).in('id', ids.length ? ids : ['00000000-0000-0000-0000-000000000000']);
+        const allowed = new Set((own || []).map((r: any) => r.id));
+        const results = await mintInvites(supabaseAdmin, ids.filter((id: string) => allowed.has(id)), getTenantBySlug(PILOT_TENANT_SLUG).appUrl);
+        for (const id of ids) if (!allowed.has(id)) results.push({ retailerId: id, ok: false, error: 'not a Stellar retailer' });
+        return NextResponse.json({ results });
+      }
+
+      case 'revoke': {
+        const { data: r } = await supabaseAdmin.from('retailers').select('id').eq('id', body.retailerId).eq('tenant_id', tenantRow.id).single();
+        if (!r) return NextResponse.json({ error: 'Retailer not found' }, { status: 404 });
+        const { data, error } = await supabaseAdmin
+          .from('retailer_invites')
+          .update({ status: 'revoked', updated_at: new Date().toISOString() })
+          .eq('retailer_id', r.id)
+          .eq('status', 'pending')
+          .select('id');
+        if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+        return NextResponse.json({ revoked: (data || []).length });
+      }
+
+      default:
+        return NextResponse.json({ error: 'Unknown action' }, { status: 400 });
+    }
+  } catch (err: any) {
+    console.error('[admin/pilot]', err);
+    return NextResponse.json({ error: String(err?.message || 'Failed').slice(0, 300) }, { status: 500 });
+  }
+}
+
+async function list(tenantId: string) {
+  const { data: retailers, error } = await supabaseAdmin
+    .from('retailers')
+    .select('id, source, source_ref, name, town, contact_email, user_id, score, band, delisted_at, created_at')
+    .eq('tenant_id', tenantId)
+    .order('name');
+  if (error) throw error;
+  const rows = retailers || [];
+
+  const ids = rows.map((r: any) => r.id);
+  const userIds = rows.map((r: any) => r.user_id).filter(Boolean);
+
+  const { data: invites } = ids.length
+    ? await supabaseAdmin.from('retailer_invites').select('id, retailer_id, status, expires_at, created_at, accepted_at').in('retailer_id', ids)
+    : { data: [] as any[] };
+
+  // Tokens are read only to decide whether access works, and never leave this function.
+  const { data: users } = userIds.length
+    ? await supabaseAdmin
+        .from('users')
+        .select(`id, created_at, onboarding_step, google_refresh_token, token_status, managed_by_user_id, ${MANAGER_EMBED}, profiles ( google_location_name )`)
+        .in('id', userIds)
+    : { data: [] as any[] };
+  const userById = new Map<string, PilotUser>((users || []).map((u: any) => [u.id, u]));
+
+  const now = new Date();
+  const out = rows.map((r: any) => {
+    const user = r.user_id ? userById.get(r.user_id) ?? null : null;
+    const status = pilotStatus(r, user, (invites || []).filter((i: any) => i.retailer_id === r.id) as PilotInvite[], now);
+    return {
+      id: r.id,
+      name: r.name,
+      town: r.town,
+      contactEmail: r.contact_email,
+      source: r.source,
+      sourceRef: r.source_ref,
+      score: r.score,
+      band: r.band,
+      delisted: !!r.delisted_at,
+      state: status.state,
+      detail: status.detail,
+      joinedAt: user?.created_at ?? null,
+      accessVia: user ? (resolveAccess(user).via ?? null) : null,
+    };
+  });
+
+  const counts = out.reduce((acc: Record<string, number>, r: any) => { acc[r.state] = (acc[r.state] || 0) + 1; return acc; }, {});
+  return { retailers: out, counts };
+}
