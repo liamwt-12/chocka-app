@@ -20,7 +20,7 @@ const STATE_LABEL: Record<string, [string, string, string]> = {
   not_invited: ['Not invited', C.soft, '#F5F3EF'],
 };
 
-type Row = { id: string; name: string; town: string | null; contactEmail: string | null; source: string; state: string; detail: string; joinedAt: string | null; delisted: boolean };
+type Row = { id: string; name: string; town: string | null; contactEmail: string | null; source: string; state: string; detail: string; joinedAt: string | null; delisted: boolean; connection: { status: string; label: string; detail: string | null; checkedAt: string | null; nextStep: string | null } | null };
 type Minted = { retailerId: string; name?: string; ok: boolean; link?: string; expiresAt?: string; error?: string };
 
 export default function PilotAdminPage() {
@@ -167,7 +167,7 @@ export default function PilotAdminPage() {
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
               <thead>
                 <tr style={{ textAlign: 'left', color: C.soft, fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
-                  <th style={{ padding: 6 }}></th><th style={{ padding: 6 }}>Shop</th><th style={{ padding: 6 }}>Town</th><th style={{ padding: 6 }}>Status</th><th style={{ padding: 6 }}>Detail</th><th style={{ padding: 6 }}></th>
+                  <th style={{ padding: 6 }}></th><th style={{ padding: 6 }}>Shop</th><th style={{ padding: 6 }}>Town</th><th style={{ padding: 6 }}>Status</th><th style={{ padding: 6 }}>Detail</th><th style={{ padding: 6 }}>Google connection</th><th style={{ padding: 6 }}></th>
                 </tr>
               </thead>
               <tbody>
@@ -185,6 +185,9 @@ export default function PilotAdminPage() {
                       <td style={{ padding: 6, color: C.mid }}>{r.town || ''}</td>
                       <td style={{ padding: 6 }}><span style={{ background: bg, color: fg, borderRadius: 999, padding: '2px 8px', fontWeight: 600, whiteSpace: 'nowrap' }}>{label}</span></td>
                       <td style={{ padding: 6, color: C.mid }}>{r.detail}{r.joinedAt ? `, joined ${r.joinedAt.slice(0, 10)}` : ''}</td>
+                      <td style={{ padding: 6, color: C.mid }} title={r.connection?.nextStep || ''}>
+                        {r.connection ? <><strong style={{ color: ['no_access', 'check_listing', 'waiting_google'].includes(r.connection.status) ? C.amber : C.text }}>{r.connection.label}</strong>{r.connection.detail ? <div style={{ fontSize: 12 }}>{r.connection.detail}</div> : null}</> : <span style={{ color: C.soft }}>&ndash;</span>}
+                      </td>
                       <td style={{ padding: 6 }}>{r.state === 'invited' && <button onClick={() => revoke(r.id)} disabled={busy} style={{ ...btn, background: 'transparent', color: C.red, padding: '2px 6px' }}>Revoke</button>}</td>
                     </tr>
                   );
