@@ -3,6 +3,7 @@ import { supabaseAdmin } from '@/lib/supabase';
 import { refreshAccessToken, getManageableListings } from '@/lib/google';
 import { decryptSecret, userTokenAad } from '@/lib/secrets';
 import { resolveAccess, MANAGER_EMBED } from '@/lib/managed-access';
+import { getSessionUserId } from '@/lib/session';
 
 // Bind (or re-bind) the user's single profile to a listing they chose.
 // Reached from the onboarding picker and the settings "change listing" path.
@@ -10,7 +11,7 @@ import { resolveAccess, MANAGER_EMBED } from '@/lib/managed-access';
 // listings live and confirm the pair is genuinely in that set before writing.
 export async function POST(request: NextRequest) {
   try {
-    const userId = request.cookies.get('chocka_user_id')?.value;
+    const userId = getSessionUserId(request);
     if (!userId) {
       return NextResponse.json({ error: 'Not authenticated', code: 'not_authenticated' }, { status: 401 });
     }

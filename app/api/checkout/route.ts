@@ -2,10 +2,11 @@ import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
 import { createCustomer, createCheckoutSession, getPriceId } from '@/lib/stripe';
 import { getTenantForRow } from '@/lib/tenant';
+import { getSessionUserId } from '@/lib/session';
 
 export async function POST(request: NextRequest) {
   try {
-    const userId = request.cookies.get('chocka_user_id')?.value;
+    const userId = getSessionUserId(request);
     if (!userId) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
 
     const { phone, plan, referralCode } = await request.json();

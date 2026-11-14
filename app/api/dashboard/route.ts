@@ -3,6 +3,7 @@ import { supabaseAdmin } from '@/lib/supabase';
 import { refreshAccessToken, getLocationFull, getReviews, getLocalPosts, getMedia, getPerformanceMetrics, parseStarRating, getPlaceReviews, findPlaceId } from '@/lib/google';
 import { decryptSecret, userTokenAad } from '@/lib/secrets';
 import { resolveAccess, MANAGER_EMBED } from '@/lib/managed-access';
+import { getSessionUserId } from '@/lib/session';
 
 async function searchCompetitors(category: string, lat: number, lng: number) {
   const apiKey = process.env.GOOGLE_PLACES_API_KEY;
@@ -27,7 +28,7 @@ async function searchCompetitors(category: string, lat: number, lng: number) {
 
 export async function GET(request: NextRequest) {
   try {
-    const userId = request.cookies.get('chocka_user_id')?.value;
+    const userId = getSessionUserId(request);
     if (!userId) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
 
     const { data: user } = await supabaseAdmin.from('users').select(`*, ${MANAGER_EMBED}`).eq('id', userId).single();

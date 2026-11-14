@@ -4,9 +4,10 @@ import { refreshAccessToken, getLocationFull, getGoogleUpdated, getAttributes, g
 import { scoreProfile, predictedScore } from '@/lib/audit';
 import { decryptSecret, userTokenAad } from '@/lib/secrets';
 import { resolveAccess, MANAGER_EMBED } from '@/lib/managed-access';
+import { getSessionUserId } from '@/lib/session';
 
 export async function POST(request: NextRequest) {
-  const userId = request.cookies.get('chocka_user_id')?.value;
+  const userId = getSessionUserId(request);
   try {
     if (!userId) { console.error('Audit: no userId cookie'); return NextResponse.json({ error: 'Not authenticated', code: 'not_authenticated' }, { status: 401 }); }
 
