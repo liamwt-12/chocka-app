@@ -20,7 +20,7 @@ const STATE_LABEL: Record<string, [string, string, string]> = {
   not_invited: ['Not invited', C.soft, '#F5F3EF'],
 };
 
-type Row = { id: string; name: string; town: string | null; contactEmail: string | null; source: string; state: string; detail: string; joinedAt: string | null; delisted: boolean };
+type Row = { id: string; name: string; town: string | null; contactEmail: string | null; source: string; state: string; detail: string; joinedAt: string | null; delisted: boolean; adStartDate: string | null };
 type Minted = { retailerId: string; name?: string; ok: boolean; link?: string; expiresAt?: string; error?: string };
 
 export default function PilotAdminPage() {
@@ -80,6 +80,13 @@ export default function PilotAdminPage() {
   const revoke = async (id: string) => {
     setBusy(true); setMsg('');
     try { const d = await call({ action: 'revoke', retailerId: id }); setMsg(`Revoked ${d.revoked} link(s).`); await load(); }
+    catch (e: any) { setMsg(e.message); }
+    setBusy(false);
+  };
+
+  const setAdStart = async (id: string, date: string) => {
+    setBusy(true); setMsg('');
+    try { await call({ action: 'set_ad_start', retailerId: id, date: date || null }); setMsg(date ? `Ad start date set to ${date}.` : 'Ad start date cleared.'); await load(); }
     catch (e: any) { setMsg(e.message); }
     setBusy(false);
   };
@@ -167,7 +174,7 @@ export default function PilotAdminPage() {
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
               <thead>
                 <tr style={{ textAlign: 'left', color: C.soft, fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
-                  <th style={{ padding: 6 }}></th><th style={{ padding: 6 }}>Shop</th><th style={{ padding: 6 }}>Town</th><th style={{ padding: 6 }}>Status</th><th style={{ padding: 6 }}>Detail</th><th style={{ padding: 6 }}></th>
+                  <th style={{ padding: 6 }}></th><th style={{ padding: 6 }}>Shop</th><th style={{ padding: 6 }}>Town</th><th style={{ padding: 6 }}>Status</th><th style={{ padding: 6 }}>Detail</th><th style={{ padding: 6 }} title="When Tarkett's ads for this shop started. Used for the 'change during your ads' section of the monthly report.">Ads started</th><th style={{ padding: 6 }}></th>
                 </tr>
               </thead>
               <tbody>
@@ -185,6 +192,9 @@ export default function PilotAdminPage() {
                       <td style={{ padding: 6, color: C.mid }}>{r.town || ''}</td>
                       <td style={{ padding: 6 }}><span style={{ background: bg, color: fg, borderRadius: 999, padding: '2px 8px', fontWeight: 600, whiteSpace: 'nowrap' }}>{label}</span></td>
                       <td style={{ padding: 6, color: C.mid }}>{r.detail}{r.joinedAt ? `, joined ${r.joinedAt.slice(0, 10)}` : ''}</td>
+                      <td style={{ padding: 6 }}>
+                        <input type="date" defaultValue={r.adStartDate ?? ''} disabled={busy} onBlur={(e) => { if ((e.target.value || null) !== r.adStartDate) setAdStart(r.id, e.target.value); }} style={{ ...input, padding: '4px 6px', fontSize: 12 }} />
+                      </td>
                       <td style={{ padding: 6 }}>{r.state === 'invited' && <button onClick={() => revoke(r.id)} disabled={busy} style={{ ...btn, background: 'transparent', color: C.red, padding: '2px 6px' }}>Revoke</button>}</td>
                     </tr>
                   );

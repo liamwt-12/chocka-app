@@ -157,3 +157,17 @@ export async function mintInvites(
   }
   return results;
 }
+
+/**
+ * Validate an ad start date from the admin page. Returns the ISO date, null to
+ * clear it, or undefined if it is not a real calendar date. Dates more than a
+ * year either side of today are refused as typos.
+ */
+export function parseAdStartDate(input: unknown, now: Date = new Date()): string | null | undefined {
+  if (input === null || input === undefined || input === '') return null;
+  if (typeof input !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(input)) return undefined;
+  const d = new Date(`${input}T00:00:00Z`);
+  if (Number.isNaN(d.getTime()) || d.toISOString().slice(0, 10) !== input) return undefined;
+  if (Math.abs(d.getTime() - now.getTime()) > 366 * 86_400_000) return undefined;
+  return input;
+}
