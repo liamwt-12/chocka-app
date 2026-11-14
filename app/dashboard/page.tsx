@@ -52,7 +52,6 @@ export default function DashboardPage() {
   const roi=showRoi&&estValue>0?Math.round(estValue/tenant.priceMonthlyGbp):0;
   const totalActions=(p?.total_posts||0)+(p?.total_replies||0);
   const timeSaved=((p?.total_posts||0)*0.25+(p?.total_replies||0)*0.08+((p?.streak_weeks||0)*0.5)).toFixed(1);
-  const comps=g?.competitors;
   const referralCount = d.referralCount || 0;
   const referralEarned = referralCount; // months earned
 
@@ -167,29 +166,6 @@ export default function DashboardPage() {
             <span style={{fontSize:12,color:V.green,fontWeight:500,fontFamily:sans}}>⏱ Time saved this month</span>
             <span style={{fontSize:16,fontWeight:600,fontFamily:mono,color:V.green}}>{timeSaved} hrs</span>
           </div>
-        </div>
-      )}
-
-      {/* Competitor Ranking */}
-      {comps&&comps.list?.length>0&&(
-        <div style={{...card,animation:'fadeUp .5s .2s ease both'}}>
-          <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:10}}>
-            <span style={{...lbl,marginBottom:0}}>Competitor Ranking · {p?.city||'Local'}</span>
-            <span style={{fontSize:11,color:V.orange,fontWeight:500,fontFamily:sans}}>{g?.profile?.primaryCategory||p?.category}</span>
-          </div>
-          <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:8}}>
-            <span style={{fontSize:12,fontWeight:600,color:V.text,width:110,flexShrink:0,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',fontFamily:sans}}>You ({p?.business_name?.split(' ')[0]})</span>
-            <div style={{flex:1,height:6,background:V.card2,borderRadius:3,overflow:'hidden'}}><div style={{height:'100%',borderRadius:3,background:V.orange,width:`${comps.own.score}%`}}/></div>
-            <span style={{fontSize:11,fontFamily:mono,color:V.orange,fontWeight:600,width:24,textAlign:'right'}}>{comps.own.score}</span>
-          </div>
-          {comps.list.map((c:any,i:number)=>(
-            <div key={i} style={{display:'flex',alignItems:'center',gap:10,marginBottom:6}}>
-              <span style={{fontSize:12,color:V.textMid,width:110,flexShrink:0,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',fontFamily:sans}}>{c.name}</span>
-              <div style={{flex:1,height:6,background:V.card2,borderRadius:3,overflow:'hidden'}}><div style={{height:'100%',borderRadius:3,background:'#ddd',width:`${c.score}%`}}/></div>
-              <span style={{fontSize:11,fontFamily:mono,color:V.textSoft,width:24,textAlign:'right'}}>{c.score}</span>
-            </div>
-          ))}
-          {comps.own.score>=Math.max(...comps.list.map((c:any)=>c.score))&&<div style={bdg(V.greenLight,V.green)}>🏆 You&apos;re leading your local area</div>}
         </div>
       )}
 

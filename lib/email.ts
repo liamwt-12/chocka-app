@@ -1,4 +1,5 @@
 import { getTenant, type Tenant } from './tenant';
+import { presenceComparison } from './presence-score';
 
 const RESEND_API = 'https://api.resend.com/emails';
 
@@ -137,14 +138,37 @@ export function monthlyReportEmail(params: {
   reviewsReplied: number;
   totalViews: number;
   totalCalls: number;
+  /** Direction requests from weekly_stats. Optional so older callers still compile. */
+  totalDirections?: number;
+  /** Live presence score 0-100, or null if Google could not be reached this month. */
+  presenceScore?: number | null;
+  presenceBand?: string | null;
+  /** Score at activation (profiles.audit_score), for the comparison line. */
+  presenceScoreAtStart?: number | null;
   tenant?: Tenant;
 }): string {
   const t = params.tenant ?? getTenant();
   const brand = t.palette.brandStrong;
   const firstName = params.businessName.split(' ')[0];
+  const scoreBlock = typeof params.presenceScore === 'number' ? `
+    <div style="background: #F0EDE8; border-radius: 12px; padding: 20px; text-align: center; margin-bottom: 12px;">
+      <div style="font-size: 11px; color: #999; text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 6px;">Your Google presence score</div>
+      <div style="font-size: 40px; font-weight: 700; color: ${brand}; font-family: 'Courier New', monospace;">${params.presenceScore}<span style="font-size: 18px; color: #999;">/100</span></div>
+      ${params.presenceBand ? `<div style="font-size: 13px; color: #555; margin-top: 2px;">${params.presenceBand}</div>` : ''}
+      <div style="font-size: 13px; color: #555; margin-top: 8px;">${presenceComparison(params.presenceScore, params.presenceScoreAtStart)}</div>
+    </div>` : '';
+  const directionsRow = typeof params.totalDirections === 'number' ? `
+      <tr><td colspan="3" style="padding: 5px 0;"></td></tr>
+      <tr>
+        <td colspan="3" style="background: #F0EDE8; border-radius: 12px; padding: 18px; text-align: center;">
+          <div style="font-size: 32px; font-weight: 700; color: #1A1A1A; font-family: 'Courier New', monospace;">${params.totalDirections.toLocaleString()}</div>
+          <div style="font-size: 11px; color: #999; margin-top: 4px; text-transform: uppercase; letter-spacing: 0.06em;">Direction Requests</div>
+        </td>
+      </tr>` : '';
   return emailWrapper(`
     <p style="font-size: 15px; line-height: 1.6; margin: 0 0 6px;">Hi ${firstName},</p>
     <p style="font-size: 15px; line-height: 1.6; margin: 0 0 28px; color: #555;">Here's what ${t.brandName} did for ${params.businessName} in ${params.month}.</p>
+${scoreBlock}
 
     <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom: 28px;">
       <tr>
@@ -169,7 +193,7 @@ export function monthlyReportEmail(params: {
           <div style="font-size: 32px; font-weight: 700; color: #2D7A4F; font-family: 'Courier New', monospace;">${params.totalCalls}</div>
           <div style="font-size: 11px; color: #2D7A4F; margin-top: 4px; text-transform: uppercase; letter-spacing: 0.06em;">Phone Calls</div>
         </td>
-      </tr>
+      </tr>${directionsRow}
     </table>
 
     <p style="font-size: 14px; color: #555; line-height: 1.6; margin: 0;">All handled automatically. No effort from you. That's the point.</p>
