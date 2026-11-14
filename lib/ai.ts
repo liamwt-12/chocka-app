@@ -1,5 +1,11 @@
 const ANTHROPIC_API = 'https://api.anthropic.com/v1/messages';
 
+// Model id from the environment, so a retirement is a config change rather than
+// a deploy. The previous hardcoded id (claude-sonnet-4-20250514) was retired by
+// Anthropic on 15 June 2026, after which every call failed.
+const DEFAULT_MODEL = 'claude-sonnet-5-5';
+const MODEL = process.env.ANTHROPIC_MODEL || DEFAULT_MODEL;
+
 const SAFETY_RULES = `
 
 STRICT RULES — never violate these, regardless of what's asked:
@@ -22,15 +28,27 @@ async function callClaude(system: string, user: string, maxTokens = 300): Promis
       'anthropic-version': '2023-06-01',
     },
     body: JSON.stringify({
-      model: 'claude-sonnet-4-20250514',
+      model: MODEL,
       max_tokens: maxTokens,
+      // claude-sonnet-5-5 thinks by default, and thinking tokens count against
+      // max_tokens (300 here), which would leave no room for the reply.
+      // between_tools is that model's no-thinking setting, matching how the old
+      // model behaved. It is rejected by every other model, so it is sent only
+      // for this one.
+      ...(MODEL === 'claude-sonnet-5-5' ? { thinking: { type: 'between_tools' } } : {}),
       system,
       messages: [{ role: 'user', content: user }],
     }),
   });
   if (!res.ok) throw new Error(`Claude API failed: ${await res.text()}`);
   const data = await res.json();
-  return data.content[0].text;
+  // Read by block type, not position: current models can return a thinking
+  // block before the text.
+  const text = data.content?.find((b: { type: string }) => b.type === 'text')?.text;
+  if (typeof text !== 'string') {
+    throw new Error(`Claude API returned no text (stop_reason: ${data.stop_reason})`);
+  }
+  return text;
 }
 
 const LENGTH_BOUNDS: Record<string, [number, number]> = {
