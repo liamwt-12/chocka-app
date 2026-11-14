@@ -31,16 +31,18 @@
  * schedule a pure function of the profile id: stable across runs, across
  * processes, and across deploys, and exactly assertable in a test.
  *
- * TIMEZONE, STATED RATHER THAN IMPLIED
- * `setHours` is server-local, and production runs UTC — so "10:00" is 10:00 UTC,
- * which is 11:00 UK time under BST. That is inherited behaviour from
- * `getNextMonday10am`, not a decision made here, and it is left alone because
- * changing posting times is a product call rather than a scheduling one. It is
- * written down because a UK-facing product whose "10am" drifts by an hour twice
- * a year is the kind of thing that gets discovered by a confused retailer.
+ * TIMEZONE: UK TIME (changed 2026-11-14)
+ * This used `setHours`, which is server-local, and production runs UTC, so
+ * "10:00" was 10:00 UTC: 11:00 in the UK for half the year. The window is now
+ * defined in Europe/London wall-clock time, so a post goes out at the same UK
+ * time of day all year, across the clock changes. "Next Monday" is also judged
+ * on the UK calendar, so a run late on a Sunday evening UK time is not confused
+ * by UTC already being on Monday (or the reverse).
  */
 
-/** First minute of the posting window, server-local (UTC in production). */
+/** First minute of the posting window, in UK (Europe/London) time. */
+export const POST_TIMEZONE = 'Europe/London';
+
 export const POST_WINDOW_START_HOUR = 10;
 
 /**
@@ -93,20 +95,69 @@ export function windowOffsetMinutes(profileId: string): number {
   return Math.floor(hashToUnitInterval(profileId) * POST_WINDOW_MINUTES);
 }
 
+interface WallClock { year: number; month: number; day: number; weekday: number; hour: number; minute: number }
+
+const WEEKDAYS: Record<string, number> = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
+
+/** The UK wall-clock reading of an instant. */
+export function ukWallClock(instant: Date): WallClock {
+  const parts = new Intl.DateTimeFormat('en-GB', {
+    timeZone: POST_TIMEZONE, year: 'numeric', month: 'numeric', day: 'numeric',
+    weekday: 'short', hour: 'numeric', minute: 'numeric', hourCycle: 'h23',
+  }).formatToParts(instant);
+  const get = (t: string) => parts.find((p) => p.type === t)!.value;
+  return {
+    year: Number(get('year')), month: Number(get('month')), day: Number(get('day')),
+    weekday: WEEKDAYS[get('weekday')], hour: Number(get('hour')), minute: Number(get('minute')),
+  };
+}
+
+/** Minutes the UK is ahead of UTC at an instant: 0 in winter, 60 in summer. */
+function ukOffsetMinutes(instant: Date): number {
+  const w = ukWallClock(instant);
+  const asUtc = Date.UTC(w.year, w.month - 1, w.day, w.hour, w.minute);
+  return Math.round((asUtc - Math.floor(instant.getTime() / 60000) * 60000) / 60000);
+}
+
 /**
- * The next Monday slot for a profile.
+ * The instant at which UK clocks read the given date and time. Month is 1-12.
+ * Checked twice so a date on either side of a clock change is right. (The
+ * posting window, 10:00 to 13:00, never falls in the 01:00 to 02:00 gap or
+ * overlap, so no wall time here is ambiguous.)
+ */
+export function ukWallTimeToUtc(year: number, month: number, day: number, hour: number, minute = 0): Date {
+  const naive = Date.UTC(year, month - 1, day, hour, minute);
+  let guess = naive - ukOffsetMinutes(new Date(naive)) * 60000;
+  guess = naive - ukOffsetMinutes(new Date(guess)) * 60000;
+  return new Date(guess);
+}
+
+/** Add days to a calendar date, without any timezone involved. */
+function addDays(year: number, month: number, day: number, days: number) {
+  const d = new Date(Date.UTC(year, month - 1, day + days));
+  return { year: d.getUTCFullYear(), month: d.getUTCMonth() + 1, day: d.getUTCDate() };
+}
+
+/**
+ * The next Monday slot for a profile, in UK time.
  *
- * The day arithmetic is deliberately identical to the `getNextMonday10am` it
- * replaces — including its "never today" behaviour, where running this ON a
- * Monday schedules for the Monday *after*. That is what gives the retailer the
+ * The day arithmetic keeps the "never today" behaviour of the
+ * `getNextMonday10am` it replaced: running this ON a Monday (UK calendar)
+ * schedules for the Monday *after*. That is what gives the retailer the
  * preview email and a chance to cancel before anything is published, so it is a
  * property to preserve rather than an off-by-one to tidy up.
  */
 export function nextMondaySlot(profileId: string, now: Date = new Date()): Date {
-  const daysUntilMonday = ((8 - now.getDay()) % 7) || 7;
-  const slot = new Date(now);
-  slot.setDate(now.getDate() + daysUntilMonday);
-  slot.setHours(POST_WINDOW_START_HOUR, 0, 0, 0);
-  slot.setMinutes(slot.getMinutes() + windowOffsetMinutes(profileId));
-  return slot;
+  const today = ukWallClock(now);
+  const daysUntilMonday = ((8 - today.weekday) % 7) || 7;
+  const monday = addDays(today.year, today.month, today.day, daysUntilMonday);
+  const start = ukWallTimeToUtc(monday.year, monday.month, monday.day, POST_WINDOW_START_HOUR);
+  return new Date(start.getTime() + windowOffsetMinutes(profileId) * 60000);
+}
+
+/** Tomorrow (UK calendar) at the given UK hour. Used for the onboarding first post. */
+export function ukTomorrowAt(hour: number, now: Date = new Date()): Date {
+  const today = ukWallClock(now);
+  const t = addDays(today.year, today.month, today.day, 1);
+  return ukWallTimeToUtc(t.year, t.month, t.day, hour);
 }
