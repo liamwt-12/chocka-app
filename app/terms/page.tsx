@@ -42,11 +42,17 @@ export default function TermsPage() {
               and is not otherwise involved: {t.fundedBy} is not a party to these terms, does not
               operate the service, and does not decide what happens to your data.
             </p>
+            {/* Rewritten 2026-11-14 to match /privacy: invoices name each live
+                retailer and the agreed console shows each participating
+                retailer's health, so "only a head count" was no longer true.
+                DRAFT wording, needs solicitor review before deployment. */}
             <p>
-              {t.fundedBy} is told how many retailers are using the service, because that is what it
-              is invoiced for. It is not given your reviews, your ratings, your performance figures,
-              your phone number or the contents of anything we post for you. Your relationship with
-              {' '}{t.fundedBy} is unaffected by whether you use this service, or stop using it.
+              {t.fundedBy} is told that you use the service, because it is invoiced for each retailer
+              taking part, and it can see a summary of how your Google listing is doing, such as your
+              presence score and whether posts and review replies are going out. It is not given your
+              contact details, your phone number, the text of your reviews or anything about your
+              customers. Your relationship with {t.fundedBy} is unaffected by whether you use this
+              service, or stop using it.
             </p>
           </>
         )}

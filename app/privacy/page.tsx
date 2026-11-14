@@ -65,17 +65,23 @@ export default function PrivacyPage() {
               We keep it {src.retention}. You can ask us to delete it at any point and we will —
               that request we act on straight away.
             </p>
-            {/* Article 14(1)(e) — recipients. The generic processor list further
-                down does not answer the question a retailer actually has, which
-                is what their own supplier gets to see. Wording matches the
-                confirmed /terms section. */}
+            {/* Article 14(1)(e): recipients. Rewritten 2026-11-14. The previous
+                wording promised the funder only a head count and said the
+                assessment is "not handed back". Neither survives the agreed scope:
+                invoices name each live retailer, and one-pager item 5 is a console
+                showing every participating retailer's health. A notice that
+                promises less sharing than the service performs is the defect this
+                section exists to prevent. DRAFT wording, needs solicitor review
+                before it is deployed: see docs/legal-drafts/. */}
             <p>
-              <strong className="text-charcoal">What {src.holder} sees.</strong> {src.holder} is told
-              how many retailers are using the service, because that is what it is invoiced for. It
-              is not given your score, your rating, your reviews, your performance figures or your
-              contact details by us. Your record came from {src.holder}&apos;s own published list in
-              the first place, so nothing in it is new to them — but the assessment we made of your
-              listing is ours, and we do not hand it back.
+              <strong className="text-charcoal">What {src.holder} sees.</strong> If you use the
+              service, {src.holder} is told that you do, because it is invoiced for each retailer
+              taking part. It can also see a summary of how your Google listing is doing, such as your
+              presence score and whether posts and review replies are going out. It is not given your
+              contact details, your phone number, the text of your reviews, or anything about your
+              customers. If you do not use the service, {src.holder} is not given your score or
+              anything else we worked out about your listing; your record came from its own
+              published list, so nothing in it is new to it.
             </p>
             {/* Article 14(2)(g) — automated decision-making. There is none of the
                 kind that engages Article 22, and saying so is better than silence. */}
