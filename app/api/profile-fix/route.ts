@@ -4,6 +4,7 @@ import { refreshAccessToken, updateLocation, replyToReview, getReviews, parseSta
 import { generateReviewReply } from '@/lib/ai';
 import { decryptSecret, userTokenAad } from '@/lib/secrets';
 import { resolveAccess, MANAGER_EMBED } from '@/lib/managed-access';
+import { ukTomorrowAt } from '@/lib/post-schedule';
 
 export async function POST(request: NextRequest) {
   try {
@@ -95,9 +96,8 @@ export async function POST(request: NextRequest) {
     // 6. First post
     if (firstPost) {
       try {
-        const tomorrow = new Date();
-        tomorrow.setDate(tomorrow.getDate() + 1);
-        tomorrow.setHours(10, 0, 0, 0);
+        // 10:00 UK time tomorrow, not 10:00 on the server's clock (UTC).
+        const tomorrow = ukTomorrowAt(10);
         await supaAdmin.from('scheduled_posts').insert({ profile_id: profile.id, content: firstPost, scheduled_for: tomorrow.toISOString(), status: 'pending_approval' });
         results.push({ step: 'firstPost', success: true });
       } catch (e: any) { results.push({ step: 'firstPost', success: false, detail: e.message }); }
