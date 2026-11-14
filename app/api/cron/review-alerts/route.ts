@@ -10,6 +10,7 @@ import { getTenantForRow } from '@/lib/tenant';
 import { decryptSecret, userTokenAad } from '@/lib/secrets';
 import { resolveAccess } from '@/lib/managed-access';
 import { splitNewReviews, reviewKey, BACKLOG_DAYS } from '@/lib/review-intake';
+import { holdingReply } from '@/lib/safe-automation';
 
 export async function GET(request: NextRequest) {
   if (!verifyCronSecret(request)) return unauthorizedResponse();
@@ -94,14 +95,19 @@ export async function GET(request: NextRequest) {
 
           if (!newReview) continue;
 
-          // Generate reply
-          const replyContent = await generateReviewReply({
-            businessName: profile.business_name,
-            category: profile.category || 'tradesperson',
-            reviewerName,
-            rating,
-            comment,
-          });
+          // 4 and 5 stars: an AI reply, checked by the validator (lib/ai.ts),
+          // published automatically. 1 to 3 stars: never AI. The fixed holding
+          // reply (lib/safe-automation.ts) is stored for the shop to approve,
+          // and is published only when they do.
+          const replyContent = rating >= 4
+            ? await generateReviewReply({
+                businessName: profile.business_name,
+                category: profile.category || 'tradesperson',
+                reviewerName,
+                rating,
+                comment,
+              })
+            : holdingReply(reviewerName);
 
           if (rating >= 4) {
             // Auto-publish for 4-5 star reviews
