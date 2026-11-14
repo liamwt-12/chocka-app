@@ -227,3 +227,13 @@ export function linkHashMatches(given: string | null | undefined, expected: stri
   if (!given || given.length !== expected.length) return false;
   return timingSafeEqual(Buffer.from(given), Buffer.from(expected));
 }
+
+/** Signed hash for the approve / skip links on a post awaiting approval: 128 bits, namespaced per action. */
+export function generatePostActionHash(postId: string, action: 'approve' | 'skip'): string {
+  const crypto = require('crypto');
+  return crypto
+    .createHmac('sha256', process.env.CANCEL_HASH_SECRET!)
+    .update(`post-${action}:${postId}`)
+    .digest('hex')
+    .substring(0, 32);
+}

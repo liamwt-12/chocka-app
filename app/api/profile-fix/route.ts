@@ -8,6 +8,7 @@ import { resolveAccess, MANAGER_EMBED } from '@/lib/managed-access';
 import { getSessionUserId } from '@/lib/session';
 import { ONBOARDING_REPLY_CAP } from '@/lib/review-intake';
 import { ukTomorrowAt } from '@/lib/post-schedule';
+import { AWAITING_APPROVAL } from '@/lib/safe-automation';
 
 export async function POST(request: NextRequest) {
   try {
@@ -104,7 +105,9 @@ export async function POST(request: NextRequest) {
       try {
         // 10:00 UK time tomorrow, not 10:00 on the server's clock (UTC).
         const tomorrow = ukTomorrowAt(10);
-        await supaAdmin.from('scheduled_posts').insert({ profile_id: profile.id, content: firstPost, scheduled_for: tomorrow.toISOString(), status: 'pending_approval' });
+        // The first post waits for the shop's approval, like the next two
+        // (lib/safe-automation.ts). It does not publish on its own.
+        await supaAdmin.from('scheduled_posts').insert({ profile_id: profile.id, content: firstPost, scheduled_for: tomorrow.toISOString(), status: AWAITING_APPROVAL });
         results.push({ step: 'firstPost', success: true });
       } catch (e: any) { results.push({ step: 'firstPost', success: false, detail: e.message }); }
     }

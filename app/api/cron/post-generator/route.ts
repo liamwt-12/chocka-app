@@ -5,6 +5,7 @@ import { generatePost } from '@/lib/ai';
 import { sendEmail, postPreviewEmail } from '@/lib/email';
 import { getTenantForRow } from '@/lib/tenant';
 import { nextMondaySlot } from '@/lib/post-schedule';
+import { requiresPostApproval, AWAITING_APPROVAL, PUBLISHABLE } from '@/lib/safe-automation';
 
 export async function GET(request: NextRequest) {
   if (!verifyCronSecret(request)) return unauthorizedResponse();
@@ -62,18 +63,28 @@ export async function GET(request: NextRequest) {
         // quota and then times out half-finished.
         const monday = nextMondaySlot(profile.id, now);
 
+        // A new shop approves its first three posts (lib/safe-automation.ts).
+        // Until then the post waits as awaiting_approval, which the publisher
+        // never picks up, and no "publishes unless you cancel" email is sent.
+        const { count: publishedCount } = await supabaseAdmin
+          .from('scheduled_posts')
+          .select('id', { count: 'exact', head: true })
+          .eq('profile_id', profile.id)
+          .eq('status', 'published');
+        const needsApproval = requiresPostApproval(publishedCount || 0);
+
         const { data: post } = await supabaseAdmin
           .from('scheduled_posts')
           .insert({
             profile_id: profile.id,
             content: postContent,
             scheduled_for: monday.toISOString(),
-            status: 'pending_approval',
+            status: needsApproval ? AWAITING_APPROVAL : PUBLISHABLE,
           })
           .select()
           .single();
 
-        if (post && user.email) {
+        if (post && user.email && !needsApproval) {
           const hash = generateCancelHash(post.id);
           const cancelUrl = `${t.appUrl}/api/posts/cancel?id=${post.id}&hash=${hash}`;
 

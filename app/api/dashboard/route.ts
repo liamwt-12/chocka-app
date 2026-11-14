@@ -123,6 +123,7 @@ export async function GET(request: NextRequest) {
     for (const post of (postsRes.data || [])) {
       if (post.status === 'published' && post.published_at) activity.push({ action: 'Post published to Google', date: post.published_at, type: 'post', detail: `"${(post.content || '').slice(0, 50)}..."` });
       else if (post.status === 'pending_approval' || post.status === 'pending') activity.push({ action: 'Post scheduled', date: post.scheduled_for, type: 'scheduled' });
+      else if (post.status === 'awaiting_approval') activity.push({ action: 'Post waiting for your approval', date: post.scheduled_for, type: 'scheduled' });
     }
     for (const r of (reviewsRes.data || [])) {
       if (r.reply_content) activity.push({ action: `${r.rating}★ review replied to`, date: r.review_date, type: 'reply', detail: `${r.reviewer_name} — "${(r.comment || '').slice(0, 40)}..."` });
