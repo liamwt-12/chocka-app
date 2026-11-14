@@ -1,3 +1,4 @@
+import { DAILY_METRICS, parseMultiDailyMetrics, totalsFor, isoDate, addDaysIso, type MetricRow } from './metrics';
 const GOOGLE_TOKEN_URL = 'https://oauth2.googleapis.com/token';
 const GBP_API_BASE = 'https://mybusinessbusinessinformation.googleapis.com/v1';
 const GBP_POSTS_BASE = 'https://mybusiness.googleapis.com/v4';
@@ -525,51 +526,54 @@ export async function replyToReview(accessToken: string, reviewName: string, com
   return res.json();
 }
 
+/**
+ * Last-28-days totals, for the dashboard and the Monday text. "views" is Google
+ * Search plus Google Maps impressions; until 2026-11-14 it was Maps only, which
+ * left out the Search figure that matters most for "people found you".
+ * Monthly and before-and-after figures come from daily_metrics instead (lib/metrics.ts).
+ */
 export async function getPerformanceMetrics(accessToken: string, locationName: string) {
   const now = new Date();
-  const monthAgo = new Date(now.getTime() - 28 * 86400000);
-
-  // Fetch each metric separately to avoid the single-object vs array ambiguity
-  const metricNames = [
-    'BUSINESS_IMPRESSIONS_DESKTOP_MAPS',
-    'BUSINESS_IMPRESSIONS_MOBILE_MAPS', 
-    'CALL_CLICKS',
-    'WEBSITE_CLICKS',
-    'BUSINESS_DIRECTION_REQUESTS',
-  ];
-
-  const results: Record<string, number> = { views: 0, calls: 0, directions: 0, websiteClicks: 0 };
-
-  for (const metric of metricNames) {
-    try {
-      const url = `https://businessprofileperformance.googleapis.com/v1/${locationName}:getDailyMetricsTimeSeries?dailyMetric=${metric}&dailyRange.start_date.year=${monthAgo.getFullYear()}&dailyRange.start_date.month=${monthAgo.getMonth()+1}&dailyRange.start_date.day=${monthAgo.getDate()}&dailyRange.end_date.year=${now.getFullYear()}&dailyRange.end_date.month=${now.getMonth()+1}&dailyRange.end_date.day=${now.getDate()}`;
-      
-      const res = await fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } });
-      if (!res.ok) continue;
-      
-      const data = await res.json();
-      
-      // timeSeries can be an object or array — handle both
-      const seriesData = data.timeSeries;
-      const datedValues = Array.isArray(seriesData) 
-        ? seriesData.flatMap((s: any) => s.datedValues || [])
-        : seriesData?.datedValues || [];
-      
-      const total = datedValues.reduce((sum: number, d: any) => sum + (parseInt(d.value || '0') || 0), 0);
-      
-      if (metric === 'BUSINESS_IMPRESSIONS_DESKTOP_MAPS' || metric === 'BUSINESS_IMPRESSIONS_MOBILE_MAPS') results.views += total;
-      if (metric === 'CALL_CLICKS') results.calls = total;
-      if (metric === 'WEBSITE_CLICKS') results.websiteClicks = total;
-      if (metric === 'BUSINESS_DIRECTION_REQUESTS') results.directions = total;
-    } catch (e) {
-      console.error(`[GBP Metrics] Failed for ${metric}:`, (e as Error).message);
-    }
+  const to = isoDate(new Date(now.getTime() - 86400000));
+  const from = addDaysIso(to, -27);
+  const results = { views: 0, searchViews: 0, mapsViews: 0, calls: 0, directions: 0, websiteClicks: 0 };
+  try {
+    const t = totalsFor(await fetchDailyMetrics(accessToken, locationName, from, to), from, to);
+    Object.assign(results, { views: t.views, searchViews: t.searchViews, mapsViews: t.mapsViews, calls: t.calls, directions: t.directions, websiteClicks: t.websiteClicks });
+  } catch (e) {
+    console.error('[GBP Metrics] failed:', (e as Error).message);
   }
-
-  console.log('[GBP Metrics] Final:', JSON.stringify(results));
   return results;
 }
 
+function dateParams(prefix: string, iso: string): string {
+  const [y, m, d] = iso.split('-').map(Number);
+  return `${prefix}.year=${y}&${prefix}.month=${m}&${prefix}.day=${d}`;
+}
+
+/**
+ * Every daily metric in DAILY_METRICS for [from, to], in one request
+ * (fetchMultiDailyMetricsTimeSeries). If Google refuses a long range with a 400,
+ * it retries with 12 months, then 6, so a first sync still gets what history
+ * there is rather than nothing.
+ */
+export async function fetchDailyMetrics(accessToken: string, locationName: string, from: string, to: string): Promise<MetricRow[]> {
+  const attempts = [from];
+  for (const days of [365, 180]) {
+    const shorter = addDaysIso(to, -days);
+    if (shorter > from) attempts.push(shorter);
+  }
+  let lastError = '';
+  for (const start of attempts) {
+    const metrics = DAILY_METRICS.map((m) => `dailyMetrics=${m}`).join('&');
+    const url = `https://businessprofileperformance.googleapis.com/v1/${locationName}:fetchMultiDailyMetricsTimeSeries?${metrics}&${dateParams('dailyRange.startDate', start)}&${dateParams('dailyRange.endDate', to)}`;
+    const res = await fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } });
+    if (res.ok) return parseMultiDailyMetrics(await res.json());
+    lastError = `${res.status} ${(await res.text()).slice(0, 300)}`;
+    if (res.status !== 400) break;
+  }
+  throw new Error(`Failed to fetch daily metrics: ${lastError}`);
+}
 export function parseStarRating(rating: string): number {
   const map: Record<string, number> = { ONE: 1, TWO: 2, THREE: 3, FOUR: 4, FIVE: 5 };
   return map[rating] || 0;

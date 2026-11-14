@@ -8,6 +8,10 @@ import { refreshAccessToken } from '@/lib/google';
 import { decryptSecret, userTokenAad } from '@/lib/secrets';
 import { resolveAccess } from '@/lib/managed-access';
 import { livePresenceScore } from '@/lib/presence-score';
+import { loadMetricRows, totalsFor, previousMonth } from '@/lib/metrics';
+
+/** A month with fewer stored days than this shows no figures rather than a partial one. */
+const MIN_DAYS_FOR_MONTHLY_FIGURES = 20;
 
 export async function GET(request: NextRequest) {
   if (!verifyCronSecret(request)) return unauthorizedResponse();
@@ -46,17 +50,18 @@ export async function GET(request: NextRequest) {
           .gte('published_at', lastMonth.toISOString())
           .lte('published_at', lastMonthEnd.toISOString());
 
-        // Sum views and calls from weekly_stats last month
-        const { data: weeklyStats } = await supabaseAdmin
-          .from('weekly_stats')
-          .select('views, calls, direction_requests')
-          .eq('profile_id', profile.id)
-          .gte('week_start', lastMonth.toISOString().split('T')[0])
-          .lte('week_start', lastMonthEnd.toISOString().split('T')[0]);
-
-        const totalViews = (weeklyStats || []).reduce((sum: number, w: any) => sum + (w.views || 0), 0);
-        const totalCalls = (weeklyStats || []).reduce((sum: number, w: any) => sum + (w.calls || 0), 0);
-        const totalDirections = (weeklyStats || []).reduce((sum: number, w: any) => sum + (w.direction_requests || 0), 0);
+        // Last calendar month, summed day by day from daily_metrics. This used to
+        // add up weekly_stats rows that each held a rolling 28-day total, which
+        // overstated every figure about fourfold. If the month has too few stored
+        // days to be honest about, the figures are left out rather than guessed.
+        const month = previousMonth(now);
+        const monthTotals = totalsFor(await loadMetricRows(supabaseAdmin, profile.id, month.from, month.to), month.from, month.to);
+        const enoughDays = monthTotals.daysWithData >= MIN_DAYS_FOR_MONTHLY_FIGURES;
+        const totalViews = enoughDays ? monthTotals.views : null;
+        const searchViews = enoughDays ? monthTotals.searchViews : null;
+        const totalCalls = enoughDays ? monthTotals.calls : null;
+        const totalDirections = enoughDays ? monthTotals.directions : null;
+        const totalWebsiteClicks = enoughDays ? monthTotals.websiteClicks : null;
 
         // Live presence score (one-pager item 3). Best effort: if Google cannot
         // be reached the report still goes, without the score, rather than not at
@@ -89,6 +94,8 @@ export async function GET(request: NextRequest) {
             totalViews,
             totalCalls,
             totalDirections,
+            searchViews,
+            totalWebsiteClicks,
             presenceScore,
             presenceBand,
             presenceScoreAtStart: profile.audit_score ?? null,

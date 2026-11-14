@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin as supaAdmin } from '@/lib/supabase';
-import { refreshAccessToken, getLocationFull, getGoogleUpdated, getAttributes, getMedia, getReviews, getLocalPosts, GbpError } from '@/lib/google';
+import { refreshAccessToken, getLocationFull, getGoogleUpdated, getAttributes, getMedia, getReviews, getLocalPosts, GbpError, fetchDailyMetrics } from '@/lib/google';
+import { syncDailyMetrics } from '@/lib/metrics';
 import { scoreProfile, predictedScore } from '@/lib/audit';
 import { decryptSecret, userTokenAad } from '@/lib/secrets';
 import { resolveAccess, MANAGER_EMBED } from '@/lib/managed-access';
@@ -66,6 +67,15 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'We couldn’t reach your Google listing right now.', code: 'google_unreachable' }, { status: 502 });
     }
 
+    // Connect-time history: the first time a listing is audited, pull Google's
+    // ~18 months of daily figures so the shop has a baseline from before it
+    // joined. Runs alongside the reads below, never fails the audit, and the
+    // hourly metrics-sync job retries it if it does not complete here.
+    const historyPull = profile.metrics_backfilled_at
+      ? Promise.resolve(null)
+      : syncDailyMetrics(supaAdmin, profile, (from, to) => fetchDailyMetrics(accessToken, locName, from, to))
+          .catch((e: any) => { console.warn('Audit: history pull failed, metrics-sync will retry:', String(e?.message).slice(0, 200)); return null; });
+
     // The rest are best-effort — a failure just lowers the score, never crashes.
     const [googleUpdated, attributes, media, reviews, posts] = await Promise.all([
       getGoogleUpdated(accessToken, locName).catch(() => null),
@@ -75,6 +85,7 @@ export async function POST(request: NextRequest) {
       getLocalPosts(accessToken, locName, acctId).catch(() => ({ localPosts: [] })),
     ]);
 
+    await historyPull;
     const audit = scoreProfile({ location, attributes, media, reviews, posts, googleUpdated });
     const pred = predictedScore(audit);
 

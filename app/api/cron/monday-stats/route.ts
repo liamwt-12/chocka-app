@@ -57,8 +57,13 @@ export async function GET(request: NextRequest) {
           }, { onConflict: 'profile_id,week_start' });
 
         // Get last week's stats for comparison
+        // Each weekly_stats row holds a rolling 28-day total, so last week's row
+        // overlaps this one by 21 days and the comparison barely moved. Compare
+        // with the row from four weeks ago instead: the previous 28 days, with no
+        // overlap. (Monthly figures no longer come from this table at all; see
+        // lib/metrics.ts.)
         const lastWeekStart = new Date(weekStart);
-        lastWeekStart.setDate(lastWeekStart.getDate() - 7);
+        lastWeekStart.setDate(lastWeekStart.getDate() - 28);
         const { data: lastWeek } = await supabaseAdmin
           .from('weekly_stats')
           .select('views, calls')
@@ -77,7 +82,7 @@ export async function GET(request: NextRequest) {
         const firstName = (user.name || '').split(' ')[0] || 'there';
         const streakStr = profile.streak_weeks > 1 ? ` 🔥 ${profile.streak_weeks} week streak!` : '';
 
-        const smsBody = `Morning ${firstName}! Last 28 days: ${views} views (${viewStr}), ${calls} calls (${callStr}), ${directions} directions.${streakStr} - ${t.brandName}`;
+        const smsBody = `Morning ${firstName}! Last 28 days: ${views} views (${viewStr} on the 28 days before), ${calls} calls (${callStr}), ${directions} directions.${streakStr} - ${t.brandName}`;
         const sid = await sendSMS({ to: user.phone_number, body: smsBody });
         await logSMS(supabaseAdmin, user.id, user.phone_number, 'monday_stats', smsBody, sid);
 
