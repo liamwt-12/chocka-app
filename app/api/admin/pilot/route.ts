@@ -3,7 +3,7 @@ import { supabaseAdmin } from '@/lib/supabase';
 import { getTenantBySlug } from '@/lib/tenant';
 import { MANAGER_EMBED, resolveAccess } from '@/lib/managed-access';
 import {
-  verifyAdminAuth, validateNewRetailer, pilotStatus, mintInvites,
+  verifyAdminAuth, validateNewRetailer, pilotStatus, mintInvites, parseAdStartDate,
   PILOT_TENANT_SLUG, MANUAL_SOURCE, type PilotInvite, type PilotUser,
 } from '@/lib/pilot';
 
@@ -14,6 +14,7 @@ import {
  * POST { action: 'add', name, town?, contactEmail? }       add a retailer (one Tarkett supplied)
  * POST { action: 'invite', retailerIds: string[] }         generate invite links; NOTHING IS SENT
  * POST { action: 'revoke', retailerId }                    revoke a retailer's pending link
+ * POST { action: 'set_ad_start', retailerId, date|null }   record when Tarkett's ads for a shop started
  *
  * There is deliberately no 'send' action. Tarkett makes first contact.
  */
@@ -68,6 +69,20 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ revoked: (data || []).length });
       }
 
+      case 'set_ad_start': {
+        const date = parseAdStartDate(body.date);
+        if (date === undefined) return NextResponse.json({ error: 'Use a date like 2026-12-07, or leave it empty to clear' }, { status: 400 });
+        const { data, error } = await supabaseAdmin
+          .from('retailers')
+          .update({ ad_start_date: date })
+          .eq('id', body.retailerId)
+          .eq('tenant_id', tenantRow.id)
+          .select('id, ad_start_date');
+        if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+        if (!data?.length) return NextResponse.json({ error: 'Retailer not found' }, { status: 404 });
+        return NextResponse.json({ updated: data[0] });
+      }
+
       default:
         return NextResponse.json({ error: 'Unknown action' }, { status: 400 });
     }
@@ -80,7 +95,7 @@ export async function POST(request: NextRequest) {
 async function list(tenantId: string) {
   const { data: retailers, error } = await supabaseAdmin
     .from('retailers')
-    .select('id, source, source_ref, name, town, contact_email, user_id, score, band, delisted_at, created_at')
+    .select('id, source, source_ref, name, town, contact_email, user_id, score, band, delisted_at, created_at, ad_start_date')
     .eq('tenant_id', tenantId)
     .order('name');
   if (error) throw error;
@@ -116,6 +131,7 @@ async function list(tenantId: string) {
       score: r.score,
       band: r.band,
       delisted: !!r.delisted_at,
+      adStartDate: r.ad_start_date ?? null,
       state: status.state,
       detail: status.detail,
       joinedAt: user?.created_at ?? null,
