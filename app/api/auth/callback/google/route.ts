@@ -6,6 +6,7 @@ import { getTenantBySlug } from '@/lib/tenant';
 import { PRIMARY_TENANT_SLUG } from '@/lib/tenant-registry';
 import { encryptSecret, isEncrypted, userTokenAad } from '@/lib/secrets';
 import { parseInviteRef } from '@/lib/invite-token';
+import { detectOwnership, type ConnectionStatus } from '@/lib/ownership';
 import { setSessionCookie } from '@/lib/session';
 
 export async function GET(request: NextRequest) {
@@ -172,6 +173,7 @@ export async function GET(request: NextRequest) {
             existingUser.id,
             tokens.access_token,
             existingUser.tenant_id ?? null,
+            await expectedShopForInvite(parsedState.invite),
           );
         } catch (err) {
           console.error(
@@ -332,6 +334,7 @@ export async function GET(request: NextRequest) {
         newUser.id,
         tokens.access_token,
         newUser.tenant_id ?? null,
+        await expectedShopForInvite(parsedState.invite),
       );
     } catch (err) {
       // The account row and the credential are already saved at this point, so
@@ -661,17 +664,24 @@ async function bindManageableListing(
   userId: string,
   accessToken: string,
   tenantId: string | null,
+  expected: ExpectedShop | null = null,
 ): Promise<BindResult> {
   const listings = await getManageableListings(accessToken);
+  // Ownership detection (lib/ownership.ts): with an invite, prefer the listing
+  // whose place ID matches the shop the invite was for, and record what we found
+  // so /admin/pilot and the shop's screens can say what to do next.
+  const outcome = detectOwnership(listings, expected?.placeId ?? null);
+  if (expected) await recordConnectionStatus(expected.retailerId, outcome.status, outcome.detail);
+  console.log(`[auth] ownership: ${outcome.status}: ${outcome.detail}`);
   // Says which of the three outcomes was taken and why. Without it, /no-profile and
   // /onboarding are indistinguishable in the logs from a failure earlier in the
   // flow, which is exactly the ambiguity that made the 2026-07-30 scope failure
   // take three attempts to characterise.
   console.log(`[auth] manageable listings found: ${listings.length}`);
-  if (listings.length === 0) return 'no_profile';
-  if (listings.length > 1) return 'select';
+  if (outcome.status === 'no_access') return 'no_profile';
+  if (outcome.needsPicker || !outcome.bind) return 'select';
 
-  const only = listings[0];
+  const only = outcome.bind;
   await supabaseAdmin.from('profiles').insert({
     user_id: userId,
 
@@ -697,4 +707,40 @@ async function bindManageableListing(
     google_place_id: only.placeId ?? null,
   });
   return 'onboarding';
+}
+
+// ── Ownership detection helpers ─────────────────────────────────────────────
+
+interface ExpectedShop { retailerId: string; placeId: string | null }
+
+/**
+ * The shop an invite was minted for, and its baseline place ID. Null for an
+ * ordinary sign-in, or if the invite cannot be read (never fails the sign-in).
+ */
+async function expectedShopForInvite(inviteRef: unknown): Promise<ExpectedShop | null> {
+  try {
+    if (typeof inviteRef !== 'string' || !inviteRef) return null;
+    const inviteId = parseInviteRef(inviteRef);
+    if (!inviteId) return null;
+    const { data } = await supabaseAdmin
+      .from('retailer_invites')
+      .select('retailer_id, retailers ( place_id )')
+      .eq('id', inviteId)
+      .maybeSingle();
+    if (!data?.retailer_id) return null;
+    const r: any = Array.isArray((data as any).retailers) ? (data as any).retailers[0] : (data as any).retailers;
+    return { retailerId: data.retailer_id, placeId: r?.place_id ?? null };
+  } catch (err) {
+    console.error('[auth] could not read the invite for ownership detection:', err);
+    return null;
+  }
+}
+
+/** Best effort: a failure to record the status never affects the sign-in. */
+async function recordConnectionStatus(retailerId: string, status: ConnectionStatus, detail: string): Promise<void> {
+  const { error } = await supabaseAdmin
+    .from('retailers')
+    .update({ connection_status: status, connection_detail: detail.slice(0, 500), connection_checked_at: new Date().toISOString() })
+    .eq('id', retailerId);
+  if (error) console.error(`[auth] could not record connection status for retailer ${retailerId}: ${error.message}`);
 }

@@ -153,6 +153,8 @@ export async function mintInvites(
       // sent_at stays null: we never send. The rep or Tarkett passes the link on.
     });
     if (insertError) { results.push({ retailerId: id, name: r.name, ok: false, error: `could not save: ${insertError.message}` }); continue; }
+    // Ownership detection starts here: the shop is now "invited" until it signs in.
+    await db.from('retailers').update({ connection_status: 'invited', connection_detail: 'link issued, not used yet', connection_checked_at: now.toISOString() }).eq('id', r.id);
     results.push({ retailerId: id, name: r.name, ok: true, link: `${appUrl}/invite/${token}`, expiresAt });
   }
   return results;

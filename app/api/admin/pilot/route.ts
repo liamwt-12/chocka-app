@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
 import { getTenantBySlug } from '@/lib/tenant';
 import { MANAGER_EMBED, resolveAccess } from '@/lib/managed-access';
+import { ADMIN_LABELS, SHOP_MESSAGES, type ConnectionStatus } from '@/lib/ownership';
 import {
   verifyAdminAuth, validateNewRetailer, pilotStatus, mintInvites, parseAdStartDate,
   PILOT_TENANT_SLUG, MANUAL_SOURCE, type PilotInvite, type PilotUser,
@@ -95,7 +96,7 @@ export async function POST(request: NextRequest) {
 async function list(tenantId: string) {
   const { data: retailers, error } = await supabaseAdmin
     .from('retailers')
-    .select('id, source, source_ref, name, town, contact_email, user_id, score, band, delisted_at, created_at, ad_start_date')
+    .select('id, source, source_ref, name, town, contact_email, user_id, score, band, delisted_at, created_at, ad_start_date, connection_status, connection_detail, connection_checked_at')
     .eq('tenant_id', tenantId)
     .order('name');
   if (error) throw error;
@@ -132,6 +133,7 @@ async function list(tenantId: string) {
       band: r.band,
       delisted: !!r.delisted_at,
       adStartDate: r.ad_start_date ?? null,
+      connection: r.connection_status ? { status: r.connection_status, label: ADMIN_LABELS[r.connection_status as ConnectionStatus] ?? r.connection_status, detail: r.connection_detail, checkedAt: r.connection_checked_at, nextStep: SHOP_MESSAGES[r.connection_status as ConnectionStatus]?.nextStep ?? null } : null,
       state: status.state,
       detail: status.detail,
       joinedAt: user?.created_at ?? null,

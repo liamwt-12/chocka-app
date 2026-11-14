@@ -51,6 +51,14 @@ export interface Listing {
    * treat it as a bonus, never as a guarantee.
    */
   placeId?: string;
+
+  /**
+   * Google's own flag for "this account has authority over the listing", which
+   * is false for a listing that is not verified yet. Read from `metadata`, which
+   * the enumeration already requests, so it costs nothing. Undefined when Google
+   * omits it, which is treated as unknown, never as unverified.
+   */
+  hasVoiceOfMerchant?: boolean;
 }
 
 export function formatAddress(address: any): string {
@@ -238,7 +246,8 @@ export async function getManageableListings(accessToken: string): Promise<Listin
         latitude: loc.latlng?.latitude,
         longitude: loc.latlng?.longitude,
         category: loc.categories?.primaryCategory?.displayName || '',
-        placeId: placeIdFromMapsUri(loc.metadata?.mapsUri),
+        placeId: loc.metadata?.placeId || placeIdFromMapsUri(loc.metadata?.mapsUri),
+        hasVoiceOfMerchant: typeof loc.metadata?.hasVoiceOfMerchant === 'boolean' ? loc.metadata.hasVoiceOfMerchant : undefined,
       });
     }
   }

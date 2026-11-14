@@ -103,6 +103,15 @@ export default function DashboardPage() {
         </div>
       </div>)}
 
+      {/* Ownership detection: tell an invited shop what is still needed. */}
+      {d.connection && (
+        <div style={{...card,animation:'fadeUp .5s .05s ease both',borderLeft:`3px solid ${V.amber}`}}>
+          <div style={{fontSize:14,fontWeight:600,color:V.text,marginBottom:4,fontFamily:sans}}>{d.connection.title}</div>
+          <p style={{fontSize:13,color:V.textMid,margin:'0 0 6px',lineHeight:1.5,fontFamily:sans}}>{d.connection.message}</p>
+          <p style={{fontSize:13,color:V.textMid,margin:0,lineHeight:1.5,fontFamily:sans}}>{d.connection.nextStep}</p>
+        </div>
+      )}
+
       {/* The pre-launch baseline, once a live score has displaced it.
           A SEPARATE statement in its own block — never a delta, never a second
           point on the score tile's chart. Two different measurements. */}

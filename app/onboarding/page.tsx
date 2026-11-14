@@ -46,6 +46,9 @@ export default function OnboardingPage() {
   const [previewsLoading, setPreviewsLoading] = useState(false);
   const [listings, setListings] = useState<any[]|null>(null);
   const [listingsError, setListingsError] = useState<string>('');
+  // Ownership detection: which shop we expected (invited shops) and help if we can't see it.
+  const [listingsHelp, setListingsHelp] = useState<{title:string;message:string;nextStep:string}|null>(null);
+  const [expectedShop, setExpectedShop] = useState<{name:string;town:string|null}|null>(null);
   const [selecting, setSelecting] = useState<string>('');
   const [returnTo, setReturnTo] = useState<string>('');
 
@@ -125,6 +128,8 @@ export default function OnboardingPage() {
       const d = await res.json();
       if (!res.ok) throw new Error(d.error || 'Failed to load listings');
       setListings(d.listings || []);
+      setListingsHelp(d.help || null);
+      setExpectedShop(d.expected || null);
     } catch (e: any) {
       console.error('Load listings failed:', e);
       setListingsError(e.message || 'Failed to load listings');
@@ -263,6 +268,14 @@ export default function OnboardingPage() {
           ) : listings.length === 0 ? (
             <div style={{...card,padding:20,textAlign:'center'}}><p style={{fontSize:14,color:V.textMid,margin:0}}>We couldn&apos;t find a Google Business Profile you manage.</p></div>
           ) : (
+            <>
+            {listingsHelp && (
+              <div style={{...card,padding:16,marginBottom:12,background:V.card}}>
+                <div style={{fontSize:14,fontWeight:600,color:V.text,marginBottom:4}}>{listingsHelp.title}</div>
+                <p style={{fontSize:13,color:V.textMid,margin:'0 0 6px',lineHeight:1.5}}>{expectedShop ? `We were expecting ${expectedShop.name}${expectedShop.town ? `, ${expectedShop.town}` : ''}. ` : ''}{listingsHelp.message}</p>
+                <p style={{fontSize:13,color:V.textMid,margin:0,lineHeight:1.5}}>{listingsHelp.nextStep}</p>
+              </div>
+            )}
             <div style={{...card,padding:8}}>
               {listings.map((l:any) => (
                 <button key={l.locationName} onClick={()=>selectListing(l.accountName, l.locationName)} disabled={!!selecting}
@@ -270,10 +283,13 @@ export default function OnboardingPage() {
                   <div style={{fontSize:15,fontWeight:600,color:V.text}}>{l.title || 'Untitled listing'}</div>
                   {l.address && <div style={{fontSize:13,color:V.textSoft,marginTop:2}}>{l.address}</div>}
                   <div style={{fontSize:11,color:V.textSoft,marginTop:4}}>{l.accountDisplay || (l.accountType === 'PERSONAL' ? 'Personal account' : 'Google account')}</div>
+                  {l.matchesExpected && <div style={{fontSize:12,color:V.green,marginTop:6,fontWeight:600}}>This looks like your shop</div>}
+                  {l.waitingOnGoogle && <div style={{fontSize:12,color:V.amber,marginTop:6}}>Google hasn&apos;t finished verifying this listing yet</div>}
                   {selecting===l.locationName && <div style={{fontSize:12,color:V.orange,marginTop:6}}>Setting up…</div>}
                 </button>
               ))}
             </div>
+            </>
           )}
         </div>
       </div>

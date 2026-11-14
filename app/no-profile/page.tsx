@@ -1,6 +1,7 @@
 'use client';
 
 import { useTenant } from '@/lib/tenant-context';
+import { SHOP_MESSAGES } from '@/lib/ownership';
 
 const V = { bg:'#F0EDE8',card:'#FAFAF8',orange:'var(--brand-strong)',orangeLight:'var(--brand-strong-light)',text:'#1A1A1A',textSoft:'#999',border:'rgba(0,0,0,0.07)',shadow:'0 2px 12px rgba(0,0,0,0.06)' };
 const sans = "'DM Sans',sans-serif";
@@ -22,6 +23,20 @@ export default function NoProfilePage() {
           <h1 style={{ fontFamily:barlow, fontSize:28, fontWeight:800, textTransform:'uppercase', lineHeight:1.1, margin:'0 0 10px', color:V.text }}>
             No Google Business<br/>Profile found
           </h1>
+          {/* Invited shops (the Stellar tenant, which has a data source) already have
+              a listing; telling them to create one is wrong advice. They get the
+              ownership-detection message instead (lib/ownership.ts). */}
+          {tenant.dataSource ? (
+            <>
+              <p style={{ fontSize:14, color:V.text, lineHeight:1.6, margin:'0 0 8px', fontWeight:600 }}>{SHOP_MESSAGES.no_access.title}</p>
+              <p style={{ fontSize:14, color:V.textSoft, lineHeight:1.6, margin:'0 0 8px' }}>{SHOP_MESSAGES.no_access.message}</p>
+              <p style={{ fontSize:14, color:V.textSoft, lineHeight:1.6, margin:'0 0 20px' }}>{SHOP_MESSAGES.no_access.nextStep}</p>
+              <a href="/api/auth/callback/google?action=login" style={{ display:'block', textAlign:'center', background:'var(--brand-strong)', color:'#fff', borderRadius:8, padding:'13px 20px', fontSize:14, fontWeight:600, textDecoration:'none', marginBottom:10 }}>
+                Try a different Google account
+              </a>
+              <p style={{ fontSize:12, color:V.textSoft, lineHeight:1.6, margin:0 }}>Stuck? Email {tenant.supportEmail} or ask your Tarkett rep.</p>
+            </>
+          ) : (<>
           <p style={{ fontSize:14, color:V.textSoft, lineHeight:1.6, margin:'0 0 20px' }}>
             We couldn&apos;t find a Google Business Profile linked to that account. {tenant.brandName} needs a live GBP to work its magic.
           </p>
@@ -49,6 +64,7 @@ export default function NoProfilePage() {
           >
             Try a different Google account
           </a>
+          </>)}
         </div>
 
         <p style={{ fontSize:11, color:'#999', textAlign:'center', lineHeight:1.6 }}>
