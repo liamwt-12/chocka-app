@@ -42,14 +42,14 @@ Nothing here touches `main`.
 ```bash
 cd ~/chocka-app
 git fetch origin
-git checkout -B test/all origin/perf-monthly-report-resume
+git checkout -B test/all origin/fix-review-findings
 npm ci
 rm -rf .next && npx tsc --noEmit && npm test && npm run build
 ```
 
-That one branch is the top of the stack: it already contains every code PR (#24 to #52, without the legal ones).
+That one branch is the top of the stack: it already contains every code PR (#24 to #53, without the legal ones).
 
-**Pass:** the last line finishes without an error (582 tests when written).
+**Pass:** the last line finishes without an error (609 tests when written).
 **Fail:** a failing test or a build error. Stop and tell me.
 
 ### 0.2 A settings file for staging
