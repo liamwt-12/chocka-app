@@ -46,6 +46,8 @@ export const MIN_PHOTO_BYTES = 10 * 1024;
 export const MIN_LONG_SIDE = 400;
 export const MIN_SHORT_SIDE = 300;
 export const MAX_SIDE = 10000;
+/** A small file can still claim an enormous picture. Forty megapixels is more than any phone photo once shrunk. */
+export const MAX_PIXELS = 40_000_000;
 
 /** Photos a shop can have waiting or approved at once. Rejected ones do not count. */
 export const MAX_PHOTOS_PER_SHOP = 40;
@@ -142,7 +144,7 @@ export function preparePhoto(input: Uint8Array): PreparedPhoto {
   const long = Math.max(image.width, image.height);
   const short = Math.min(image.width, image.height);
   if (long < MIN_LONG_SIDE || short < MIN_SHORT_SIDE) return { ok: false, error: `That photo is too small. It needs to be at least ${MIN_LONG_SIDE} by ${MIN_SHORT_SIDE} pixels.` };
-  if (long > MAX_SIDE) return { ok: false, error: 'That photo is too large in size. Try a smaller version.' };
+  if (long > MAX_SIDE || image.width * image.height > MAX_PIXELS) return { ok: false, error: 'That photo is too large in size. Try a smaller version.' };
 
   // Read the cleaned file back with a separate check. If anything is left, the
   // photo is refused rather than stored: failing closed is the whole point.

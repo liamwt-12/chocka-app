@@ -116,3 +116,18 @@ describe('/api/posts/approve', () => {
     expect(await (await approvePOST(new NextRequest(url('approve'), { method: 'POST' }))).text()).toContain('Already handled');
   });
 });
+
+describe('containsPhoneNumber', () => {
+  it('finds a UK number however it is spaced or punctuated', async () => {
+    const { containsPhoneNumber } = await import('./safe-automation');
+    for (const yes of ['Call 07700 900123', '07700-900123', '(0113) 496 0000', '0113.496.0000', '+44 7700 900123', '+44 (0)7700 900123', '0800 123 4567', '0333 000 1234', 'ring us on 01632960001 today']) {
+      expect(containsPhoneNumber(yes), yes).toBe(true);
+    }
+  });
+  it('leaves ordinary numbers alone', async () => {
+    const { containsPhoneNumber } = await import('./safe-automation');
+    for (const no of ['Over 30 years on the high street', 'Open 9 to 5, 6 days a week', 'We fitted 1200 square metres in 2026', 'Unit 4, 10 Mill Lane', 'rated 4.9 from 120 reviews', '']) {
+      expect(containsPhoneNumber(no), no).toBe(false);
+    }
+  });
+});

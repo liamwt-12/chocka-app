@@ -12,7 +12,10 @@ const EMAIL = /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g;
 const PHONE = /(?<![\w.])(?:\+|0)(?:[\s().-]*\d){9,14}(?![\d])/g;
 
 export function redact(text: unknown, max = 500): string {
+  // Cut long input down BEFORE matching. The email pattern is slow on a long
+  // run of letters with no @ in it (a large encoded or HTML error body).
   return String(text ?? '')
+    .slice(0, Math.max(max, 0) * 4 + 200)
     .replace(EMAIL, '[email]')
     .replace(PHONE, '[phone]')
     .slice(0, max);

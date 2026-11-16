@@ -250,7 +250,7 @@ export default function DashboardPage() {
       {d.pendingReplies?.length>0&&(
         <div style={{...card,animation:'fadeUp .5s .35s ease both'}}>
           <div style={lbl}>Replies waiting for you</div>
-          <p style={{fontSize:12,color:V.textSoft,margin:'0 0 10px',lineHeight:1.4,fontFamily:sans}}>We never reply to a 1 to 3 star review without you. Here is a careful reply we have drafted for each. Nothing is posted until you approve it.</p>
+          <p style={{fontSize:12,color:V.textSoft,margin:'0 0 10px',lineHeight:1.4,fontFamily:sans}}>These replies are drafted and waiting for you. We never reply to a 1 to 3 star review without your say-so. Nothing here is posted until you approve it.</p>
           <div style={{display:'flex',flexDirection:'column',gap:12}}>
             {d.pendingReplies.map((p:any,i:number)=>(
               <div key={i} style={{background:V.card2,borderRadius:12,padding:12}}>

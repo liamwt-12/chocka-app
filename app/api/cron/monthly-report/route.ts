@@ -23,7 +23,10 @@ export async function GET(request: NextRequest) {
     const users = await getActiveUsersWithProfiles(supabaseAdmin, 'monthly-report');
     const now = new Date();
     const lastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-    const lastMonthEnd = new Date(now.getFullYear(), now.getMonth(), 0);
+    // The first instant of THIS month, used as an exclusive end. It was the
+    // last day of last month at midnight, used inclusively, which left out
+    // everything published during that final day.
+    const thisMonthStart = new Date(now.getFullYear(), now.getMonth(), 1);
     const monthName = lastMonth.toLocaleString('en-GB', { month: 'long', year: 'numeric' });
     let sent = 0;
 
@@ -84,7 +87,7 @@ export async function GET(request: NextRequest) {
           .eq('profile_id', profile.id)
           .eq('status', 'published')
           .gte('published_at', lastMonth.toISOString())
-          .lte('published_at', lastMonthEnd.toISOString());
+          .lt('published_at', thisMonthStart.toISOString());
 
         // Count reviews replied last month (join through reviews to scope by profile)
         const { count: reviewsReplied } = await supabaseAdmin
@@ -93,7 +96,7 @@ export async function GET(request: NextRequest) {
           .eq('reviews.profile_id', profile.id)
           .eq('status', 'published')
           .gte('published_at', lastMonth.toISOString())
-          .lte('published_at', lastMonthEnd.toISOString());
+          .lt('published_at', thisMonthStart.toISOString());
 
         // Last calendar month, summed day by day from daily_metrics. This used to
         // add up weekly_stats rows that each held a rolling 28-day total, which

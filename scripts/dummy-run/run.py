@@ -7,6 +7,12 @@ Google, the AI model, email and SMS all faked) against the staging database,
 and proves afterwards that staging is exactly as it was found.
 
     /usr/local/bin/python3.14 scripts/dummy-run/run.py [--out <results.json>]
+    /usr/local/bin/python3.14 scripts/dummy-run/run.py --clean
+
+--clean is for after a run that was killed partway (Ctrl-C, a crash). A killed
+run cannot tidy up after itself, and the next ordinary run would then refuse to
+start because staging is no longer empty. --clean skips the checks, deletes
+only the labelled TEST rows and their files, and reports what is left.
 
 What it does, in order:
   1. Refuses unless the target is the staging project.
@@ -104,14 +110,19 @@ def main():
     if '--out' in sys.argv:
         out_path = os.path.abspath(sys.argv[sys.argv.index('--out') + 1])
 
+    clean_only = '--clean' in sys.argv
     print(f'target: chocka-staging ({STAGING})')
     print('snapshot before …')
     before = snapshot()
-    if before['counts'].get('users', 0) != 0 or before['counts'].get('retailers', 0) != 0:
+    if not clean_only and (before['counts'].get('users', 0) != 0 or before['counts'].get('retailers', 0) != 0):
         sys.exit(f"REFUSED: staging is not empty (users={before['counts'].get('users')}, retailers={before['counts'].get('retailers')}). "
-                 'The dummy run only starts from an empty staging, so that no real row can be touched.')
+                 'The dummy run only starts from an empty staging, so that no real row can be touched. '
+                 'If the last run was killed partway, run this again with --clean.')
 
-    env = dict(os.environ)
+    # Only what node needs to start, not the whole shell environment: nothing
+    # from this machine's other projects should be within the run's reach.
+    env = {k: os.environ[k] for k in ('PATH', 'HOME', 'USER', 'SHELL', 'TMPDIR', 'LANG', 'LC_ALL', 'NVM_DIR', 'NVM_BIN', 'TERM') if k in os.environ}
+    if clean_only: env['DUMMY_RUN_CLEAN_ONLY'] = '1'
     env.update({
         'NEXT_PUBLIC_SUPABASE_URL': f'https://{STAGING}.supabase.co',
         'SUPABASE_SERVICE_ROLE_KEY': staging_service_key(),
@@ -138,6 +149,10 @@ def main():
     print('\nsnapshot after …')
     after = snapshot()
     changes = diff(before, after)
+    if clean_only:
+        left = {t: n for t, n in after['counts'].items() if n and t != 'tenants'}
+        print('clean-up finished. ' + ('Rows still present (not TEST data, so not touched): ' + json.dumps(left) if left else 'Staging is empty again apart from the two tenant rows.') + f" Files in storage: {after['storage_files']}.")
+        sys.exit(0 if not left and after['storage_files'] == 0 else 1)
     if changes:
         print('STAGING IS NOT AS IT WAS FOUND:')
         for c in changes: print('  ' + c)

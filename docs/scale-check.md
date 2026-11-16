@@ -98,7 +98,7 @@ Small and safe, in the spirit of what the figures sync already does. No job is m
 |---|---|---|
 | Weekly post writer | Runs every 5 minutes, 09:00 to 12:55 UTC on Fridays (was once, at 09:00) | A shop already has a post for the week. Read once for everyone, not once per shop |
 | Weekly stats text | Runs every 5 minutes, 08:00 to 10:55 UTC on Mondays (was once, at 08:00) | A shop already has this week's stats row. Read once for everyone |
-| Daily review check | Runs every half hour, 08:00 to 18:30 UTC (was once, at 09:00). Each run starts 12 shops further down the list | It does not need to know. A review already seen is skipped, so checking a shop twice is harmless |
+| Daily review check | Runs every 15 minutes, 08:00 to 18:45 UTC (was once, at 09:00). Each run starts 6 shops further down the list | It does not need to know. A review already seen is skipped, so checking a shop twice is harmless |
 | Post publisher | Stops when its time is up, not only at 40 posts | A post is marked published |
 
 A run with nothing left to do costs two database requests.
@@ -120,7 +120,7 @@ A run with nothing left to do costs two database requests.
 
 No shop was done twice in any run: no duplicate post, text or reply.
 
-**What shops will notice:** the Friday preview email and the Monday text arrive some time in a three-hour window in the morning, not on the dot. A new review is answered within the hour instead of the next morning.
+**What shops will notice:** the Friday preview email and the Monday text arrive some time in a three-hour window in the morning, not on the dot. A new review is answered the same working day, not the next morning: within a quarter of an hour while there are up to about 20 shops, and within about seven and a half hours at 180.
 
 **This holds to about 250 shops. It is not the answer for 500.** That needs the proper fix below.
 
@@ -169,6 +169,18 @@ Nothing here fans out badly, with one exception:
 2. **Check which region the site's functions run in** (Netlify: Project configuration, Functions). If it is the US and the plan allows, move it to match the database.
 3. **Run the scale check again** after any change to a scheduled job. It takes about ten seconds.
 4. **Plan background functions** before 250 shops.
+
+## Corrections after review (PR #53)
+
+An independent review of the first round found problems in it. All are fixed, and the tables above are from the corrected code.
+
+1. **A post the shop cancelled was written again five minutes later.** The "already has a post?" check counted only live posts. With one run a week that was harmless; with a run every five minutes, a shop that pressed "cancel" got a fresh post and a fresh email from the next run, all morning. Any post for the week now counts, cancelled ones included.
+2. **Posts were going out fortnightly, not weekly.** This one is older than any of this work. The check asked "is there a post since last Sunday?", and last week's post, published on the Monday just gone, always answered yes. So every other Friday every shop was skipped. It now asks about the *coming* Monday. **Shops will get a post every week, which is what the terms have always said, and twice as often as the code was actually doing.**
+3. **The Monday text could repeat.** The row that marks a shop as done was written without checking that the write worked. If it failed, the next run, five minutes later, would text the shop again, up to 36 times. Now, if the row cannot be written, no text is sent.
+4. **"0 views" when Google could not be read.** A failed read from Google came back as all zeros and was texted to the shop as its figures. The shop is now left for the next run.
+5. **The review check could miss the shops just behind a busy stretch.** It moved 12 shops down the list each half hour and relied on every run reaching at least 12. Answering a new review takes nearly five seconds, so a run that met three of them did not get that far. It now moves 6 at a time, every 15 minutes.
+6. **Reading in pages was not safe as written.** Pages were read without a fixed order (so a row could be missed between pages) and the loop stopped at the first short page (wrong if the server's own limit is lower than the page size). Both fixed.
+7. **The simulation depended on the day it was run.** It now always starts from the same fixed moment.
 
 ## The monthly report (fixed in its own PR)
 

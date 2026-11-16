@@ -48,13 +48,23 @@ export function runIndex(everyMinutes: number, now: Date = new Date()): number {
   return Math.floor(now.getTime() / (everyMinutes * 60_000));
 }
 
-/** Every row of a query, a page at a time. PostgREST stops at 1,000 rows per request without saying so. */
-export async function selectAll<T>(page: (from: number, to: number) => PromiseLike<{ data: T[] | null; error: { message: string } | null }>, pageSize = 1000): Promise<T[]> {
+/**
+ * Every row of a query, a page at a time. PostgREST stops at 1,000 rows per
+ * request (or fewer, if the project is set lower) without saying so.
+ *
+ * Two rules for callers and for this loop, both learned in review:
+ *  - THE QUERY MUST HAVE A STABLE `.order(...)`. Without one the database may
+ *    return rows in a different order for each page, so a row can be missed.
+ *  - It stops on an EMPTY page, not a short one. A short page does not mean the
+ *    end when the server's own limit is below the page size asked for.
+ */
+export async function selectAll<T>(page: (from: number, to: number) => PromiseLike<{ data: T[] | null; error: { message: string } | null }>, pageSize = 1000, maxRows = 200_000): Promise<T[]> {
   const out: T[] = [];
-  for (let from = 0; ; from += pageSize) {
-    const { data, error } = await page(from, from + pageSize - 1);
+  while (out.length < maxRows) {
+    const { data, error } = await page(out.length, out.length + pageSize - 1);
     if (error) throw new Error(error.message);
-    out.push(...(data || []));
-    if (!data || data.length < pageSize) return out;
+    if (!data || data.length === 0) return out;
+    out.push(...data);
   }
+  return out;
 }

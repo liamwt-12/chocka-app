@@ -12,6 +12,8 @@ import { newWorld, installFetchGuard, makeListing, addReview, type World } from 
 
 const ROOT = resolve(__dirname, '..', '..');
 export const DAY = 86_400_000;
+/** Where every simulated run starts. */
+export const SIM_START = Date.parse('2026-11-18T12:00:00Z');
 
 export let sim: Sim;
 export let world: World;
@@ -38,7 +40,10 @@ export async function seed(n: number) {
   for (const k of ['ANTHROPIC_API_KEY', 'GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET', 'RESEND_API_KEY', 'TWILIO_ACCOUNT_SID', 'TWILIO_AUTH_TOKEN', 'TWILIO_PHONE_NUMBER']) process.env[k] = 'scale';
   const { encryptSecret, userTokenAad } = await mod('lib/secrets.ts');
   world = newWorld();
-  sim = { clock: new Clock(Date.now()), count: newCounters(), tables: {}, idSeq: 0 };
+  // A fixed Wednesday at noon UTC. Run on a real clock, a test that happened to
+  // straddle midnight on a Sunday would see the week change underneath it.
+  vi.setSystemTime(SIM_START);
+  sim = { clock: new Clock(SIM_START), count: newCounters(), tables: {}, idSeq: 0 };
   const users: any[] = [], profiles: any[] = [], retailers: any[] = [];
   for (let i = 1; i <= n; i++) {
     const key = `s${i}`, uid = `user-${i}`, pid = `profile-${i}`;

@@ -30,6 +30,8 @@ const EMAIL = (k: string) => `dummy-run+${k}@invalid.example`;
 const FUNDER_EMAIL = 'dummy-run+funder@invalid.example';
 const PHONE = '07700900123'; // Ofcom's reserved range: not a real number
 const DAY = 86_400_000;
+/** Set by `run.py --clean`: delete labelled TEST data left by a killed run, and do nothing else. */
+const CLEAN_ONLY = process.env.DUMMY_RUN_CLEAN_ONLY === '1';
 const iso = (d: Date) => d.toISOString().slice(0, 10);
 const AD_START = iso(new Date(Date.now() - 35 * DAY));
 const PID = (k: string) => `ChIJdummyrun${k.toUpperCase().repeat(15)}`.slice(0, 27);
@@ -161,6 +163,7 @@ describe('dummy run on staging', () => {
     realFetch = installFetchGuard(world, STAGING_HOST);
     cast();
     db = (await mod('lib/supabase.ts')).supabaseAdmin;
+    if (CLEAN_ONLY) return; // tidying up after a killed run: afterAll does the work
     const [{ count: users }, { count: retailers }] = await Promise.all([
       db.from('users').select('id', { count: 'exact', head: true }),
       db.from('retailers').select('id', { count: 'exact', head: true }),
@@ -212,6 +215,7 @@ describe('dummy run on staging', () => {
   }, 180_000);
 
   it('runs every flow and records what happened', async () => {
+    if (CLEAN_ONLY) { notes.push('Clean-up only: no checks were run.'); return; }
     // ════════ 0. Switches are off unless turned on ════════
     await step('flags', 'console, photos and the preview email are all off by default', async () => {
       const login = await call('console/login', 'POST', '/api/console/login', { body: { email: FUNDER_EMAIL } });

@@ -26,18 +26,27 @@ export async function GET(request: NextRequest) {
     // safe is knowing who already has this week's post, so that is read ONCE
     // here, for everyone, instead of once per shop.
     //
-    // A post awaiting approval counts as "has one". It did not before, which
-    // was harmless with one run a week and would have written a new shop a
-    // fresh post on every run.
+    // WHO ALREADY HAS ONE: any post, in ANY state, scheduled on or after the
+    // Monday this run is writing for. Two things about that, both from review:
+    //
+    //  - ANY state, cancelled included. A shop that cancels its post has been
+    //    told "nothing will be published this week". With several runs a
+    //    morning, counting only live posts meant the next run, five minutes
+    //    later, wrote it a new one. A post awaiting approval counts too.
+    //
+    //  - The UPCOMING Monday, not "since last Sunday". The old test asked for a
+    //    post scheduled since the Sunday before this Friday, and last week's
+    //    post (scheduled for the Monday just gone) always matched. So every
+    //    other Friday every shop was skipped: posts went out fortnightly, not
+    //    weekly.
     const budget = startBudget();
-    const weekStart = new Date();
-    weekStart.setDate(weekStart.getDate() - weekStart.getDay());
-    weekStart.setHours(0, 0, 0, 0);
+    const slot = nextMondaySlot('', now);
+    const targetWeekStart = new Date(Date.UTC(slot.getUTCFullYear(), slot.getUTCMonth(), slot.getUTCDate()));
     const thisWeek = await selectAll<{ profile_id: string }>((from, to) => supabaseAdmin
       .from('scheduled_posts')
       .select('profile_id')
-      .gte('scheduled_for', weekStart.toISOString())
-      .in('status', [PUBLISHABLE, 'published', AWAITING_APPROVAL])
+      .gte('scheduled_for', targetWeekStart.toISOString())
+      .order('id', { ascending: true })
       .range(from, to));
     const hasPost = new Set(thisWeek.map((p) => p.profile_id));
     // Rotated each run, so one shop whose post keeps failing its checks is not at the front every time.

@@ -107,7 +107,11 @@ export async function GET(request: NextRequest) {
           // was created). A photo must never be the reason a shop's post does
           // not go out, so try once more as text. Token failures are not
           // retried: they go to the handler below as they always did.
-          const refused = /Failed to create post/.test(String(err?.message)) && !/401/.test(String(err?.message));
+          // Only a 4xx that is not about the credential (401, 403) or pacing
+          // (429) counts as "refused". After a 5xx or a timeout Google may have
+          // created the post anyway, and trying again would publish it twice.
+          const status = Number(/Failed to create post \((\d{3})\)/.exec(String(err?.message))?.[1] || 0);
+          const refused = status >= 400 && status < 500 && ![401, 403, 429].includes(status);
           if (!photoUrl || !refused) throw err;
           console.warn(`[cron:post-publisher] post ${post.id}: Google refused the photo, publishing as text. ${String(err?.message).slice(0, 200)}`);
           result = await loggedCreatePost(ctx, accessToken, profile.google_location_name, post.content, profile.google_account_id);

@@ -142,6 +142,9 @@ export async function loadMetricRows(db: MetricsDb, profileId: string, from: str
       .gte('date', from)
       .lte('date', to)
       .order('date', { ascending: true })
+      // And by metric: nine rows share each date, so ordering by date alone
+      // left page boundaries undefined and a row could be missed past 1,000.
+      .order('metric', { ascending: true })
       .range(offset, offset + 999);
     if (error) throw new Error(`daily_metrics read failed: ${error.message}`);
     out.push(...(data || []));

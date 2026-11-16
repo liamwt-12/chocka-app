@@ -113,6 +113,14 @@ export function orientationOnlyExif(orientation: number): Uint8Array {
 
 const isSof = (m: number) => m >= 0xc0 && m <= 0xcf && m !== 0xc4 && m !== 0xc8 && m !== 0xcc;
 const isApp = (m: number) => m >= 0xe0 && m <= 0xef;
+/**
+ * The segments a decoder needs before the first scan: frame headers (C0 to CF,
+ * which includes the Huffman and arithmetic tables at C4 and CC), quantisation
+ * tables (DB) and the restart interval (DD). Nothing else.
+ */
+const isImageSegment = (m: number) => (m >= 0xc0 && m <= 0xcf) || m === 0xdb || m === 0xdd;
+/** The segments that may sit between scans: the above, the next scan header (DA) and the line count (DC). */
+const isScanSegment = (m: number) => isImageSegment(m) || m === 0xda || m === 0xdc;
 const COM = 0xfe;
 
 function appName(m: number, seg: Uint8Array): string {
@@ -159,9 +167,14 @@ function cleanJpeg(b: Uint8Array): CleanImage {
       if (keepApp(m, seg)) kept.push(seg); else removed.push(appName(m, seg));
     } else if (m === COM) {
       removed.push('comment');
-    } else {
+    } else if (isImageSegment(m)) {
       if (isSof(m) && len >= 7) { height = (seg[5] << 8) | seg[6]; width = (seg[7] << 8) | seg[8]; }
       kept.push(seg);
+    } else {
+      // Not something a decoder needs, and not a kind of metadata we know how
+      // to drop. Reserved and extension markers can each carry 64 KB of
+      // anything, so the file is refused rather than passed through.
+      throw new ImageError('JPEG contains data we do not recognise');
     }
     pos += 2 + len;
   }
@@ -188,6 +201,8 @@ function cleanJpeg(b: Uint8Array): CleanImage {
       scan.push(b.subarray(chunkStart, i));
       chunkStart = i + 2 + len;
       removed.push(m === COM ? 'comment' : appName(m, b.subarray(i, i + 2 + len)));
+    } else if (!isScanSegment(m)) {
+      throw new ImageError('JPEG contains data we do not recognise');
     }
     i += 2 + len;
   }
@@ -218,6 +233,7 @@ function cleanPng(b: Uint8Array): CleanImage {
   let width = 0, height = 0;
   let pos = 8;
   let ended = false;
+  let sawData = false;
   let first = true;
   while (pos + 12 <= n) {
     const len = ((b[pos] << 24) | (b[pos + 1] << 16) | (b[pos + 2] << 8) | b[pos + 3]) >>> 0;
@@ -231,10 +247,12 @@ function cleanPng(b: Uint8Array): CleanImage {
       first = false;
     }
     if (PNG_KEEP.has(type)) out.push(b.subarray(pos, pos + total)); else removed.push(type);
+    if (type === 'IDAT' && len > 0) sawData = true;
     pos += total;
     if (type === 'IEND') { ended = true; break; }
   }
   if (!ended) throw new ImageError('PNG is cut short');
+  if (!sawData) throw new ImageError('PNG has no image data');
   if (!width || !height) throw new ImageError('PNG has no size information');
   if (pos < n) removed.push('data after the end of the image');
   return { kind: 'png', contentType: 'image/png', extension: 'png', bytes: concat(out), width, height, removed };
@@ -262,19 +280,28 @@ export function remainingMetadata(input: Uint8Array): string[] {
   const kind = sniffImage(input);
   const found: string[] = [];
   if (kind === 'jpeg') {
-    let pos = 2;
-    while (pos + 4 <= input.length && input[pos] === 0xff) {
-      const m = input[pos + 1];
-      if (m === 0xda) break;
-      const len = (input[pos + 2] << 8) | input[pos + 3];
-      const seg = input.subarray(pos, pos + 2 + len);
+    // Walk every marker in the file, headers and scans alike, and name
+    // anything that is not on the allowlist. Written separately from
+    // cleanJpeg on purpose: it reads the result rather than trusting the builder.
+    let i = 2;
+    let inScan = false;
+    while (i + 1 < input.length) {
+      if (input[i] !== 0xff) { if (!inScan) { found.push('unreadable structure'); break; } i++; continue; }
+      const m = input[i + 1];
+      if (m === 0xff) { i++; continue; }
+      if (inScan && (m === 0x00 || (m >= 0xd0 && m <= 0xd7))) { i += 2; continue; }
+      if (m === 0xd9) { if (i + 2 < input.length) found.push('data after the end of the image'); break; }
+      if (i + 4 > input.length) { found.push('unreadable structure'); break; }
+      const len = (input[i + 2] << 8) | input[i + 3];
+      const seg = input.subarray(i, i + 2 + len);
       if (m === COM) found.push('comment');
-      else if (isApp(m) && !keepApp(m, seg)) {
+      else if (isApp(m)) {
         // The one EXIF block allowed is the 36-byte orientation-only one.
-        const ok = m === 0xe1 && seg.length === 36 && orientationOnlyExif(seg[29]).every((v, i) => seg[i] === v);
-        if (!ok) found.push(appName(m, seg));
-      }
-      pos += 2 + len;
+        const orientationOnly = m === 0xe1 && seg.length === 36 && orientationOnlyExif(seg[29]).every((v, k) => seg[k] === v);
+        if (!keepApp(m, seg) && !orientationOnly) found.push(appName(m, seg));
+      } else if (m === 0xda) inScan = true;
+      else if (!(inScan ? isScanSegment(m) : isImageSegment(m))) found.push(`unrecognised segment 0x${m.toString(16)}`);
+      i += 2 + len;
     }
   } else if (kind === 'png') {
     let pos = 8;

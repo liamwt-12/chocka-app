@@ -90,14 +90,15 @@ export async function DELETE(request: NextRequest) {
     // (so the files can still be found and removed by a rep), and the retention
     // job removes them with the shop record later.
     try {
-      const { data: shops } = await supabaseAdmin.from('retailers').select('id').eq('user_id', userId);
+      const { data: shops, error: shopsError } = await supabaseAdmin.from('retailers').select('id').eq('user_id', userId);
+      if (shopsError) console.error(`[account/delete] COULD NOT LOOK UP THE SHOP for user ${userId}, so its photos and upload link were NOT cleared: ${shopsError.message}. Clear them by hand in /admin/pilot.`);
       const shopIds = (shops || []).map((s: any) => s.id);
       if (shopIds.length) {
+        // The upload link first, so nothing new can arrive while the files are being removed.
+        await supabaseAdmin.from('retailers').update({ photo_link_hash: null, photo_link_expires_at: null }).in('id', shopIds);
         const photos = await deletePhotoFilesForShops(supabaseAdmin, supabaseAdmin.storage, shopIds, { alsoDeleteRecords: true });
         for (const f of photos.failed) console.error(`[account/delete] PHOTOS NOT FULLY DELETED for shop ${f.id} (user ${userId}): ${f.reason}. Remove them by hand in /admin/pilot.`);
         if (photos.filesRemoved) console.log(`[account/delete] removed ${photos.filesRemoved} photo file(s) for user ${userId}`);
-        // And the upload link stops working, so nothing new can arrive for a shop that has left.
-        await supabaseAdmin.from('retailers').update({ photo_link_hash: null, photo_link_expires_at: null }).in('id', shopIds);
       }
     } catch (err) {
       console.error(`[account/delete] photo cleanup failed for user ${userId}:`, err);

@@ -99,7 +99,7 @@ export const SHOP_MESSAGES: Record<ConnectionStatus, { title: string; message: s
   waiting_google: {
     title: 'Waiting on Google',
     message: "We've found your shop, but Google hasn't finished verifying the listing, so it can't be managed yet.",
-    nextStep: "Finish Google's verification for the listing (Google will have sent instructions by post, phone or email). We'll pick it up automatically once it's done.",
+    nextStep: "Finish Google's verification for the listing (Google will have sent instructions by post, phone or email). Once Google has verified it, tell your Tarkett rep and we'll check it again.",
   },
 };
 

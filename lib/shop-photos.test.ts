@@ -102,6 +102,10 @@ describe('preparePhoto: what must be true before a file is stored', () => {
     expect(preparePhoto(makeJpeg({ ...ok, width: 300, height: 400 })).ok).toBe(true); // portrait is fine
     expect(preparePhoto(makeJpeg({ ...ok, width: 20000, height: 900 })).ok).toBe(false);
   });
+  it('refuses a small file that claims an enormous picture', () => {
+    expect(preparePhoto(makeJpeg({ ...ok, width: 9000, height: 9000 })).ok).toBe(false); // 81 megapixels
+    expect(preparePhoto(makeJpeg({ ...ok, width: 6000, height: 4000 })).ok).toBe(true);  // 24 megapixels
+  });
   it('refuses a damaged file with a message, not an exception', () => {
     const r = preparePhoto(makeJpeg({ ...ok, truncated: true }));
     expect(r).toEqual({ ok: false, error: 'We could not read that photo. Try saving it again, or use a different one.' });

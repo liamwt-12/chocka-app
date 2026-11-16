@@ -15,6 +15,11 @@ describe('redact', () => {
     expect(redact(msg)).toBe(msg);
     expect(redact('profile 3f2b6c1e-8a4d-4f0b-9c1a-2d5e7f809a1b failed with 429 after 1200 ms')).toBe('profile 3f2b6c1e-8a4d-4f0b-9c1a-2d5e7f809a1b failed with 429 after 1200 ms');
   });
+  it('is quick on a very long body with no address in it', () => {
+    const started = Date.now();
+    expect(redact('A'.repeat(2_000_000))).toHaveLength(500);
+    expect(Date.now() - started).toBeLessThan(2_000);
+  });
   it('copes with anything, and keeps log lines short', () => {
     expect(redact(null)).toBe('');
     expect(redact(undefined)).toBe('');

@@ -15,13 +15,16 @@ import { holdingReply } from '@/lib/safe-automation';
 import { startBudget, rotateForRun, runIndex, selectAll } from '@/lib/cron-budget';
 
 /**
- * How far the starting point moves each run. A run gets through 12 to 24 shops
- * in its budget (scripts/scale-check), so 12 means successive runs never leave
- * a gap, at the cost of some overlap on quiet days.
+ * How far the starting point moves each run. Coverage depends on every run
+ * getting at least this far down its list. Answering a new review takes nearly
+ * five seconds, so a run that meets three of them reaches only a handful of
+ * shops; 6 is a distance even a busy run covers. (It was 12, every half hour,
+ * and review found that the shops just behind a busy stretch could be missed
+ * for the day.)
  */
-const STRIDE = 12;
+const STRIDE = 6;
 /** Minutes between runs: must match the schedule in netlify/functions/cron-review-alerts.mts. */
-const EVERY_MINUTES = 30;
+const EVERY_MINUTES = 15;
 /**
  * Lower than the other jobs' 20 seconds. Answering one review takes over four
  * seconds (the model, then Google), and the last one started must still finish
@@ -39,7 +42,7 @@ export async function GET(request: NextRequest) {
     // Each shop costs about a second even when it has no new reviews (one
     // Google sign-in, one read of its reviews), so one run cannot reach
     // everyone once there are more than a few dozen shops. This job now runs
-    // every half hour through the working day (netlify/functions/cron-review-alerts.mts)
+    // every 15 minutes through the working day (netlify/functions/cron-review-alerts.mts)
     // and each run starts a little further down the list, so the whole list is
     // covered across the day instead of the same shops being checked and the
     // rest never. Checking a shop twice is harmless: a review already seen is
@@ -82,6 +85,7 @@ export async function GET(request: NextRequest) {
           .from('reviews')
           .select('google_review_id')
           .eq('profile_id', profile.id)
+          .order('id', { ascending: true })
           .range(from, to));
         const seen = new Set<string>(seenRows.map((r) => r.google_review_id));
 

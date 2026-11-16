@@ -57,17 +57,22 @@ describe('runIndex', () => {
 });
 
 describe('selectAll', () => {
-  it('keeps asking until a page comes back short, so nothing past 1,000 rows is lost', async () => {
+  it('keeps asking until a page comes back empty, so nothing past 1,000 rows is lost', async () => {
     const all = Array.from({ length: 2_350 }, (_, i) => i);
     const asked: Array<[number, number]> = [];
     const got = await selectAll<number>(async (from, to) => { asked.push([from, to]); return { data: all.slice(from, to + 1), error: null }; });
-    expect(got).toHaveLength(2_350);
-    expect(asked).toEqual([[0, 999], [1000, 1999], [2000, 2999]]);
+    expect(got).toEqual(all);
+    expect(asked).toEqual([[0, 999], [1000, 1999], [2000, 2999], [2350, 3349]]);
   });
-  it('stops after one page when there is little to read, and throws on an error rather than returning half', async () => {
-    let calls = 0;
-    expect(await selectAll<number>(async () => { calls++; return { data: [1, 2], error: null }; })).toEqual([1, 2]);
-    expect(calls).toBe(1);
+  it('still gets everything when the server gives fewer rows per page than were asked for', async () => {
+    const all = Array.from({ length: 1_200 }, (_, i) => i);
+    const serverLimit = 500;
+    const got = await selectAll<number>(async (from, to) => ({ data: all.slice(from, Math.min(to + 1, from + serverLimit)), error: null }));
+    expect(got).toEqual(all); // a "short" first page of 500 used to be taken for the end
+  });
+  it('throws on an error rather than returning half, and cannot loop for ever', async () => {
     await expect(selectAll(async () => ({ data: null, error: { message: 'boom' } }))).rejects.toThrow('boom');
+    const endless = await selectAll<number>(async () => ({ data: [1, 2, 3], error: null }), 3, 30);
+    expect(endless).toHaveLength(30);
   });
 });

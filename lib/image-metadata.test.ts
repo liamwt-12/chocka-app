@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { sniffImage, cleanImage, remainingMetadata, exifOrientation, orientationOnlyExif, ImageError } from './image-metadata';
-import { makeJpeg, makePng, exifSegment, contains, GPS_MARKER, DEVICE_MARKER } from './image-test-fixtures';
+import { makeJpeg, makePng, exifSegment, seg, contains, GPS_MARKER, DEVICE_MARKER } from './image-test-fixtures';
 
 const bytes = (s: string) => new Uint8Array(Buffer.from(s, 'latin1'));
 
@@ -90,6 +90,34 @@ describe('cleanImage: JPEG', () => {
     expect(() => cleanImage(makeJpeg({ truncated: true }))).toThrow(/cut short/);
     expect(() => cleanImage(new Uint8Array([0xff, 0xd8, 0xff, 0xd9]))).toThrow(ImageError);
     expect(() => cleanImage(new Uint8Array([0xff, 0xd8, 0xff, 0xe1, 0xff, 0xff]))).toThrow(ImageError);
+  });
+});
+
+describe('cleanImage: only what a decoder needs is kept', () => {
+  /** A JPEG with one extra segment spliced in before the image tables. */
+  const withSegment = (marker: number, payload: string) => {
+    const base = Array.from(makeJpeg());
+    const extra = seg(marker, Array.from(Buffer.from(payload, 'latin1')));
+    return new Uint8Array([...base.slice(0, 2), ...extra, ...base.slice(2)]);
+  };
+  it.each([
+    ['a reserved marker', 0x02], ['another reserved marker', 0xbf], ['a JPEG extension marker', 0xf0], ['a hierarchical marker', 0xde],
+  ])('refuses a JPEG carrying %s, which could hide anything', (_name, marker) => {
+    const sneaky = withSegment(marker, 'HIDDEN-PAYLOAD customer address 12 Acacia Avenue');
+    expect(() => cleanImage(sneaky)).toThrow(/do not recognise/);
+    expect(remainingMetadata(sneaky).join(' ')).toMatch(/unrecognised segment/);
+  });
+  it('the second check reads the whole file, including what sits between scans', () => {
+    const dirty = makeJpeg({ midScanComment: true });
+    expect(remainingMetadata(dirty)).toContain('comment');
+    expect(remainingMetadata(cleanImage(dirty).bytes)).toEqual([]);
+  });
+  it('refuses a PNG that has a header and an end but no picture in it', () => {
+    const png = Array.from(makePng());
+    const text = Buffer.from(png).indexOf(Buffer.from('IDAT')) - 4;
+    const idatLen = (png[text] << 24) | (png[text + 1] << 16) | (png[text + 2] << 8) | png[text + 3];
+    const hollow = new Uint8Array([...png.slice(0, text), ...png.slice(text + 12 + idatLen)]);
+    expect(() => cleanImage(hollow)).toThrow(/no image data/);
   });
 });
 

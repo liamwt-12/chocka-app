@@ -62,13 +62,13 @@ describe('scale check', () => {
       } finally { stop(); }
     }, 600_000);
     for (const [label, fraction] of [['quiet day', 1 / 20], ['busy day', 1 / 5]] as const) {
-      it(`review-alerts, every half hour for a working day (${label}): ${n} shops`, async () => {
+      it(`review-alerts, every 15 minutes for a working day (${label}): ${n} shops`, async () => {
         const stop = await world_(n, (c) => seedReviews(c, fraction));
         try {
-          const d = await drain('review-alerts', 30, 22, () => false);
+          const d = await drain('review-alerts', 15, 44, () => false);
           const replies = Object.values(world.personas).filter((p) => p.listings[0].reviews.find((r) => r.reviewId === 'fresh')?.reviewReply).length;
           const fresh = Object.values(world.personas).filter((p) => p.listings[0].reviews.some((r) => r.reviewId === 'fresh')).length;
-          drains.push({ job: `review-alerts (${label})`, shops: n, runsAvailable: 22, runsUsed: d.runs, longestRunSeconds: d.longestRunSeconds, reached: reviewsReadFor.size, newReviews: fresh, newReviewsAnswered: replies, duplicates: world.sms.length - replies });
+          drains.push({ job: `review-alerts (${label})`, shops: n, runsAvailable: 44, runsUsed: d.runs, longestRunSeconds: d.longestRunSeconds, reached: reviewsReadFor.size, newReviews: fresh, newReviewsAnswered: replies, duplicates: world.sms.length - replies });
         } finally { stop(); }
       }, 600_000);
     }

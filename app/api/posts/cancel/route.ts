@@ -77,11 +77,22 @@ export async function POST(request: NextRequest) {
     });
   }
 
-  // Cancel the post
-  await supabaseAdmin
+  // Cancel the post: only if it is still waiting, and only say so if the write
+  // happened. Before, a failed write, or the publisher getting there first,
+  // still produced "Post cancelled".
+  const { data: cancelled, error: cancelError } = await supabaseAdmin
     .from('scheduled_posts')
     .update({ status: 'cancelled' })
-    .eq('id', postId);
+    .eq('id', postId)
+    .eq('status', 'pending_approval')
+    .select('id');
+  if (cancelError) {
+    console.error('[posts/cancel] update failed:', cancelError.message);
+    return new NextResponse(resultPage(tenant, 'Something went wrong', 'We could not cancel that post. Please try the link again in a minute.'), { headers: { 'Content-Type': 'text/html' } });
+  }
+  if (!cancelled?.length) {
+    return new NextResponse(resultPage(tenant, 'Already handled', 'This post has already been published or cancelled.'), { headers: { 'Content-Type': 'text/html' } });
+  }
 
   // SMS confirmation
   const user = post.profiles?.users;

@@ -87,6 +87,18 @@ export const FORBIDDEN_REPLY_PATTERNS: RegExp[] = [
   /\bliab(le|ility)\b/i, /\blegal\b/i, /\bsolicitor/i, /\binsurance\b/i, /\bombudsman\b/i,
 ];
 
+/**
+ * Does this text contain something that reads as a phone number? A leading
+ * +44 or 0, then at least nine more digits, however they are spaced or
+ * punctuated: 07700 900123, 0113-496-0000, +44 (0)7700 900123, 0800 123 4567.
+ * The earlier check only knew 01, 02 and 07 with spaces, so a hyphenated number
+ * in a shop's sign-off went straight through to a published post.
+ */
+export function containsPhoneNumber(text: string): boolean {
+  const candidates = text.match(/(?:\+\s?44|(?<![\d.])0)[\d\s().\-]{8,24}/g) || [];
+  return candidates.some((c) => c.replace(/\D/g, '').length >= 10);
+}
+
 export function replyBreaksRules(text: string): string | null {
   const hit = FORBIDDEN_REPLY_PATTERNS.find((re) => re.test(text));
   return hit ? `contains forbidden reply wording (${hit.source})` : null;
