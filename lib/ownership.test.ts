@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { detectOwnership, statusForChosenListing, SHOP_MESSAGES, ADMIN_LABELS } from './ownership';
+import { detectOwnership, statusForChosenListing, SHOP_MESSAGES, ADMIN_LABELS, shopConnectionMessage } from './ownership';
 import { getManageableListings, type Listing } from './google';
 
 const L = (title: string, placeId?: string, hasVoiceOfMerchant?: boolean): Listing => ({
@@ -99,5 +99,11 @@ describe('a shop we invited but hold no expected listing for', () => {
     const src = (f: string) => readFileSync(new URL(f, import.meta.url), 'utf8');
     expect(src('../app/api/auth/callback/google/route.ts').match(/detectOwnership\(listings, expected\?\.placeId \?\? null, !!expected\)/g)).toHaveLength(2);
     expect(src('../app/api/listings/select/route.ts')).toMatch(/statusForChosenListing\(chosen, retailer\.place_id \?\? null, true\)/);
+  });
+  it('the shop is not told we expected a different listing when we expected none', () => {
+    expect(shopConnectionMessage('check_listing', false).message).not.toMatch(/expected a different/);
+    expect(shopConnectionMessage('check_listing', false).message).toMatch(/did not have a listing on record/);
+    expect(shopConnectionMessage('check_listing', true)).toBe(SHOP_MESSAGES.check_listing);
+    expect(shopConnectionMessage('waiting_google', false)).toBe(SHOP_MESSAGES.waiting_google);
   });
 });

@@ -162,6 +162,13 @@ export interface Statement {
   /** Shops live at some point in the month but not on the deciding day: listed so nothing is hidden, not counted. */
   notCounted: StatementLine[];
   liveShops: number;
+  /**
+   * True when the month has ended, shops were live during it, and NOT ONE was
+   * marked on its last day. That is what a day with no count looks like (the
+   * hourly job did not run), not a network that all went dark at once. The
+   * statement must not be used as it stands.
+   */
+  noCountOnLastDay: boolean;
   /** Shops whose charge falls wholly or partly above the cap. */
   shopsAboveCap: number;
   /** Money, only when a price is set. */
@@ -192,6 +199,7 @@ export function buildStatement(month: string, rows: LiveMonthRow[], settings: Bi
     month, provisional, decidedOn: provisional ? today : lastDayOfMonth(month), settings, lines,
     notCounted: mine.filter((r) => !countsForMonth(r, month, today)).sort(order).map((r) => line(r)),
     liveShops, shopsAboveCap: liveShops - withinCap, money,
+    noCountOnLastDay: !provisional && month < monthOf(today) && mine.length > 0 && liveShops === 0,
   };
 }
 
@@ -207,7 +215,7 @@ const csvCell = (v: unknown) => {
 
 /** The statement as a spreadsheet file. Names are escaped so one cannot be read as a formula. Pure. */
 export function statementCsv(s: Statement): string {
-  const rows: unknown[][] = [['Month', s.month], [s.provisional ? 'Provisional: shops live now' : 'Shops live on the last day of the month', s.decidedOn], [], ['Shop', 'Town', 'Days live', 'First live', 'Last live', 'Above the cap']];
+  const rows: unknown[][] = [...(s.noCountOnLastDay ? [['WARNING: no count was taken on the last day of this month, so nobody is shown as live. Do not use this statement as it stands.'], []] : []), ['Month', s.month], [s.provisional ? 'Provisional: shops live now' : 'Shops live on the last day of the month', s.decidedOn], [], ['Shop', 'Town', 'Days live', 'First live', 'Last live', 'Above the cap']];
   for (const l of s.lines) rows.push([l.name, l.town ?? '', l.liveDays, l.firstLiveOn, l.lastLiveOn, l.aboveCap ? 'yes' : '']);
   rows.push([], ['Live shops', s.liveShops]);
   if (s.money && s.settings.pricePence !== null) {

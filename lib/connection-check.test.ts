@@ -38,6 +38,14 @@ describe('recheckConnection', () => {
     expect('listing_confirmed_at' in d.updates[0]).toBe(false);
   });
 
+  it('a shop with no expected listing is "check listing", and a person\'s confirmation is left alone day after day', async () => {
+    const d = db();
+    const r = await recheckConnection(d, { id: 'shop', place_id: null, connection_status: 'connected' }, 'locations/1', async () => [L()], now);
+    expect(r?.status).toBe('check_listing');
+    expect(d.updates[0]).toMatchObject({ connection_status: 'check_listing' });
+    expect('listing_confirmed_at' in d.updates[0]).toBe(false); // never cleared by this
+  });
+
   it('a busy Google changes nothing', async () => {
     const d = db();
     expect(await recheckConnection(d, { id: 'shop', place_id: 'PID-B' }, 'locations/1', async () => { throw new Error('429'); }, now)).toBeNull();

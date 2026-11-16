@@ -955,6 +955,15 @@ describe('dummy run on staging', () => {
       need(data.data.league.ranked.length >= 4, `only ${data.data.league.ranked.length} shops were ranked; left out: ${JSON.stringify(data.data.league.excluded).slice(0, 300)}`);
       need(data.data.league.ranked[0].retailerId === shops.a.retailerId, 'the shop whose figures doubled is not top of the league');
       need(data.data.league.ranked.every((e: any) => !('calls' in e) && !/@/.test(JSON.stringify(e))), 'the league exposes raw figures or contact details');
+      // The monthly summary: network totals and what the console already shows. Nothing new per shop.
+      const sum = data.data.summary;
+      need(sum && sum.shops.total === 7 && sum.shops.live === data.data.shops.filter((x: any) => x.pilotState === 'live').length, `summary shop counts: ${JSON.stringify(sum?.shops)}`);
+      need(sum.totals.shopsCounted >= 3 ? sum.totals.lines.length === 4 && sum.totals.lines.every((l: any) => Number.isInteger(l.thisMonth)) : sum.totals.lines.length === 0, `summary totals from ${sum.totals.shopsCounted} shops: ${sum.totals.lines.length} lines (none are shown from fewer than three)`);
+      need(sum.totals.shopsCompared <= sum.totals.shopsCounted && typeof sum.totals.note === 'string', `summary counted ${sum.totals.shopsCounted}, compared ${sum.totals.shopsCompared}`);
+      need(sum.ads.shops.some((x: any) => x.name === shops.a.name && x.spend === '£250.50' && x.label === 'Clear rise'), 'the summary does not show shop A\'s ads');
+      need(sum.notLive.total >= 1 && sum.notLive.byReason.every((r: any) => typeof r.label === 'string' && r.count > 0), 'the summary does not count shops needing help');
+      need(sum.topMovers[0]?.name === shops.a.name && !('calls' in sum.topMovers[0]), 'top movers are wrong or expose raw figures');
+      need(!/@/.test(JSON.stringify(sum)), 'the summary contains a contact detail');
       const sessionShop = await call('console/data', 'GET', '/api/console/data', { cookie: A().cookie });
       need(sessionShop.status === 401 || sessionShop.status === 403, 'a shop\'s own login opened the Tarkett console');
       return `7 shops; A: ${by('a').postsLast30} posts, ${by('a').repliesLast30} replies in 30 days, actions ${by('a').actionsChange}%; G (not joined): no figures; league: ${data.data.league.ranked.length} ranked (top: ${JSON.stringify(data.data.league.ranked[0] ?? null).replace(/"retailerId":"[^"]+",?/, '').slice(0, 170)}), ${data.data.league.excluded.length} left out (${Array.from(new Set(data.data.league.excluded.map((x: any) => x.reason))).join('; ').slice(0, 140)}); link is one-use; a shop login cannot open it`;
@@ -967,6 +976,30 @@ describe('dummy run on staging', () => {
     });
 
     // ════════ 9b. Google access lost; hours, holiday hours and website from Settings; undo ════════
+    await step('unknown listing', 'a shop we hold no expected listing for is "Check listing" until a person confirms it, and stays confirmed', async () => {
+      const due = () => db.from('profiles').update({ metrics_synced_at: new Date(Date.now() - 2 * DAY).toISOString() }).eq('id', shops.c.profileId);
+      const rowC = async () => (await adminList()).find((x) => x.id === shops.c.retailerId);
+      const { data: was } = await db.from('retailers').select('place_id, listing_confirmed_at').eq('id', shops.c.retailerId).single();
+      try {
+        await db.from('retailers').update({ place_id: null, listing_confirmed_at: null }).eq('id', shops.c.retailerId);
+        await due(); await cron('metrics-sync');
+        let row = await rowC();
+        need(row.connection?.status === 'check_listing' && row.state === 'connected_not_live' && row.help.needsHelp, `with no expected listing, C is ${row.connection?.status} / ${row.state}`);
+        const ok = await admin('admin/pilot', { action: 'confirm_listing', retailerId: shops.c.retailerId });
+        need(ok.status === 200, `confirm_listing gave ${ok.status}`);
+        need((await rowC()).state === 'live', 'a person confirmed it and it is still not live');
+        await due(); await cron('metrics-sync');
+        row = await rowC();
+        need(row.state === 'live' && !row.help.needsHelp, `the next daily check undid the confirmation: ${row.state}`);
+      } finally {
+        await db.from('retailers').update({ place_id: was!.place_id, listing_confirmed_at: was!.listing_confirmed_at }).eq('id', shops.c.retailerId);
+        await due(); await cron('metrics-sync');
+      }
+      const back = await rowC();
+      need(back.connection?.status === 'connected' && back.state === 'live', `after putting the expected listing back, C is ${back.connection?.status} / ${back.state}`);
+      return 'not live and under Needs help until confirmed; live once a person says "this is right"; the next daily check leaves that alone';
+    });
+
     await step('lost access', 'when Google withdraws our permission, the daily check notices, the shop is told, and support sees it', async () => {
       world.personas.e.tokenRevoked = true;
       await db.from('profiles').update({ metrics_synced_at: new Date(Date.now() - 2 * DAY).toISOString() }).eq('id', shops.e.profileId);
@@ -983,6 +1016,33 @@ describe('dummy run on staging', () => {
       need(isDeadGrant(new GoogleAuthError('Token refresh failed: busy', 429, false)) === false, 'a busy Google would be treated as a lost connection');
       return 'noticed by the daily check; shop told on its dashboard with a Reconnect button; support sees "Connection lost" in plain words; shop no longer counted as live';
     });
+    await step('retention', 'off: nothing is recorded and the view is closed. On: facts per shop, most at risk first, no contact details', async () => {
+      const off = await admin('admin/pilot', { action: 'retention' });
+      need(off.status === 200 && off.data.enabled === false && !off.data.rows, `with the flag off the view gave ${JSON.stringify(off.data).slice(0, 80)}`);
+      await call('dashboard', 'GET', '/api/dashboard', { cookie: shops.a.cookie });
+      const { data: u0 } = await db.from('users').select('last_seen_at').eq('id', shops.a.userId).single();
+      need(u0!.last_seen_at === null, 'a dashboard visit was recorded with the flag off');
+      process.env.RETENTION_VIEW = 'on';
+      try {
+        await call('dashboard', 'GET', '/api/dashboard', { cookie: shops.a.cookie });
+        const { data: u1 } = await db.from('users').select('last_seen_at').eq('id', shops.a.userId).single();
+        need(!!u1!.last_seen_at, 'a dashboard visit was not recorded with the flag on');
+        await call('dashboard', 'GET', '/api/dashboard', { cookie: shops.a.cookie });
+        const { data: u2 } = await db.from('users').select('last_seen_at').eq('id', shops.a.userId).single();
+        need(u2!.last_seen_at === u1!.last_seen_at, 'a second visit within the hour wrote again');
+        const on = await admin('admin/pilot', { action: 'retention' });
+        need(on.data.enabled && on.data.rows.length === 7, `retention gave ${on.data.rows?.length} rows`);
+        const r = (k: string) => on.data.rows.find((x: any) => x.name === shops[k].name);
+        need(r('e').risk === 'high' && r('e').signals.some((t: string) => /Connected but not live: connection lost/.test(t)), `shop E (lost access): ${JSON.stringify(r('e')).slice(0, 200)}`);
+        need(r('a').lastSeenOn && !r('a').signals.some((t: string) => /dashboard/.test(t)), `shop A, who just opened its dashboard: ${JSON.stringify(r('a').signals)}`);
+        const order = on.data.rows.map((x: any) => x.risk);
+        const rank: Record<string, number> = { high: 0, some: 1, none: 2 };
+        need(order.every((x: string, i: number) => i === 0 || rank[order[i - 1]] <= rank[x]), `not ordered by risk: ${order}`);
+        need(!/@|07700|\+44/.test(JSON.stringify(on.data)) && !/@/.test(on.data.csv), 'the retention view or its download contains contact details');
+        return `7 shops: ${on.data.counts.high} at risk, ${on.data.counts.some} worth a look, ${on.data.counts.none} fine; one visit recorded, not two; no contact details`;
+      } finally { delete process.env.RETENTION_VIEW; await db.from('users').update({ last_seen_at: null }).eq('id', shops.a.userId); }
+    });
+
     let websiteChangeId = '';
     await step('settings', 'the shop sets holiday hours and its website from Settings; each is checked on "Google" and logged', async () => {
       const listing = await call('listing', 'GET', '/api/listing', { cookie: A().cookie });

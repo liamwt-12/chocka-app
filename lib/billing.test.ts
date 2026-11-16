@@ -15,7 +15,9 @@ describe('settings: no price and no cap lives in the code', () => {
   });
   it('the module itself contains no amount of money: both are settings with no default', () => {
     const src = readFileSync(new URL('./billing.ts', import.meta.url), 'utf8');
-    expect(src).not.toMatch(/£\s?\d|pricePence\s*[:=]\s*\d|capPence\s*[:=]\s*\d|\b1500\b|\b120000\b|\b1200\b/);
+    expect(src).not.toMatch(/£\s?\d|pricePence\s*[:=]\s*\d|capPence\s*[:=]\s*\d/);
+    // Neither setting has a fallback value: unset means unset.
+    expect(src).toMatch(/pricePence: wholeNumber\(env\.BILLING_PRICE_PENCE_PER_SHOP, \d\)/);
     expect(src).toMatch(/capPence: wholeNumber\(env\.BILLING_MONTHLY_CAP_PENCE, 0\)/);
   });
 });
@@ -115,6 +117,16 @@ describe('the statement', () => {
     expect(s).toMatchObject({ provisional: true, decidedOn: '2026-12-20', liveShops: 2 });
     expect(s.notCounted.map((l) => l.name)).toEqual(['Left E']);
     expect(statementCsv(s)).toContain('Provisional: shops live now,2026-12-20');
+  });
+
+  it('a month where no count was taken on the last day says so, instead of showing nobody live', () => {
+    const missed = [row('a', { name: 'Floors A', last_live_on: '2026-12-30' }), row('b', { name: 'Bare B', last_live_on: '2026-12-30' })];
+    const s = buildStatement('2026-12', missed, { pricePence: 1000, capPence: null }, AFTER);
+    expect(s).toMatchObject({ liveShops: 0, noCountOnLastDay: true });
+    expect(statementCsv(s).split('\n')[0]).toMatch(/^"?WARNING: no count was taken on the last day/);
+    expect(st({ pricePence: 1000, capPence: null }).noCountOnLastDay).toBe(false);
+    expect(buildStatement('2025-01', rows, { pricePence: null, capPence: null }, AFTER).noCountOnLastDay).toBe(false); // an empty month is just empty
+    expect(buildStatement('2026-12', missed, { pricePence: null, capPence: null }, '2026-12-31').noCountOnLastDay).toBe(false); // still in progress
   });
 
   it('an empty month is an empty statement, not an error', () => {

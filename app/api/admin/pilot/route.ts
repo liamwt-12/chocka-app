@@ -12,6 +12,8 @@ import { parseSpendPounds, adDatesProblem } from '@/lib/ad-spend';
 import { loadStatement, statementCsv, billingSettingsFromEnv } from '@/lib/billing';
 import { describeChange, undoChange } from '@/lib/revert';
 import { settingChecks, schemaChecks, dataChecks, summary } from '@/lib/readiness';
+import { retentionEnabled, retentionCsv } from '@/lib/retention';
+import { loadRetention } from '@/lib/retention-data';
 import {
   verifyAdminAuth, validateNewRetailer, pilotStatus, mintInvites, parseAdStartDate,
   PILOT_TENANT_SLUG, MANUAL_SOURCE, type PilotInvite, type PilotUser,
@@ -134,6 +136,13 @@ export async function POST(request: NextRequest) {
         if (!result.ok) return NextResponse.json({ error: result.detail }, { status: 500 });
         console.log(`[admin/pilot] connection reset for shop ${r.id}: account removed=${result.removedAccount}, link reusable=${result.linkReusable}`);
         return NextResponse.json({ reset: result });
+      }
+
+      case 'retention': {
+        // Which shops are drifting. Off unless RETENTION_VIEW=on. Reads only; no contact details.
+        if (!retentionEnabled()) return NextResponse.json({ enabled: false });
+        const r = await loadRetention(supabaseAdmin, tenantRow.id);
+        return NextResponse.json({ enabled: true, ...r, csv: retentionCsv(r.rows) });
       }
 
       case 'readiness': {

@@ -120,3 +120,15 @@ export const ADMIN_LABELS: Record<ConnectionStatus, string> = {
   no_access: 'No access found',
   waiting_google: 'Waiting on Google',
 };
+
+/** For a shop we invited without knowing which listing to expect: we expected nothing, so we must not say we expected something else. */
+export const CHECK_LISTING_NO_BASELINE = {
+  title: 'Is this the right shop?',
+  message: 'We connected to the listing on this Google account. We did not have a listing on record for your shop to compare it with, so a person will look at it.',
+  nextStep: SHOP_MESSAGES.check_listing.nextStep,
+};
+
+/** The message for a shop that is connected but not fully through. `hasExpected` is whether we hold an expected listing for it. */
+export function shopConnectionMessage(status: 'check_listing' | 'waiting_google', hasExpected: boolean) {
+  return status === 'check_listing' && !hasExpected ? CHECK_LISTING_NO_BASELINE : SHOP_MESSAGES[status];
+}
