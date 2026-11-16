@@ -5,6 +5,7 @@ import { decryptSecret, userTokenAad } from '@/lib/secrets';
 import { resolveAccess, MANAGER_EMBED } from '@/lib/managed-access';
 import { getSessionUserId } from '@/lib/session';
 import { SHOP_MESSAGES } from '@/lib/ownership';
+import { holidayPrompt, datesCovered } from '@/lib/bank-holidays';
 import { generateReviewHash } from '@/lib/cron';
 import { pendingRepliesForDashboard, type PendingReplyRow } from '@/lib/onboarding-reviews';
 
@@ -26,6 +27,9 @@ export async function GET(request: NextRequest) {
     ]);
 
     let google: any = null;
+    // A nudge, on the shop's own dashboard only, when a bank holiday is coming
+    // and the listing says nothing about it. Sends nothing, writes nothing.
+    let holiday: ReturnType<typeof holidayPrompt> = null;
 
     // Access, not "is there a token on this row" — a managed retailer's
     // credential lives on the operator account, so the old truthiness check
@@ -46,6 +50,8 @@ export async function GET(request: NextRequest) {
           getMedia(accessToken, locName, acctId).catch((e) => { console.error('[dashboard] Media failed:', e.message); return { mediaItems: [] }; }),
           getPerformanceMetrics(accessToken, locName).catch((e) => { console.error('[dashboard] Metrics failed:', e.message); return null; }),
         ]);
+
+        if (location) holiday = holidayPrompt(new Date().toISOString().slice(0, 10), datesCovered(location.specialHours?.specialHourPeriods));
 
         let revList = gReviews?.reviews || [];
         let reviewsFull: Array<any> = [];
@@ -209,6 +215,7 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({
       lostAccess,
+      holiday,
       postsToManage,
       pendingReplies,
       retailer: retailer ?? null,

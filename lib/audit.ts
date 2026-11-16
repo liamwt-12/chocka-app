@@ -137,7 +137,7 @@ export interface ManualGap { key: string; label: string; why: string; how: strin
 const MANUAL: Record<string, Omit<ManualGap, 'key'>> = {
   photos: { label: 'Photos', why: 'We do not add photos for you.', how: 'In Google, open your Business Profile and choose "Add photo". Six or more photos of your showroom and finished jobs is a good start.' },
   recentPhotos: { label: 'A recent photo', why: 'We do not add photos for you.', how: 'Add one new photo every month or two. A phone photo of a finished job is ideal.' },
-  website: { label: 'Website', why: 'We do not set a website for you, because we cannot know the right address.', how: 'In Google, open "Edit profile", then "Contact", and add your website. If you have none, leave it.' },
+  website: { label: 'Website', why: 'We do not guess a website for you.', how: 'If you have one, type it in under Settings here and we will put it on your listing. If you have none, leave it.' },
   attributes: { label: 'Extra details (payment, access)', why: 'We do not set these, because only you know them.', how: 'In Google, open "Edit profile", then "More", and tick what applies: card payments, wheelchair access, appointments.' },
   serviceArea: { label: 'Area you cover', why: 'We do not set this for you.', how: 'In Google, open "Edit profile", then "Location", and add the towns you fit in.' },
   specialHours: { label: 'Holiday hours', why: 'These are your decision, so we only set them when you tell us.', how: 'Add your bank holiday and Christmas hours in Settings here, or in Google under "Hours".' },

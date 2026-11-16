@@ -118,6 +118,15 @@ export default function DashboardPage() {
       {/* Posts waiting for the shop, with Approve, Change the wording, Skip. */}
       {d.postsToManage?.length>0&&<PostsToManage posts={d.postsToManage} cardStyle={card} />}
 
+      {/* A bank holiday is coming and the listing says nothing about it. */}
+      {d.holiday && (
+        <div style={{...card,borderLeft:`4px solid ${V.amber}`}}>
+          <div style={{fontSize:16,fontWeight:700,color:V.text,marginBottom:4,fontFamily:sans}}>{d.holiday.title}</div>
+          <p style={{fontSize:14,color:V.textMid,margin:'0 0 12px',lineHeight:1.5,fontFamily:sans}}>{d.holiday.message}</p>
+          <a href="/settings#holiday" style={{display:'inline-block',background:'var(--brand-strong)',color:'#fff',borderRadius:10,padding:'12px 18px',fontSize:15,fontWeight:600,textDecoration:'none',fontFamily:sans}}>Set holiday hours</a>
+        </div>
+      )}
+
       {/* Ownership detection: tell an invited shop what is still needed. */}
       {d.connection && (
         <div style={{...card,animation:'fadeUp .5s .05s ease both',borderLeft:`3px solid ${V.amber}`}}>
