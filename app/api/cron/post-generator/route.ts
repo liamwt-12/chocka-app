@@ -8,6 +8,7 @@ import { nextMondaySlot } from '@/lib/post-schedule';
 import { requiresPostApproval, AWAITING_APPROVAL, PUBLISHABLE } from '@/lib/safe-automation';
 import { loadVoiceForUser } from '@/lib/voice';
 import { reservePhotoForUser } from '@/lib/shop-photos';
+import { startBudget, selectAll, rotateForRun, runIndex } from '@/lib/cron-budget';
 
 export async function GET(request: NextRequest) {
   if (!verifyCronSecret(request)) return unauthorizedResponse();
@@ -19,8 +20,32 @@ export async function GET(request: NextRequest) {
     const season = getSeason(now.getMonth());
     let generated = 0;
 
-    for (const user of users) {
-      if (!user.auto_post_enabled) continue;
+    // This job now runs several times on a Friday morning (see
+    // netlify/functions/cron-post-generator.mts): each run writes as many posts
+    // as fit in its time budget, and the next run carries on. What makes that
+    // safe is knowing who already has this week's post, so that is read ONCE
+    // here, for everyone, instead of once per shop.
+    //
+    // A post awaiting approval counts as "has one". It did not before, which
+    // was harmless with one run a week and would have written a new shop a
+    // fresh post on every run.
+    const budget = startBudget();
+    const weekStart = new Date();
+    weekStart.setDate(weekStart.getDate() - weekStart.getDay());
+    weekStart.setHours(0, 0, 0, 0);
+    const thisWeek = await selectAll<{ profile_id: string }>((from, to) => supabaseAdmin
+      .from('scheduled_posts')
+      .select('profile_id')
+      .gte('scheduled_for', weekStart.toISOString())
+      .in('status', [PUBLISHABLE, 'published', AWAITING_APPROVAL])
+      .range(from, to));
+    const hasPost = new Set(thisWeek.map((p) => p.profile_id));
+    // Rotated each run, so one shop whose post keeps failing its checks is not at the front every time.
+    const todo = rotateForRun<any>(users.filter((u: any) => u.auto_post_enabled && u.profiles?.[0] && !hasPost.has(u.profiles[0].id)), runIndex(5), 3);
+    let remaining = todo.length;
+
+    for (const user of todo) {
+      if (budget.exhausted()) break;
       const profile = user.profiles?.[0];
       if (!profile) continue;
 
@@ -28,19 +53,6 @@ export async function GET(request: NextRequest) {
       const t = getTenantForRow(user);
 
       try {
-        // Check if a post already exists for this profile this week
-        const weekStart = new Date();
-        weekStart.setDate(weekStart.getDate() - weekStart.getDay());
-        weekStart.setHours(0, 0, 0, 0);
-        const { data: existingThisWeek } = await supabaseAdmin
-          .from('scheduled_posts')
-          .select('id')
-          .eq('profile_id', profile.id)
-          .gte('scheduled_for', weekStart.toISOString())
-          .in('status', ['pending_approval', 'published'])
-          .limit(1);
-        if (existingThisWeek?.length) continue;
-
         // Get last 4 posts to avoid repeating themes
         const { data: recentPosts } = await supabaseAdmin
           .from('scheduled_posts')
@@ -109,12 +121,14 @@ export async function GET(request: NextRequest) {
         }
 
         generated++;
+        remaining--;
       } catch (err) {
         console.error(`Post generation failed for user ${user.id}:`, err);
       }
     }
 
-    return NextResponse.json({ success: true, generated });
+    if (remaining > 0) console.log(`[cron:post-generator] wrote ${generated}, ${remaining} still to do: the next run carries on`);
+    return NextResponse.json({ success: true, generated, remaining, partial: remaining > 0 });
   } catch (err) {
     console.error('Post generator cron failed:', err);
     return NextResponse.json({ error: 'Cron failed' }, { status: 500 });

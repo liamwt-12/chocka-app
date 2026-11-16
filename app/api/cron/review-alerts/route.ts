@@ -12,6 +12,22 @@ import { decryptSecret, userTokenAad } from '@/lib/secrets';
 import { resolveAccess } from '@/lib/managed-access';
 import { splitNewReviews, reviewKey, BACKLOG_DAYS, REVIEWS_CONFLICT_TARGET } from '@/lib/review-intake';
 import { holdingReply } from '@/lib/safe-automation';
+import { startBudget, rotateForRun, runIndex, selectAll } from '@/lib/cron-budget';
+
+/**
+ * How far the starting point moves each run. A run gets through 12 to 24 shops
+ * in its budget (scripts/scale-check), so 12 means successive runs never leave
+ * a gap, at the cost of some overlap on quiet days.
+ */
+const STRIDE = 12;
+/** Minutes between runs: must match the schedule in netlify/functions/cron-review-alerts.mts. */
+const EVERY_MINUTES = 30;
+/**
+ * Lower than the other jobs' 20 seconds. Answering one review takes over four
+ * seconds (the model, then Google), and the last one started must still finish
+ * before the scheduler stops waiting at 25.
+ */
+const BUDGET_MS = 18_000;
 
 export async function GET(request: NextRequest) {
   if (!verifyCronSecret(request)) return unauthorizedResponse();
@@ -20,8 +36,21 @@ export async function GET(request: NextRequest) {
     const users = await getActiveUsersWithProfiles(supabaseAdmin, 'review-alerts');
     let processed = 0;
 
-    for (const user of users) {
-      if (!user.auto_reply_enabled) continue;
+    // Each shop costs about a second even when it has no new reviews (one
+    // Google sign-in, one read of its reviews), so one run cannot reach
+    // everyone once there are more than a few dozen shops. This job now runs
+    // every half hour through the working day (netlify/functions/cron-review-alerts.mts)
+    // and each run starts a little further down the list, so the whole list is
+    // covered across the day instead of the same shops being checked and the
+    // rest never. Checking a shop twice is harmless: a review already seen is
+    // skipped.
+    const budget = startBudget(BUDGET_MS);
+    const eligible = rotateForRun<any>(users.filter((u: any) => u.auto_reply_enabled && u.profiles?.[0]), runIndex(EVERY_MINUTES), STRIDE);
+    let checked = 0;
+
+    for (const user of eligible) {
+      if (budget.exhausted()) break;
+      checked++;
       const profile = user.profiles?.[0];
       if (!profile) continue;
 
@@ -46,11 +75,15 @@ export async function GET(request: NextRequest) {
 
         // One query for everything already seen on this listing, instead of one
         // per review, now that a listing can return hundreds.
-        const { data: seenRows } = await supabaseAdmin
+        // Read in pages. A single request stops at 1,000 rows without saying
+        // so, and a listing with more reviews than that would have had some of
+        // its already-answered reviews look new.
+        const seenRows = await selectAll<{ google_review_id: string }>((from, to) => supabaseAdmin
           .from('reviews')
           .select('google_review_id')
-          .eq('profile_id', profile.id);
-        const seen = new Set<string>((seenRows || []).map((r: any) => r.google_review_id));
+          .eq('profile_id', profile.id)
+          .range(from, to));
+        const seen = new Set<string>(seenRows.map((r) => r.google_review_id));
 
         // Recent reviews are handled (capped per run); old ones are recorded
         // without a reply or alert. See lib/review-intake.ts for why.
@@ -77,6 +110,9 @@ export async function GET(request: NextRequest) {
         }
 
         for (const review of toHandle as any[]) {
+          // Out of time partway through one shop's reviews: stop. The ones not
+          // reached have not been recorded, so the next run sees them as new.
+          if (budget.exhausted()) break;
           const googleReviewId = reviewKey(review);
 
           const rating = parseStarRating(review.starRating);
@@ -201,7 +237,9 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    return NextResponse.json({ success: true, processed });
+    const remaining = eligible.length - checked;
+    if (remaining > 0) console.log(`[cron:review-alerts] checked ${checked} of ${eligible.length} shops this run; later runs today start further down the list`);
+    return NextResponse.json({ success: true, processed, checked, remaining, partial: remaining > 0 });
   } catch (err) {
     console.error('Review alerts cron failed:', err);
     return NextResponse.json({ error: 'Cron failed' }, { status: 500 });

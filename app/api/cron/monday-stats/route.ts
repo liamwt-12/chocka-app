@@ -3,6 +3,7 @@ import { supabaseAdmin } from '@/lib/supabase';
 import { verifyCronSecret, unauthorizedResponse, getActiveUsersWithProfiles } from '@/lib/cron';
 import { refreshAccessToken, getPerformanceMetrics } from '@/lib/google';
 import { sendSMS, logSMS } from '@/lib/twilio';
+import { startBudget, selectAll, rotateForRun, runIndex } from '@/lib/cron-budget';
 import { getTenantForRow } from '@/lib/tenant';
 import { decryptSecret, userTokenAad } from '@/lib/secrets';
 import { resolveAccess } from '@/lib/managed-access';
@@ -16,7 +17,21 @@ export async function GET(request: NextRequest) {
 
     const weekStart = getWeekStart();
 
-    for (const user of users) {
+    // This job now runs several times on a Monday morning (see
+    // netlify/functions/cron-monday-stats.mts). Each run does as many shops as
+    // fit in its time budget. A shop is done once its row for this week exists,
+    // and that row is written just before its text is sent, so who is done is
+    // read once here and nobody is texted twice.
+    const budget = startBudget();
+    const doneRows = await selectAll<{ profile_id: string }>((from, to) => supabaseAdmin
+      .from('weekly_stats').select('profile_id').eq('week_start', weekStart).range(from, to));
+    const done = new Set(doneRows.map((r) => r.profile_id));
+    // Rotated each run, so one shop that keeps failing is not at the front every time.
+    const todo = rotateForRun<any>(users.filter((u: any) => u.profiles?.[0] && u.sms_enabled && u.phone_number && !done.has(u.profiles[0].id)), runIndex(5), 7);
+    let remaining = todo.length;
+
+    for (const user of todo) {
+      if (budget.exhausted()) break;
       const profile = user.profiles?.[0];
       if (!profile || !user.sms_enabled || !user.phone_number) continue;
 
@@ -90,12 +105,14 @@ export async function GET(request: NextRequest) {
         await supabaseAdmin.from('profiles').update({ streak_weeks: (profile.streak_weeks || 0) + 1 }).eq('id', profile.id);
 
         sent++;
+        remaining--;
       } catch (err) {
         console.error(`Monday stats failed for user ${user.id}:`, err);
       }
     }
 
-    return NextResponse.json({ success: true, sent });
+    if (remaining > 0) console.log(`[cron:monday-stats] sent ${sent}, ${remaining} still to do: the next run carries on`);
+    return NextResponse.json({ success: true, sent, remaining, partial: remaining > 0 });
   } catch (err) {
     console.error('Monday stats cron failed:', err);
     return NextResponse.json({ error: 'Cron failed' }, { status: 500 });
