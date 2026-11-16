@@ -10,6 +10,8 @@ import { resolveAccess } from '@/lib/managed-access';
 import { livePresenceScore } from '@/lib/presence-score';
 import { loadMetricRows, totalsFor, previousMonth, type MetricRow } from '@/lib/metrics';
 import { compareAdPeriod, comparisonRange, adComparisonEmailSection } from '@/lib/ad-comparison';
+import { startBudget, rotateForRun, runIndex } from '@/lib/cron-budget';
+import { reportMonthKey, alreadyReported, claimMonthlyReport, releaseMonthlyReport, inChunks } from '@/lib/monthly-report';
 
 /** A month with fewer stored days than this shows no figures rather than a partial one. */
 const MIN_DAYS_FOR_MONTHLY_FIGURES = 20;
@@ -46,12 +48,28 @@ export async function GET(request: NextRequest) {
     const comparisonRowsFor = async (start: string): Promise<MetricRow[][]> => {
       if (!comparisonCache.has(start)) {
         const { from, to } = comparisonRange(start);
-        comparisonCache.set(start, await Promise.all(comparisonProfileIds.map((id) => loadMetricRows(supabaseAdmin, id, from, to))));
+        // Ten at a time. All at once was one burst of a request per shop: about
+        // 145 in the same instant at 180 shops.
+        comparisonCache.set(start, await inChunks(comparisonProfileIds, 10, (id) => loadMetricRows(supabaseAdmin, id, from, to)));
       }
       return comparisonCache.get(start)!;
     };
 
-    for (const user of users) {
+    // This job now runs every five minutes through the morning of the 1st and
+    // 2nd (netlify/functions/cron-monthly-report.mts). Each run sends as many
+    // reports as fit in its time budget; profiles.monthly_report_sent_for
+    // records who has had this month's, so the next run carries on and nobody
+    // is sent two (lib/monthly-report.ts).
+    const budget = startBudget();
+    const monthKey = reportMonthKey(previousMonth(now).from);
+    const todo = rotateForRun<any>(
+      users.filter((u: any) => u.profiles?.[0] && u.email && !alreadyReported(u.profiles[0], monthKey)),
+      runIndex(5), 5,
+    );
+    let remaining = todo.length;
+
+    for (const user of todo) {
+      if (budget.exhausted()) break;
       const profile = user.profiles?.[0];
       if (!profile || !user.email) continue;
 
@@ -122,7 +140,16 @@ export async function GET(request: NextRequest) {
           console.warn(`[cron:monthly-report] presence score skipped for user ${user.id}: ${access.ok ? 'no location' : access.reason}`);
         }
 
-        await sendEmail({
+        // Claim, then send. If the claim does not succeed (another run got
+        // there first, or the marker cannot be written), no email goes.
+        const claim = await claimMonthlyReport(supabaseAdmin, profile, monthKey);
+        if (!claim.ok) {
+          if (claim.reason === 'error') console.error(`[cron:monthly-report] could not record the report for profile ${profile.id}, so it was NOT sent: ${claim.detail}`);
+          else remaining--;
+          continue;
+        }
+
+        const delivered = await sendEmail({
           to: user.email,
           subject: `Your ${monthName} report — ${profile.business_name}`,
           html: monthlyReportEmail({
@@ -143,6 +170,13 @@ export async function GET(request: NextRequest) {
           }),
           tenant: t,
         });
+        if (!delivered) {
+          // The email was refused. Put the claim back so the next run tries again.
+          const released = await releaseMonthlyReport(supabaseAdmin, profile.id, monthKey, claim.previous);
+          console.error(`[cron:monthly-report] report for profile ${profile.id} was not accepted for sending; ${released ? 'it will be tried again on the next run' : 'and the marker could not be put back, so this shop misses this month'}`);
+          continue;
+        }
+        remaining--;
 
         // After 4+ weeks, send one-time referral nudge
         const weeksSinceSignup = Math.floor(
@@ -172,7 +206,8 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    return NextResponse.json({ success: true, sent });
+    if (remaining > 0) console.log(`[cron:monthly-report] sent ${sent}, ${remaining} still to do for ${monthKey}: the next run carries on`);
+    return NextResponse.json({ success: true, sent, remaining, partial: remaining > 0, month: monthKey });
   } catch (err) {
     console.error('Monthly report cron failed:', err);
     return NextResponse.json({ error: 'Cron failed' }, { status: 500 });

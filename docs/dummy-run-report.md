@@ -52,6 +52,7 @@ Seven shops, all named `ZZ-TEST Shop A (dummy run)` to `G`. People were `dummy-r
 | | The change log records which photo, never its address. "Add to Google listing" is refused (its flag is off) | Pass |
 | | With the photo flag switched off again, a post that has a photo attached goes out as text | Pass |
 | **Report, corrected numbers** | Last month's views, calls, website clicks and directions in the report equal exactly what the fake Google served (2,040 / 102 / 153 / 51). **Not four times it.** One report per shop | Pass |
+| | *(added with the monthly report fix)* Every listing is marked for the month once its report goes, a second run sends nothing, and the database refuses a malformed marker. The run is now **40 checks** | Pass |
 | **Before and after** | The shop with an ad date sees "Change during your ads": +100% (the fake doubles its figures from that date) against four shops without ads, which were flat. A shop with no ad date does not see the section. A badly formed date is refused | Pass |
 | **Console and league** (flag on locally) | Sign-in by a one-time link (captured, not sent). Opening the link does not use it up; the button does; it cannot be used twice. A stranger's address gets the same answer as a real one | Pass |
 | | Seven shops shown. A joined shop shows posts, replies and percentage changes. **A shop that has not joined shows no figures at all.** No contact details, phone numbers or review text anywhere in the response | Pass |

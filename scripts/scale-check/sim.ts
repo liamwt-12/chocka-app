@@ -56,7 +56,10 @@ export const newCounters = (): Counters => ({
   dbByTable: {}, dbRowsReturnedMax: 0, unbounded: {},
 });
 
-export interface Sim { clock: Clock; count: Counters; tables: Record<string, any[]>; idSeq: number }
+export interface Sim { clock: Clock; count: Counters; tables: Record<string, any[]>; idSeq: number; index?: Map<string, { size: number; by: Map<any, any[]> }> }
+
+/** Columns worth indexing: every per-shop query filters on one of these. Purely to keep the simulation quick. */
+const INDEXED = new Set(['profile_id', 'user_id', 'retailer_id', 'review_id', 'id']);
 
 /** PostgREST returns at most this many rows unless the caller pages. Supabase's default. */
 export const MAX_ROWS = 1000;
@@ -70,6 +73,7 @@ type Pred = (row: any) => boolean;
  */
 class Query {
   private preds: Pred[] = [];
+  private key: { col: string; value: any } | null = null;
   private op: 'select' | 'insert' | 'update' | 'upsert' | 'delete' = 'select';
   private payload: any;
   private wantCount = false; private head = false;
@@ -87,7 +91,7 @@ class Query {
   delete() { this.op = 'delete'; return this; }
 
   private on(col: string, test: (v: any) => boolean) { if (!col.includes('.')) this.preds.push((r) => test(r[col])); return this; } // filters on embedded columns are not modelled
-  eq(c: string, v: any) { return this.on(c, (x) => x === v); }
+  eq(c: string, v: any) { if (!this.key && INDEXED.has(c)) this.key = { col: c, value: v }; return this.on(c, (x) => x === v); }
   neq(c: string, v: any) { return this.on(c, (x) => x !== v); }
   in(c: string, vs: any[]) { const s = new Set(vs); return this.on(c, (x) => s.has(x)); }
   is(c: string, v: any) { return this.on(c, (x) => (v === null ? x === null || x === undefined : x === v)); }
@@ -98,7 +102,21 @@ class Query {
   like(c: string, pattern: string) { const re = new RegExp('^' + pattern.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/%/g, '.*') + '$'); return this.on(c, (x) => typeof x === 'string' && re.test(x)); }
   ilike(c: string, v: string) { return this.on(c, (x) => typeof x === 'string' && x.toLowerCase() === v.toLowerCase()); }
   not(c: string, _op: string, v: any) { return this.on(c, (x) => (v === null ? x !== null && x !== undefined : x !== v)); }
-  or(_expr: string) { return this; } // every simulated account is active and unpaused
+  /** `a.eq.x,b.is.null,c.neq.y,d.not.is.null,e.lt.now()`: any one of them. Enough for the filters the jobs use. */
+  or(expr: string) {
+    const tests = expr.split(',').map((part): Pred => {
+      const [col, ...rest] = part.trim().split('.');
+      const op = rest.join('.');
+      if (op === 'is.null') return (r) => r[col] === null || r[col] === undefined;
+      if (op === 'not.is.null') return (r) => r[col] !== null && r[col] !== undefined;
+      if (op === 'lt.now()') return (r) => r[col] !== null && r[col] !== undefined && Date.parse(r[col]) < Date.now();
+      if (op.startsWith('eq.')) return (r) => String(r[col]) === op.slice(3);
+      if (op.startsWith('neq.')) return (r) => r[col] !== null && r[col] !== undefined && String(r[col]) !== op.slice(4);
+      return () => true;
+    });
+    this.preds.push((r) => tests.some((t) => t(r)));
+    return this;
+  }
   order(col: string, o?: { ascending?: boolean }) { this.orderBy.push({ col, asc: o?.ascending !== false }); return this; }
   limit(n: number) { this.lim = n; return this; }
   range(from: number, to: number) { this.rangeFrom = from; this.lim = to - from + 1; return this; }
@@ -134,7 +152,7 @@ class Query {
     if (this.op === 'update') { const hit = rows.filter(match); for (const r of hit) Object.assign(r, this.payload); return this.finish(hit, hit.length); }
     if (this.op === 'delete') { const hit = rows.filter(match); sim.tables[this.table] = rows.filter((r) => !match(r)); return this.finish(hit, hit.length); }
 
-    let hit = rows.filter(match);
+    let hit = this.candidates(rows).filter(match);
     const total = hit.length;
     for (const o of [...this.orderBy].reverse()) hit = [...hit].sort((a, b) => (a[o.col] === b[o.col] ? 0 : (a[o.col] > b[o.col] ? 1 : -1) * (o.asc ? 1 : -1)));
     if (this.rangeFrom !== null) hit = hit.slice(this.rangeFrom);
@@ -142,6 +160,22 @@ class Query {
     if (this.lim === null && !this.one && !this.head && total > MAX_ROWS) sim.count.unbounded[this.table] = (sim.count.unbounded[this.table] || 0) + 1;
     hit = hit.slice(0, Math.min(this.lim ?? MAX_ROWS, MAX_ROWS));
     return this.finish(this.head ? [] : hit.map((r) => this.embed(r)), total);
+  }
+
+  /** The rows that could match: all of them, or just one shop's when the query names a shop. */
+  private candidates(rows: any[]): any[] {
+    if (!this.key || rows.length < 2000) return rows;
+    const sim = this.sim;
+    sim.index ||= new Map();
+    const name = `${this.table}.${this.key.col}`;
+    let idx = sim.index.get(name);
+    if (!idx || idx.size !== rows.length) {
+      const by = new Map<any, any[]>();
+      for (const r of rows) { const k = r[this.key.col]; const list = by.get(k); if (list) list.push(r); else by.set(k, [r]); }
+      idx = { size: rows.length, by };
+      sim.index.set(name, idx);
+    }
+    return idx.by.get(this.key.value) || [];
   }
 
   private finish(rows: any[], total: number) {
