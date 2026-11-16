@@ -865,25 +865,30 @@ describe('dummy run on staging', () => {
       return `all 5 marked ${months[0]}; second run: sent 0; a malformed marker is refused by the database`;
     });
 
-    await step('statement', 'the month\'s live shops are listed by name, with the cap and credit worked out from settings, never from code', async () => {
+    await step('statement', 'the month\'s live shops are listed by name; the cap is money and the credit is worked out from settings, never from code', async () => {
       const month = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/London', year: 'numeric', month: '2-digit' }).format(new Date());
       const plain = await admin('admin/pilot', { action: 'statement', month });
       need(plain.status === 200 && plain.data.statement.money === null, `with no price set the statement should show counts only: ${plain.text.slice(0, 160)}`);
       const names: string[] = plain.data.statement.lines.map((l: any) => l.name);
       need(names.includes(shops.a.name) && names.includes(shops.b.name) && names.includes(shops.c.name) && !names.includes(shops.g.name), `live shops listed: ${names.join(', ')}`);
-      process.env.BILLING_PRICE_PENCE_PER_SHOP = '1000'; process.env.BILLING_MONTHLY_CAP_SHOPS = '2';
+      need(plain.data.statement.provisional === true, 'the month in progress should be marked provisional');
+      process.env.BILLING_PRICE_PENCE_PER_SHOP = '1000'; process.env.BILLING_MONTHLY_CAP_PENCE = '2500';
       try {
         const r = await admin('admin/pilot', { action: 'statement', month });
         const st = r.data.statement, n = st.liveShops;
-        need(st.shopsAboveCap === n - 2 && st.billableShops === 2, `cap of 2 with ${n} live: ${st.shopsAboveCap} above, ${st.billableShops} charged`);
-        need(st.money.grossPence === n * 1000 && st.money.creditPence === (n - 2) * 1000 && st.money.totalPence === 2000, `money: ${JSON.stringify(st.money)}`);
-        need(r.data.csv.includes(shops.a.name) && /Credit: \d+ shops above the cap,-\d+\.00/.test(r.data.csv) && r.data.csv.includes('Total,20.00'), 'the spreadsheet does not show the credit line and total');
-        // A test shop marked "not counted" is left out from then on.
+        need(n >= 3, `only ${n} shops counted`);
+        need(st.money.grossPence === n * 1000 && st.money.totalPence === 2500 && st.money.creditPence === n * 1000 - 2500 && st.shopsAboveCap === n - 2, `cap of 25.00 with ${n} live: ${JSON.stringify(st.money)}, ${st.shopsAboveCap} above`);
+        need(r.data.csv.includes(shops.a.name) && r.data.csv.includes('Monthly cap,25.00') && /Credit: above the monthly cap \(\d+ shops?\),-\d+\.00/.test(r.data.csv) && r.data.csv.includes('Total,25.00'), 'the spreadsheet does not show the cap, the credit line and the total');
+        // A shop that was live earlier in the month and is not now is shown, and not counted.
+        await db.from('live_months').update({ last_live_on: iso(new Date(Date.now() - 5 * DAY)) }).eq('month', month).eq('retailer_id', shops.e.retailerId);
+        const after = (await admin('admin/pilot', { action: 'statement', month })).data.statement;
+        need(after.liveShops === n - 1 && after.notCounted.some((l: any) => l.name === shops.e.name), `a shop not live now was still counted (${after.liveShops} of ${n})`);
+        await db.from('live_months').update({ last_live_on: iso(new Date()) }).eq('month', month).eq('retailer_id', shops.e.retailerId);
         const ex = await admin('admin/pilot', { action: 'set_excluded', retailerId: shops.e.retailerId, excluded: true });
         need(ex.status === 200, `set_excluded gave ${ex.status}`);
         await admin('admin/pilot', { action: 'set_excluded', retailerId: shops.e.retailerId, excluded: false });
-        return `${n} live shops by name; cap 2: ${st.shopsAboveCap} shown as a credit; total adds up; figures here are made-up test settings`;
-      } finally { delete process.env.BILLING_PRICE_PENCE_PER_SHOP; delete process.env.BILLING_MONTHLY_CAP_SHOPS; }
+        return `${n} live shops by name; a cap in money: the excess is one credit line and the total adds up; a shop not live on the deciding day is listed and not counted; figures here are made-up test settings`;
+      } finally { delete process.env.BILLING_PRICE_PENCE_PER_SHOP; delete process.env.BILLING_MONTHLY_CAP_PENCE; }
     });
 
     await step('ad spend', 'spend is entered by an admin, checked, and never appears in anything the shop sees', async () => {

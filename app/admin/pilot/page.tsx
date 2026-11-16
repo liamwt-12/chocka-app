@@ -410,23 +410,23 @@ export default function PilotAdminPage() {
             <button onClick={loadStatement} disabled={busy || !stMonth} style={btn}>Show</button>
             {statement && <button onClick={downloadStatement} style={{ ...btn, background: C.green }}>Download CSV</button>}
           </div>
-          <p style={{ color: C.mid, fontSize: 12, margin: '6px 0 0' }}>A shop counts for a month if it was live on at least {statement?.settings?.minLiveDays ?? 1} day{(statement?.settings?.minLiveDays ?? 1) === 1 ? '' : 's'} in it. Live means connected, the right listing, verified by Google, and access not lost. Counting started when this was switched on; earlier months are empty.</p>
+          <p style={{ color: C.mid, fontSize: 12, margin: '6px 0 0' }}>A shop counts for a month if it was live on the month&apos;s last day. Live means connected, the right listing, verified by Google, and access not lost. For the month in progress the list is provisional: who is live now. Counting started when this was switched on; earlier months are empty.</p>
           {statement && (
             <div style={{ marginTop: 10, fontSize: 13 }}>
               <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', marginBottom: 8 }}>
                 <span><strong>{statement.liveShops}</strong> live</span>
-                {statement.settings.capShops !== null && <span>cap <strong>{statement.settings.capShops}</strong> · <strong>{statement.shopsAboveCap}</strong> above it · <strong>{statement.billableShops}</strong> charged</span>}
-                {statement.money ? <span>{money(statement.money.grossPence)}{statement.shopsAboveCap ? <> less credit {money(statement.money.creditPence)}</> : null} = <strong>{money(statement.money.totalPence)}</strong></span> : <span style={{ color: C.soft }}>No price is set (BILLING_PRICE_PENCE_PER_SHOP), so counts only.</span>}
+{statement.provisional && <span style={{ color: C.amber, fontWeight: 600 }}>provisional</span>}
+                {statement.money ? <span>{money(statement.money.grossPence)}{statement.settings.capPence !== null ? <> · cap {money(statement.settings.capPence)}</> : null}{statement.money.creditPence ? <> · credit {money(statement.money.creditPence)} ({statement.shopsAboveCap} above the cap)</> : null} = <strong>{money(statement.money.totalPence)}</strong></span> : <span style={{ color: C.soft }}>No price is set (BILLING_PRICE_PENCE_PER_SHOP), so counts only.</span>}
               </div>
-              {statement.lines.length === 0 ? <div style={{ color: C.mid }}>No shop was recorded as live in {statement.month}.</div> : (
+              {statement.lines.length === 0 ? <div style={{ color: C.mid }}>No shop counts for {statement.month}.</div> : (
                 <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                   <thead><tr style={{ textAlign: 'left', color: C.soft, fontSize: 11, textTransform: 'uppercase' }}><th style={{ padding: 4 }}>Shop</th><th style={{ padding: 4 }}>Town</th><th style={{ padding: 4 }}>Days live</th><th style={{ padding: 4 }}>First</th><th style={{ padding: 4 }}>Last</th><th style={{ padding: 4 }}></th></tr></thead>
                   <tbody>{statement.lines.map((l: any, i: number) => (
-                    <tr key={i} style={{ borderTop: '1px solid #eee' }}><td style={{ padding: 4 }}>{l.name}</td><td style={{ padding: 4, color: C.mid }}>{l.town || ''}</td><td style={{ padding: 4 }}>{l.liveDays}</td><td style={{ padding: 4 }}>{l.firstLiveOn}</td><td style={{ padding: 4 }}>{l.lastLiveOn}</td><td style={{ padding: 4, color: C.amber, fontWeight: 600 }}>{l.aboveCap ? 'above cap: credited' : ''}</td></tr>
+                    <tr key={i} style={{ borderTop: '1px solid #eee' }}><td style={{ padding: 4 }}>{l.name}</td><td style={{ padding: 4, color: C.mid }}>{l.town || ''}</td><td style={{ padding: 4 }}>{l.liveDays}</td><td style={{ padding: 4 }}>{l.firstLiveOn}</td><td style={{ padding: 4 }}>{l.lastLiveOn}</td><td style={{ padding: 4, color: C.amber, fontWeight: 600 }}>{l.aboveCap ? 'above the cap' : ''}</td></tr>
                   ))}</tbody>
                 </table>
               )}
-              {statement.notCounted.length > 0 && <div style={{ color: C.mid, marginTop: 6 }}>Not counted (live too few days): {statement.notCounted.map((l: any) => l.name).join(', ')}</div>}
+              {statement.notCounted.length > 0 && <div style={{ color: C.mid, marginTop: 6 }}>Not counted ({statement.provisional ? 'live earlier this month, not now' : 'live during the month, not on its last day'}): {statement.notCounted.map((l: any) => `${l.name} (last live ${l.lastLiveOn})`).join(', ')}</div>}
             </div>
           )}
         </div>

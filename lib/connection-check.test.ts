@@ -18,8 +18,9 @@ describe('decideRecheck', () => {
     expect(decideRecheck([L({ locationName: 'locations/2' })], 'locations/1', 'PID-B').detail).toMatch(/no longer manages the listing/);
     expect(decideRecheck([], 'locations/1', 'PID-B').detail).toMatch(/no longer manages any listing/);
   });
-  it('nothing to compare against is not a mismatch', () => {
-    expect(decideRecheck([L()], 'locations/1', null).status).toBe('connected');
+  it('nothing to compare against is never taken as a match', () => {
+    // No expected listing on record: nothing to match, so a person confirms it.
+    expect(decideRecheck([L()], 'locations/1', null).status).toBe('check_listing');
     // Google giving nothing to compare with is NOT a match: the hold stays until a person looks.
     expect(decideRecheck([L({ placeId: undefined })], 'locations/1', 'PID-B').status).toBe('check_listing');
   });

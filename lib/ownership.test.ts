@@ -78,3 +78,26 @@ describe('getManageableListings reads verification and place ID from metadata', 
     expect(ls[1].hasVoiceOfMerchant).toBeUndefined();
   });
 });
+
+describe('a shop we invited but hold no expected listing for', () => {
+  const one = [{ accountName: 'accounts/1', accountDisplay: '', accountType: '', accountRole: 'OWNER', locationName: 'locations/1', title: 'Some Floors', address: '', category: '', placeId: 'ChIJx', hasVoiceOfMerchant: true }] as any;
+  it('is "check listing" for a person to confirm, never "connected" on trust', () => {
+    expect(detectOwnership(one, null, true)).toMatchObject({ status: 'check_listing', bind: one[0], needsPicker: false });
+    expect(detectOwnership(one, null, true).detail).toMatch(/no expected listing on record/);
+    expect(statusForChosenListing(one[0], null, true)).toMatchObject({ status: 'check_listing' });
+  });
+  it('an ordinary sign-in with no invitation is unchanged', () => {
+    expect(detectOwnership(one, null).status).toBe('connected');
+    expect(statusForChosenListing(one[0], null).status).toBe('connected');
+  });
+  it('still waits on Google if the listing is not verified, and still says so if the account manages nothing', () => {
+    expect(detectOwnership([{ ...one[0], hasVoiceOfMerchant: false }], null, true).status).toBe('waiting_google');
+    expect(detectOwnership([], null, true).status).toBe('no_access');
+  });
+  it('both places that bind a listing for an invited shop say so', async () => {
+    const { readFileSync } = await import('node:fs');
+    const src = (f: string) => readFileSync(new URL(f, import.meta.url), 'utf8');
+    expect(src('../app/api/auth/callback/google/route.ts').match(/detectOwnership\(listings, expected\?\.placeId \?\? null, !!expected\)/g)).toHaveLength(2);
+    expect(src('../app/api/listings/select/route.ts')).toMatch(/statusForChosenListing\(chosen, retailer\.place_id \?\? null, true\)/);
+  });
+});

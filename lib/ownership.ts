@@ -38,7 +38,14 @@ export interface OwnershipResult {
  * with no baseline place_id; then the old behaviour applies (one listing binds,
  * several show the picker), and nothing is claimed about whether it matches.
  */
-export function detectOwnership(listings: Listing[], expectedPlaceId: string | null): OwnershipResult {
+/**
+ * `invited` is true when the sign-in came through a shop's invitation. Such a
+ * shop with no expected listing on record cannot be matched against anything,
+ * so whatever it connects is "check listing" for a person to confirm, never
+ * "connected" on trust. An ordinary sign-in with no invitation (the other
+ * brand) keeps the old behaviour.
+ */
+export function detectOwnership(listings: Listing[], expectedPlaceId: string | null, invited: boolean = false): OwnershipResult {
   if (listings.length === 0) {
     return { status: 'no_access', bind: null, needsPicker: false, detail: 'this Google account manages no Business Profile listings' };
   }
@@ -54,21 +61,23 @@ export function detectOwnership(listings: Listing[], expectedPlaceId: string | n
     }
   }
 
-  const unchecked = expectedPlaceId ? 'none of the listings matches the expected shop' : 'no baseline place ID to check against';
+  const unchecked = expectedPlaceId ? 'none of the listings matches the expected shop' : invited ? 'we have no expected listing on record for this shop, so a person needs to confirm it' : 'no baseline place ID to check against';
   if (listings.length === 1) {
     const only = listings[0];
     if (only.hasVoiceOfMerchant === false) {
       return { status: 'waiting_google', bind: only, needsPicker: false, detail: `${only.title} is not verified by Google yet; ${unchecked}` };
     }
-    return { status: expectedPlaceId ? 'check_listing' : 'connected', bind: only, needsPicker: false, detail: `bound ${only.title}; ${unchecked}` };
+    return { status: expectedPlaceId || invited ? 'check_listing' : 'connected', bind: only, needsPicker: false, detail: `bound ${only.title}; ${unchecked}` };
   }
   return { status: 'check_listing', bind: null, needsPicker: true, detail: `${listings.length} listings, ${unchecked}; the shop chooses` };
 }
 
 /** After the shop picks from the list: was it the shop we expected? */
-export function statusForChosenListing(chosen: Listing, expectedPlaceId: string | null): { status: ConnectionStatus; detail: string } {
+export function statusForChosenListing(chosen: Listing, expectedPlaceId: string | null, invited: boolean = false): { status: ConnectionStatus; detail: string } {
   if (chosen.hasVoiceOfMerchant === false) return { status: 'waiting_google', detail: `${chosen.title} is not verified by Google yet` };
-  if (!expectedPlaceId) return { status: 'connected', detail: `chose ${chosen.title}; no baseline place ID to check against` };
+  if (!expectedPlaceId) return invited
+    ? { status: 'check_listing', detail: `chose ${chosen.title}; we have no expected listing on record for this shop, so a person needs to confirm it` }
+    : { status: 'connected', detail: `chose ${chosen.title}; no baseline place ID to check against` };
   return chosen.placeId === expectedPlaceId
     ? { status: 'connected', detail: `chose ${chosen.title}, which matches the expected shop` }
     : { status: 'check_listing', detail: `chose ${chosen.title}, which is not the listing we expected` };

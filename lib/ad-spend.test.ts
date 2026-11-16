@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
-import { adVerdict, parseSpendPounds, formatPounds, adDatesProblem, CLEAR_CHANGE_PERCENT, MARGIN_OVER_NO_ADS } from './ad-spend';
+import { adVerdict, parseSpendPounds, formatPounds, adDatesProblem, CLEAR_CHANGE_PERCENT, MARGIN_OVER_NO_ADS, MIN_BASE_EVENTS } from './ad-spend';
 import type { AdComparison, MetricChange } from './ad-comparison';
 
 const W = { start: '2026-10-01', beforeFrom: '', beforeTo: '', afterFrom: '', afterTo: '' };
@@ -41,7 +41,7 @@ describe('the "no clear change" rule', () => {
   });
 
   it('the thresholds are the two documented numbers', () => {
-    expect([CLEAR_CHANGE_PERCENT, MARGIN_OVER_NO_ADS]).toEqual([10, 5]);
+    expect([CLEAR_CHANGE_PERCENT, MARGIN_OVER_NO_ADS, MIN_BASE_EVENTS]).toEqual([10, 5, 10]);
     expect(adVerdict(1, ok(ch([100, 110]), ch([100, 105]))).key).toBe('clear_rise');
     expect(adVerdict(1, ok(ch([100, 109]), ch([100, 100]))).key).toBe('no_clear_change');
     expect(adVerdict(1, ok(ch([100, 110]), ch([100, 106]))).key).toBe('no_clear_change');
@@ -52,7 +52,9 @@ describe('never a verdict on thin evidence, and never a flag without spend', () 
   it('too early, not enough history, and too few actions are said as such and never flagged', () => {
     expect(adVerdict(25000, { status: 'too_early', windows: W, readyOn: '2026-11-05', message: '' })).toMatchObject({ key: 'too_early', flag: false });
     expect(adVerdict(25000, { status: 'not_enough_history', windows: W, message: '' })).toMatchObject({ key: 'not_enough_history', flag: false });
-    expect(adVerdict(25000, ok(ch([5, 9], [5, 9], [2, 3])))).toMatchObject({ key: 'too_few', flag: false, change: null });
+    // Nine customer actions in the four weeks before: too few. Ten: enough.
+    expect(adVerdict(25000, ok(ch([4, 9], [3, 9], [2, 3])))).toMatchObject({ key: 'too_few', flag: false, change: null });
+    expect(adVerdict(25000, ok(ch([5, 5], [3, 3], [2, 2]))).key).toBe('no_clear_change');
   });
   it('no spend entered: the verdict stands, but nothing is flagged', () => {
     for (const spend of [null, undefined, 0]) expect(adVerdict(spend, ok(ch([100, 100]))).flag).toBe(false);

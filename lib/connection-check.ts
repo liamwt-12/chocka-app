@@ -33,7 +33,11 @@ export function decideRecheck(listings: Listing[], boundLocationName: string, ex
   // as "check listing", so the daily check must not quietly turn it into
   // "connected": that would lift a hold without anyone having looked.
   if (expectedPlaceId && !bound.placeId) return { status: 'check_listing', detail: `${bound.title}; Google gave no place ID to compare with the shop we expected` };
-  return { status: 'connected', detail: expectedPlaceId ? `${bound.title} matches the expected shop` : `${bound.title}; no baseline place ID to check against` };
+  // No expected listing on record for an invited shop: nothing to match, so it
+  // stays "check listing" until a person confirms it (their confirmation is
+  // kept by the caller and is what makes the shop live).
+  if (!expectedPlaceId) return { status: 'check_listing', detail: `${bound.title}; we have no expected listing on record for this shop, so a person needs to confirm it` };
+  return { status: 'connected', detail: `${bound.title} matches the expected shop` };
 }
 
 export interface RecheckDb { from(table: string): any }

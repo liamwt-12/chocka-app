@@ -8,20 +8,25 @@
  * account. Marking is safe to repeat: a second run on the same day changes
  * nothing.
  *
- * THE STATEMENT. For a month: every shop live on at least BILLING_MIN_LIVE_DAYS
- * days (default 1), by name, earliest-joined first. If a monthly cap is set,
- * shops beyond it are still listed, and shown again as a credit line, so the
- * statement adds up in the open:
+ * THE STATEMENT. For a month: every shop that was LIVE ON THE LAST DAY of that
+ * month, by name. That one rule is `countsForMonth` below, and nothing else
+ * decides it. A shop that was live for three weeks and then lost its
+ * connection does not count; a shop that connected on the last day does. For
+ * the month still in progress the statement is provisional, and shows who is
+ * live now.
+ *
+ * If a monthly cap is set, it is an amount of money. Every live shop is still
+ * listed and priced, and anything above the cap is taken back off as a credit
+ * line, so the statement adds up in the open:
  *
  *     live shops x price            (every live shop)
- *     credit: shops above the cap   (those beyond the cap, at the same price)
+ *     credit: above the monthly cap (whatever takes the total back to the cap)
  *     total
  *
- * NO PRICE IS WRITTEN IN THIS CODE. The repository is public. The price per
- * shop and the cap are settings:
- *     BILLING_PRICE_PENCE_PER_SHOP   whole pence; unset = counts only, no money
- *     BILLING_MONTHLY_CAP_SHOPS      a number of shops; unset = no cap
- *     BILLING_MIN_LIVE_DAYS          default 1
+ * NO PRICE AND NO CAP IS WRITTEN IN THIS CODE. The repository is public. Both
+ * are settings, in whole pence:
+ *     BILLING_PRICE_PENCE_PER_SHOP   unset = counts only, no money shown
+ *     BILLING_MONTHLY_CAP_PENCE      unset = no cap
  *
  * It produces a statement for a person to check. It does not raise an invoice,
  * charge anything or send anything.
@@ -29,7 +34,7 @@
 import { shopStatus, liveRulesFromEnv, type LiveRules, type StatusInvite, type StatusUser } from './shop-status';
 import { MANAGER_EMBED } from './managed-access';
 
-export interface BillingSettings { pricePence: number | null; capShops: number | null; minLiveDays: number }
+export interface BillingSettings { pricePence: number | null; capPence: number | null }
 
 const wholeNumber = (v: string | undefined, min: number): number | null => {
   if (v === undefined || v.trim() === '') return null;
@@ -40,8 +45,7 @@ const wholeNumber = (v: string | undefined, min: number): number | null => {
 export function billingSettingsFromEnv(env: Record<string, string | undefined> = process.env): BillingSettings {
   return {
     pricePence: wholeNumber(env.BILLING_PRICE_PENCE_PER_SHOP, 0),
-    capShops: wholeNumber(env.BILLING_MONTHLY_CAP_SHOPS, 0),
-    minLiveDays: wholeNumber(env.BILLING_MIN_LIVE_DAYS, 1) ?? 1,
+    capPence: wholeNumber(env.BILLING_MONTHLY_CAP_PENCE, 0),
   };
 }
 
@@ -123,37 +127,72 @@ export async function recordLiveToday(db: BillingDb, now: Date = new Date(), rul
   }
 }
 
+/** The last calendar day of a month given as "YYYY-MM". */
+export function lastDayOfMonth(month: string): string {
+  const [y, m] = month.split('-').map(Number);
+  return `${month}-${String(new Date(Date.UTC(y, m, 0)).getUTCDate()).padStart(2, '0')}`;
+}
+const dayBefore = (isoDay: string) => { const d = new Date(`${isoDay}T00:00:00Z`); d.setUTCDate(d.getUTCDate() - 1); return d.toISOString().slice(0, 10); };
+
+/**
+ * THE rule for whether a shop counts for a month. One place.
+ *
+ *   a month that has ended   live on its last day
+ *   the month in progress    live now (marked today, or yesterday if today's
+ *                            mark has not been made yet); provisional
+ *   a month not yet begun    never
+ */
+export function countsForMonth(row: Pick<LiveMonthRow, 'month' | 'last_live_on'>, month: string, today: string): boolean {
+  if (row.month !== month) return false;
+  const thisMonth = monthOf(today);
+  if (month > thisMonth) return false;
+  if (month < thisMonth) return row.last_live_on === lastDayOfMonth(month);
+  return row.last_live_on >= dayBefore(today);
+}
+
 export interface StatementLine { name: string; town: string | null; liveDays: number; firstLiveOn: string; lastLiveOn: string; aboveCap: boolean }
 export interface Statement {
   month: string;
+  /** True for the month still in progress: who is live now, not who will be on the last day. */
+  provisional: boolean;
+  /** The day that decides it: the month's last day, or today for a month in progress. */
+  decidedOn: string;
   settings: BillingSettings;
   lines: StatementLine[];
-  /** Shops live for fewer days than the minimum: listed so nothing is hidden, not counted. */
+  /** Shops live at some point in the month but not on the deciding day: listed so nothing is hidden, not counted. */
   notCounted: StatementLine[];
   liveShops: number;
+  /** Shops whose charge falls wholly or partly above the cap. */
   shopsAboveCap: number;
-  billableShops: number;
   /** Money, only when a price is set. */
   money: { grossPence: number; creditPence: number; totalPence: number } | null;
 }
 
 /** Build the statement for one month from its rows. Pure. */
-export function buildStatement(month: string, rows: LiveMonthRow[], settings: BillingSettings): Statement {
+export function buildStatement(month: string, rows: LiveMonthRow[], settings: BillingSettings, today: string = ukDay()): Statement {
   const mine = rows.filter((r) => r.month === month);
   const line = (r: LiveMonthRow, aboveCap = false): StatementLine => ({ name: r.name, town: r.town, liveDays: r.live_days, firstLiveOn: r.first_live_on, lastLiveOn: r.last_live_on, aboveCap });
   // Earliest in the month first, then by name, so who falls above a cap is stable and explainable.
   const order = (a: LiveMonthRow, b: LiveMonthRow) => a.first_live_on.localeCompare(b.first_live_on) || a.name.localeCompare(b.name) || a.retailer_id.localeCompare(b.retailer_id);
-  const counted = mine.filter((r) => r.live_days >= settings.minLiveDays).sort(order);
-  const cap = settings.capShops;
-  const lines = counted.map((r, i) => line(r, cap !== null && i >= cap));
-  const shopsAboveCap = lines.filter((l) => l.aboveCap).length;
-  const liveShops = lines.length;
-  const money = settings.pricePence === null ? null : {
-    grossPence: liveShops * settings.pricePence,
-    creditPence: shopsAboveCap * settings.pricePence,
-    totalPence: (liveShops - shopsAboveCap) * settings.pricePence,
+  const counted = mine.filter((r) => countsForMonth(r, month, today)).sort(order);
+  const liveShops = counted.length;
+  const { pricePence, capPence } = settings;
+  let money: Statement['money'] = null;
+  let withinCap = liveShops;
+  if (pricePence !== null) {
+    const grossPence = liveShops * pricePence;
+    const totalPence = capPence === null ? grossPence : Math.min(grossPence, capPence);
+    money = { grossPence, creditPence: grossPence - totalPence, totalPence };
+    // How many shops fit wholly inside the cap. The rest are marked, in the order above.
+    if (capPence !== null && pricePence > 0) withinCap = Math.min(liveShops, Math.floor(capPence / pricePence));
+  }
+  const lines = counted.map((r, i) => line(r, i >= withinCap));
+  const provisional = month === monthOf(today);
+  return {
+    month, provisional, decidedOn: provisional ? today : lastDayOfMonth(month), settings, lines,
+    notCounted: mine.filter((r) => !countsForMonth(r, month, today)).sort(order).map((r) => line(r)),
+    liveShops, shopsAboveCap: liveShops - withinCap, money,
   };
-  return { month, settings, lines, notCounted: mine.filter((r) => r.live_days < settings.minLiveDays).sort(order).map((r) => line(r)), liveShops, shopsAboveCap, billableShops: liveShops - shopsAboveCap, money };
 }
 
 const pounds = (pence: number) => (pence / 100).toFixed(2);
@@ -168,16 +207,16 @@ const csvCell = (v: unknown) => {
 
 /** The statement as a spreadsheet file. Names are escaped so one cannot be read as a formula. Pure. */
 export function statementCsv(s: Statement): string {
-  const rows: unknown[][] = [['Month', s.month], [], ['Shop', 'Town', 'Days live', 'First live', 'Last live', 'Above cap']];
+  const rows: unknown[][] = [['Month', s.month], [s.provisional ? 'Provisional: shops live now' : 'Shops live on the last day of the month', s.decidedOn], [], ['Shop', 'Town', 'Days live', 'First live', 'Last live', 'Above the cap']];
   for (const l of s.lines) rows.push([l.name, l.town ?? '', l.liveDays, l.firstLiveOn, l.lastLiveOn, l.aboveCap ? 'yes' : '']);
   rows.push([], ['Live shops', s.liveShops]);
-  if (s.settings.capShops !== null) rows.push(['Monthly cap (shops)', s.settings.capShops], ['Shops above the cap', s.shopsAboveCap], ['Shops charged', s.billableShops]);
   if (s.money && s.settings.pricePence !== null) {
     rows.push([], [`Live shops x ${pounds(s.settings.pricePence)}`, pounds(s.money.grossPence)]);
-    if (s.shopsAboveCap) rows.push([`Credit: ${s.shopsAboveCap} shop${s.shopsAboveCap === 1 ? '' : 's'} above the cap`, `-${pounds(s.money.creditPence)}`]);
+    if (s.settings.capPence !== null) rows.push(['Monthly cap', pounds(s.settings.capPence)]);
+    if (s.money.creditPence) rows.push([`Credit: above the monthly cap (${s.shopsAboveCap} shop${s.shopsAboveCap === 1 ? '' : 's'})`, `-${pounds(s.money.creditPence)}`]);
     rows.push(['Total', pounds(s.money.totalPence)]);
   }
-  if (s.notCounted.length) { rows.push([], [`Not counted: live fewer than ${s.settings.minLiveDays} day(s)`]); for (const l of s.notCounted) rows.push([l.name, l.town ?? '', l.liveDays, l.firstLiveOn, l.lastLiveOn]); }
+  if (s.notCounted.length) { rows.push([], [s.provisional ? 'Not counted: live earlier this month, not live now' : 'Not counted: live during the month, not on its last day']); for (const l of s.notCounted) rows.push([l.name, l.town ?? '', l.liveDays, l.firstLiveOn, l.lastLiveOn]); }
   return rows.map((r) => r.map(csvCell).join(',')).join('\n') + '\n';
 }
 
@@ -185,5 +224,5 @@ export async function loadStatement(db: BillingDb, tenantId: string, month: stri
   if (!/^\d{4}-\d{2}$/.test(month)) throw new Error('Use a month like 2026-12');
   const { data, error } = await db.from('live_months').select('*').eq('tenant_id', tenantId).eq('month', month);
   if (error) throw new Error(error.message);
-  return buildStatement(month, data || [], settings);
+  return buildStatement(month, data || [], settings, ukDay());
 }

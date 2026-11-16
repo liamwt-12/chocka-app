@@ -113,7 +113,7 @@ export async function POST(request: NextRequest) {
       .from('retailers').select('id, place_id').eq('user_id', userId).maybeSingle();
     let connection = null;
     if (retailer) {
-      const result = statusForChosenListing(chosen, retailer.place_id ?? null);
+      const result = statusForChosenListing(chosen, retailer.place_id ?? null, true);
       const { error: statusError } = await supabaseAdmin
         .from('retailers')
         .update({ connection_status: result.status, connection_detail: result.detail, connection_checked_at: new Date().toISOString(), listing_confirmed_at: null })
