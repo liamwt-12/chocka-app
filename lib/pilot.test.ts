@@ -16,15 +16,15 @@ describe('verifyAdminAuth', () => {
 
 describe('validateNewRetailer', () => {
   it('trims and normalises', () => {
-    expect(validateNewRetailer({ name: '  Arbons  ', town: ' Leeds ', contactEmail: ' Dave@Arbons.CO.UK ' }))
-      .toEqual({ ok: true, value: { name: 'Arbons', town: 'Leeds', contact_email: 'dave@arbons.co.uk' } });
+    expect(validateNewRetailer({ name: '  Testwell  ', town: ' Leeds ', contactEmail: ' Dave@Example.CO.UK ' }))
+      .toEqual({ ok: true, value: { name: 'Testwell', town: 'Leeds', contact_email: 'dave@example.co.uk' } });
   });
   it('allows a missing email and town', () => {
-    expect(validateNewRetailer({ name: 'Arbons' })).toEqual({ ok: true, value: { name: 'Arbons', town: null, contact_email: null } });
+    expect(validateNewRetailer({ name: 'Testwell' })).toEqual({ ok: true, value: { name: 'Testwell', town: null, contact_email: null } });
   });
   it('rejects a missing name or a bad email', () => {
     expect(validateNewRetailer({ name: ' ' }).ok).toBe(false);
-    expect(validateNewRetailer({ name: 'Arbons', contactEmail: 'not-an-email' }).ok).toBe(false);
+    expect(validateNewRetailer({ name: 'Testwell', contactEmail: 'not-an-email' }).ok).toBe(false);
   });
 });
 

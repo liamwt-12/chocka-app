@@ -101,9 +101,9 @@ describe('flag ON', () => {
   });
 
   it('login: a registered address gets a link; only the hash is stored', async () => {
-    handlers.funder_users = () => ({ data: { id: FUNDER, email: 'zurida@tarkett.com', active: true }, error: null });
+    handlers.funder_users = () => ({ data: { id: FUNDER, email: 'console.user@funder.example', active: true }, error: null });
     handlers.funder_login_tokens = (op) => (op === 'insert' ? { data: null, error: null } : { data: null, error: null, count: 0 });
-    await loginPOST(req('/api/console/login', { method: 'POST', body: JSON.stringify({ email: 'Zurida@Tarkett.com' }) }));
+    await loginPOST(req('/api/console/login', { method: 'POST', body: JSON.stringify({ email: 'Console.User@Funder.example' }) }));
     expect(sent).toHaveLength(1);
     const token = String(sent[0].html).match(/token=([A-Za-z0-9_-]+)/)![1];
     const insert = calls.find((c) => c.table === 'funder_login_tokens' && c.op === 'insert')!;
@@ -146,7 +146,7 @@ describe('flag ON', () => {
   it('data: per-shop health without contact details, and no score for shops that have not joined', async () => {
     handlers.funder_users = () => ({ data: { id: FUNDER, tenant_id: 't', name: 'Z', active: true }, error: null });
     handlers.retailers = () => ({ data: [
-      { id: 'r1', name: 'Arbons', town: 'Leeds', user_id: 'u1', connection_status: 'connected', ad_start_date: '2026-10-01', contact_email: 'dave@arbons.example' },
+      { id: 'r1', name: 'Testwell', town: 'Leeds', user_id: 'u1', connection_status: 'connected', ad_start_date: '2026-10-01', contact_email: 'dave@testwell.example' },
       { id: 'r2', name: 'Not Joined', town: 'York', user_id: null, connection_status: 'invited', ad_start_date: '2026-10-01' },
     ], error: null });
     handlers.retailer_invites = () => ({ data: [], error: null });
@@ -158,11 +158,11 @@ describe('flag ON', () => {
     const body = await res.json();
     const text = JSON.stringify(body);
     for (const f of FORBIDDEN_CONSOLE_FIELDS) expect(text).not.toContain(`"${f}"`);
-    expect(text).not.toContain('dave@arbons');
+    expect(text).not.toContain('dave@testwell');
     expect(text).not.toContain('v1.secret');
     expect(text).not.toContain('07700900000');
     const [joined, notJoined] = body.shops;
-    expect(joined).toMatchObject({ name: 'Arbons', scoreAtActivation: 61, postsLast30: 4, repliesLast30: 2, adStartDate: '2026-10-01' });
+    expect(joined).toMatchObject({ name: 'Testwell', scoreAtActivation: 61, postsLast30: 4, repliesLast30: 2, adStartDate: '2026-10-01' });
     expect(notJoined).toMatchObject({ participating: false, scoreAtActivation: null, adStartDate: null });
   });
 });

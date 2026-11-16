@@ -6,7 +6,7 @@ Deferred work captured so it isn't lost. Tie-in to the Stellar Local roadmap in 
 
 ### RAISE WITH TARKETT: Stellar may not lawfully cold-email most of the 174 retailers  [P1 — business relationship decision, NOT an engineering task]
 
-**This is a conversation to have with Zurida and Mikael, not a ticket to work around.** The
+**This is a conversation to have with Tarkett's procurement lead and its project lead, not a ticket to work around.** The
 sending machinery is built and tested; it is held deliberately, and nothing has been sent.
 
 **The legal position.** PECR regulation 22 splits recipients by subscriber type. **Corporate

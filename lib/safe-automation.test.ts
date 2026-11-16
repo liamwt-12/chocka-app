@@ -81,7 +81,7 @@ describe('24-hour preview', () => {
     expect(postsDueForPreview(posts, now).map((p) => p.id)).toEqual(['a']);
   });
   it('the email says nothing is posted if they do nothing', () => {
-    const html = postApprovalEmail({ businessName: 'Arbons Flooring', postContent: 'Hello', scheduledFor: '2026-11-16T10:30:00Z', approveUrl: 'https://a', skipUrl: 'https://s', approvalsLeft: 3 });
+    const html = postApprovalEmail({ businessName: 'Testwell Flooring', postContent: 'Hello', scheduledFor: '2026-11-16T10:30:00Z', approveUrl: 'https://a', skipUrl: 'https://s', approvalsLeft: 3 });
     expect(html).toContain('If you do nothing, nothing is posted.');
     expect(html).toContain('Approve this post');
     expect(html).toContain('Monday 16 November');
