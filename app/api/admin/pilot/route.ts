@@ -3,6 +3,7 @@ import { supabaseAdmin } from '@/lib/supabase';
 import { getTenantBySlug } from '@/lib/tenant';
 import { MANAGER_EMBED, resolveAccess } from '@/lib/managed-access';
 import { ADMIN_LABELS, SHOP_MESSAGES, type ConnectionStatus } from '@/lib/ownership';
+import { shopPhotosEnabled } from '@/lib/shop-photos';
 import { parseVoiceProfile, readStoredVoice, isEmptyVoice } from '@/lib/voice';
 import {
   verifyAdminAuth, validateNewRetailer, pilotStatus, mintInvites, parseAdStartDate,
@@ -140,6 +141,19 @@ async function list(tenantId: string) {
     : { data: [] as any[] };
   const userById = new Map<string, PilotUser>((users || []).map((u: any) => [u.id, u]));
 
+  // Photo counts per shop, only when SHOP_PHOTOS is on. A failure here (for
+  // example the table not existing yet) just means no counts, not a broken page.
+  const photosEnabled = shopPhotosEnabled();
+  const photoCounts = new Map<string, { pending: number; approved: number }>();
+  if (photosEnabled) {
+    const { data: photos } = await supabaseAdmin.from('shop_photos').select('retailer_id, status').eq('tenant_id', tenantId).in('status', ['pending', 'approved']);
+    for (const p of photos || []) {
+      const c = photoCounts.get(p.retailer_id) || { pending: 0, approved: 0 };
+      if (p.status === 'pending') c.pending++; else c.approved++;
+      photoCounts.set(p.retailer_id, c);
+    }
+  }
+
   const now = new Date();
   const out = rows.map((r: any) => {
     const user = r.user_id ? userById.get(r.user_id) ?? null : null;
@@ -158,6 +172,7 @@ async function list(tenantId: string) {
       voice: readStoredVoice(r.voice_profile),
       voiceUpdatedAt: r.voice_updated_at ?? null,
       voiceUpdatedBy: r.voice_updated_by ?? null,
+      photos: photoCounts.get(r.id) ?? null,
       connection: r.connection_status ? { status: r.connection_status, label: ADMIN_LABELS[r.connection_status as ConnectionStatus] ?? r.connection_status, detail: r.connection_detail, checkedAt: r.connection_checked_at, nextStep: SHOP_MESSAGES[r.connection_status as ConnectionStatus]?.nextStep ?? null } : null,
       state: status.state,
       detail: status.detail,
@@ -167,5 +182,5 @@ async function list(tenantId: string) {
   });
 
   const counts = out.reduce((acc: Record<string, number>, r: any) => { acc[r.state] = (acc[r.state] || 0) + 1; return acc; }, {});
-  return { retailers: out, counts };
+  return { retailers: out, counts, photosEnabled };
 }

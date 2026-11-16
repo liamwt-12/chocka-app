@@ -6,11 +6,12 @@ vi.mock('./google', () => ({
   updateLocation: vi.fn(async (_t: string, _l: string, _m: string, data: any) => { calls.push('patch'); return { name: 'locations/1', ...data }; }),
   createLocalPost: vi.fn(async () => { calls.push('post'); return { name: 'accounts/9/locations/1/localPosts/77' }; }),
   replyToReview: vi.fn(async () => { calls.push('reply'); return {}; }),
+  createLocationMedia: vi.fn(async () => { calls.push('media'); return { name: 'accounts/9/locations/1/media/55' }; }),
 }));
 
 import * as google from './google';
 import {
-  loggedUpdateLocation, loggedCreatePost, loggedReplyToReview,
+  loggedUpdateLocation, loggedCreatePost, loggedReplyToReview, loggedAddListingPhoto,
   maskFields, pickFields, locationFromResourceName, planRevert, type ChangeRow,
 } from './change-log';
 
@@ -144,5 +145,43 @@ describe('planRevert', () => {
     expect(planRevert({ ...r, before_value: { known: true, comment: 'earlier' } })).toMatchObject({ kind: 'restore_reply', comment: 'earlier' });
     expect(planRevert({ ...r, before_value: { known: true, comment: null } }).kind).toBe('delete_reply');
     expect(planRevert({ ...r, before_value: { known: false, comment: null } }).kind).toBe('skip');
+  });
+});
+
+describe('photos (lib/shop-photos.ts)', () => {
+  const ctx = (db: any) => ({ db, source: 'post-publisher' as const, userId: 'u', profileId: 'p' });
+
+  it('a post with no photo is logged and sent exactly as before', async () => {
+    const db = fakeDb();
+    await loggedCreatePost(ctx(db), 'tok', 'locations/1', 'Hello', 'accounts/9');
+    expect(google.createLocalPost).toHaveBeenCalledWith('tok', 'locations/1', 'Hello', 'accounts/9', undefined);
+    expect(db.rows[0].after_value).toEqual({ name: 'accounts/9/locations/1/localPosts/77', summary: 'Hello' });
+  });
+
+  it('a post with a photo records which photo, and never its short-lived address', async () => {
+    const db = fakeDb();
+    await loggedCreatePost(ctx(db), 'tok', 'locations/1', 'Hello', 'accounts/9', { id: 'photo-1', url: 'https://staging.example/signed?token=secret' });
+    expect(google.createLocalPost).toHaveBeenCalledWith('tok', 'locations/1', 'Hello', 'accounts/9', 'https://staging.example/signed?token=secret');
+    expect(db.rows[0].after_value).toEqual({ name: 'accounts/9/locations/1/localPosts/77', summary: 'Hello', photoId: 'photo-1' });
+    expect(JSON.stringify(db.rows[0])).not.toContain('secret');
+  });
+
+  it('a listing photo is recorded before it is written, then marked applied with its name', async () => {
+    const db = fakeDb();
+    await loggedAddListingPhoto({ db, source: 'admin-photos', userId: 'u', profileId: 'p' }, 'tok', 'locations/1', { id: 'photo-1', url: 'https://staging.example/signed?token=secret' }, 'accounts/9');
+    expect(calls).toEqual(['log-insert', 'media', 'log-update:applied']);
+    expect(db.rows[0]).toMatchObject({ action: 'add_media', source: 'admin-photos', status: 'applied', before_value: null, after_value: { name: 'accounts/9/locations/1/media/55', photoId: 'photo-1' } });
+    expect(JSON.stringify(db.rows[0])).not.toContain('secret');
+  });
+
+  it('if the log cannot be written, the listing photo is NOT added', async () => {
+    await expect(loggedAddListingPhoto({ db: fakeDb({ failInsert: true }), source: 'admin-photos' }, 'tok', 'locations/1', { id: 'photo-1', url: 'https://x.example/p.jpg' })).rejects.toThrow(/write not made/);
+    expect(google.createLocationMedia).not.toHaveBeenCalled();
+  });
+
+  it('undoing a listing photo deletes it; with no name recorded it is skipped', () => {
+    const row: ChangeRow = { id: 'c1', action: 'add_media', location_name: 'locations/1', target: null, before_value: null, after_value: { name: 'accounts/9/locations/1/media/55', photoId: 'photo-1' }, status: 'applied', reverted_at: null };
+    expect(planRevert(row)).toEqual({ kind: 'delete_media', changeId: 'c1', mediaName: 'accounts/9/locations/1/media/55' });
+    expect(planRevert({ ...row, after_value: null, status: 'pending' }).kind).toBe('skip');
   });
 });

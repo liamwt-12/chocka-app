@@ -7,6 +7,7 @@ import { sendSMS, logSMS } from '@/lib/twilio';
 import { getTenantForRow } from '@/lib/tenant';
 import { decryptSecret, userTokenAad } from '@/lib/secrets';
 import { resolveAccess, MANAGER_EMBED } from '@/lib/managed-access';
+import { photoUrlForPost } from '@/lib/shop-photos';
 
 /**
  * Most posts this route will publish in a single invocation.
@@ -80,11 +81,29 @@ export async function GET(request: NextRequest) {
           decryptSecret(access.encryptedToken, userTokenAad(access.aadUserId)),
         );
 
+        // The post's photo, if it has one, SHOP_PHOTOS is on, and the photo is
+        // still approved right now (lib/shop-photos.ts). Otherwise null, and
+        // the post goes out as text, exactly as before.
+        const photoUrl = await photoUrlForPost(supabaseAdmin, supabaseAdmin.storage, post.photo_id);
+        const ctx = { db: supabaseAdmin, source: 'post-publisher' as const, userId: user.id, profileId: profile.id };
+
         // Publish to GBP
-        const result = await loggedCreatePost(
-          { db: supabaseAdmin, source: 'post-publisher', userId: user.id, profileId: profile.id },
-          accessToken, profile.google_location_name, post.content, profile.google_account_id,
-        );
+        let result: any;
+        try {
+          result = await loggedCreatePost(
+            ctx, accessToken, profile.google_location_name, post.content, profile.google_account_id,
+            photoUrl ? { id: post.photo_id, url: photoUrl } : null,
+          );
+        } catch (err: any) {
+          // Google refused the post WITH its photo (a non-OK answer, so nothing
+          // was created). A photo must never be the reason a shop's post does
+          // not go out, so try once more as text. Token failures are not
+          // retried: they go to the handler below as they always did.
+          const refused = /Failed to create post/.test(String(err?.message)) && !/401/.test(String(err?.message));
+          if (!photoUrl || !refused) throw err;
+          console.warn(`[cron:post-publisher] post ${post.id}: Google refused the photo, publishing as text. ${String(err?.message).slice(0, 200)}`);
+          result = await loggedCreatePost(ctx, accessToken, profile.google_location_name, post.content, profile.google_account_id);
+        }
 
         // Update post status
         await supabaseAdmin

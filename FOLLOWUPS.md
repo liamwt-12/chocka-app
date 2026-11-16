@@ -1650,3 +1650,20 @@ without enforcement, `quarantine` enforces.
 **Generalisable lesson:** GoDaddy ships a default DMARC record on its domains. Adding your own
 without deleting theirs silently disables DMARC rather than tightening it. `stellarlocal.co.uk`
 and `chocka.co.uk` were both checked on 2026-07-29 and have exactly one record each.
+
+## Deferred — shop photos
+
+### Photo files outlive a deleted shop record  [open — do before SHOP_PHOTOS is turned on in production]
+**Context:** added 2026-11-16 with shop photos (`lib/shop-photos.ts`). `shop_photos.retailer_id` is
+`on delete cascade`, so deleting a retailer row removes its photo **records**. The **files** in the
+`shop-photos` bucket are not removed by the database: storage objects are not tied to rows.
+
+**Where it bites:** the retention job (`/api/cron/retailer-retention`, deliberately not scheduled)
+and any by-hand deletion of a retailer. Each would leave that shop's cleaned photos in the bucket
+under `<retailer id>/` with no record pointing at them.
+
+**Fix when picked up:** before a retailer row is deleted, list and remove `shop-photos/<retailer id>/`.
+Rejecting a single photo already deletes its file (`/api/admin/photos`, action `reject`).
+
+**Also say so in the privacy notice** before turning it on: photos are a new kind of data held
+about a shop, with their own retention answer.
