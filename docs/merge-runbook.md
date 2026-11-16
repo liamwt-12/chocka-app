@@ -1,8 +1,8 @@
-# Merge runbook: every open pull request (#24 to #53)
+# Merge runbook: every open pull request (#24 to #60)
 
-Final state, 16 November 2026. Every step below was rehearsed on a throwaway local branch (`rehearsal/final-2026-11-16`, never pushed), with typecheck and the full test suite after every merge and a production build at the end of every stage. The result is file-for-file identical to the head of #53, which is the tree that also passed the staging dummy run (40 of 40) and the scale check.
+Updated 17 November 2026 for #54 to #60 (stage 11). Every step below was rehearsed on a throwaway local branch (`rehearsal/final-2026-11-16` for stages 1 to 10, then `rehearsal/final-2026-11-17` on top of it for stage 11; neither was pushed), with typecheck and the full test suite after every merge and a production build at the end. The result is file-for-file identical to the head of #60, which is the tree that also passed the staging dummy run (52 of 52), the scale check and the 92-shop simulation.
 
-**24 code PRs in 10 stages, 10 database migrations, 3 documents, and 2 legal PRs that wait for the solicitor.**
+**31 code PRs in 11 stages, 13 database migrations, 3 documents, and 2 legal PRs that wait for the solicitor.**
 
 | Stage | PRs | Migration first |
 |---|---|---|
@@ -16,6 +16,7 @@ Final state, 16 November 2026. Every step below was rehearsed on a throwaway loc
 | 8 | #38, #40, #46, #42, #47 | 8 |
 | 9 | #39, #43 | 9 |
 | 10 | #48, #49, #50, #52, #53 | 10 |
+| 11 | #54, #55, #56, #57, #58, #59, #60 (together, never partway) | 11, 12, 13 |
 | any time | #41, #45, #51 (documents) | none |
 | after the solicitor | #30, then #44 | none |
 
@@ -62,9 +63,9 @@ All three must pass. `rm -rf .next` matters: without it, typecheck reports false
 
 Never paste migration SQL into the Supabase editor. It jams this script afterwards.
 
-### The "still differ" warning: expect it on the first nine
+### The "still differ" warning: expect it on the first twelve
 
-Staging already has all ten migrations. So after **each of the first nine**, the script:
+Staging already has all thirteen migrations. So after **each of the first twelve**, the script:
 
 1. prints `applied and recorded`,
 2. then prints `WARNING: production and staging still differ after applying:` followed by a list,
@@ -72,7 +73,7 @@ Staging already has all ten migrations. So after **each of the first nine**, the
 
 **That is expected, every time.** The migration has been applied and recorded. The list is simply what staging still has that production does not. What to check is that the list **gets shorter each time** and contains only things from later migrations.
 
-Only the tenth (`20261116120000_profile_monthly_report_marker`) ends with `identical across every probe`. If you stop early, the last one you apply still warns.
+Only the thirteenth (`20261117110000_ad_spend_and_live_months`) ends with `identical across every probe`. If you stop early, the last one you apply still warns. **This has changed since the first version of this runbook:** the tenth used to end cleanly; now that staging also has 11 to 13, the tenth warns too, listing only things from those three.
 
 **A different message means stop.** If it says `REFUSED: production has objects staging does not. They have diverged`, do not continue. Nothing has been applied. Tell me what it listed.
 
@@ -97,7 +98,17 @@ Set these in Netlify (Site configuration, Environment variables) for the product
 | `SHOP_PHOTOS_TO_LISTING` | Leave unset | Not until then either | From #39. Also needs the one migration this runbook says to leave alone |
 | `ADMIN_PASSWORD` | A fresh long random value | **Before stage 1** | Already exists. Set a new one for this release |
 
-PRs #46 to #53 add no new variables.
+PRs #46 to #53 add no new variables. #54 to #60 add these, **all optional, all off or unset by default**:
+
+| Variable | Value | When | Why |
+|---|---|---|---|
+| `WELCOME_EMAIL` | Leave unset, or `on` | When you decide | `on` sends **one** email to a shop at the moment it connects, and never to a shop that has not (#56). Unset: nothing is sent |
+| `LIVE_REQUIRES` | Leave unset | Only to relax the definition | What counts as live beyond "connected". Default `matched,verified,access` (#55). Removing a word relaxes it |
+| `BILLING_PRICE_PENCE_PER_SHOP` | Whole pence per live shop | Before the first statement | The price is deliberately not in the code: the repository is public (#58). Unset: the statement shows counts only |
+| `BILLING_MONTHLY_CAP_SHOPS` | A number of shops | Before the first statement | Shops above it appear as a credit line (#58). Unset: no cap |
+| `BILLING_MIN_LIVE_DAYS` | Leave unset | Optional | Days live in a month to count. Default 1 |
+
+After stage 11, `/admin/pilot` has a **Ready to invite shops?** button that checks every variable is present (never its value), every migration is applied and the scheduled jobs are running.
 
 Changing a variable needs a redeploy to take effect (Netlify: Deploys, Trigger deploy).
 
@@ -420,7 +431,7 @@ git push origin main
 /usr/local/bin/python3.14 scripts/apply-migration-to-production.py 20261116120000_profile_monthly_report_marker.sql --confirm
 ```
 
-Expected: `applied and recorded`, then **`identical across every probe`**, `row counts unchanged on every table`, and a tick. This is the only one of the ten that ends cleanly. If it still warns, read what it lists: something on staging is not in any of these ten files.
+Expected: `applied and recorded`, then the **"still differ" warning**, listing only things from migrations 11 to 13 (`connect_issue`, `opened_at`, `welcome_email_sent_at`, `ad_spend_pence`, `live_months` and the like). That is correct: staging has those three as well. If it lists anything else, stop and tell me.
 
 **Then, all five together. Do not push partway:**
 
@@ -464,7 +475,64 @@ git branch -D rehearsal/final-2026-11-16
 
 ---
 
-## All ten migrations, in order
+## Stage 11: one link, connected, safe (#54, #55, #56, #57, #58, #59, #60)
+
+The onboarding flow rebuilt: no default opening hours, every change checked before it is called done, no dead ends at sign-in, a needs-help list, one definition of "live", hours and undo in Settings, ad spend, and the monthly count of live shops.
+
+**All seven together. Never partway:** #60 fixes defects in the six before it.
+
+**Not on the 1st or 2nd of a month. Not on a Friday or Monday morning.**
+
+**Three migrations first, in this order.** Each is additive. For each: a dry run, read it, then `--confirm`.
+
+```bash
+/usr/local/bin/python3.14 scripts/apply-migration-to-production.py 20261117090000_connection_visibility.sql
+/usr/local/bin/python3.14 scripts/apply-migration-to-production.py 20261117090000_connection_visibility.sql --confirm
+/usr/local/bin/python3.14 scripts/apply-migration-to-production.py 20261117100000_welcome_email_marker.sql
+/usr/local/bin/python3.14 scripts/apply-migration-to-production.py 20261117100000_welcome_email_marker.sql --confirm
+/usr/local/bin/python3.14 scripts/apply-migration-to-production.py 20261117110000_ad_spend_and_live_months.sql
+/usr/local/bin/python3.14 scripts/apply-migration-to-production.py 20261117110000_ad_spend_and_live_months.sql --confirm
+```
+
+Expected: the first two end with the "still differ" warning (shorter each time). **The third ends with `identical across every probe`** and a tick.
+
+**Then merge:**
+
+```bash
+for n in 54 55 56 57 58 59 60; do gh pr edit $n --base main; done
+git merge --no-ff --no-edit origin/stage1-safe-onboarding     # #54  clean
+git merge --no-ff --no-edit origin/stage2-visibility          # #55  clean
+git merge --no-ff --no-edit origin/stage3-simple-flow         # #56  clean
+git merge --no-ff --no-edit origin/stage4-listing-care        # #57  clean
+git merge --no-ff --no-edit origin/stage4-ads-billing-undo    # #58  clean
+git merge --no-ff --no-edit origin/stage5-improvements        # #59  clean
+git merge --no-ff --no-edit origin/stage6-proof               # #60  clean
+rm -rf .next && npx tsc --noEmit && npm test && npm run build   # 878 tests
+git diff --stat origin/stage6-proof HEAD                      # must print nothing
+git push origin main
+```
+
+In the rehearsal all seven merged with no conflicts, and typecheck and the suite passed after each (707, 741, 765, 781, 831, 851, 878 tests).
+
+**Verify:**
+
+1. `/admin/pilot`, **Ready to invite shops? → Check now.** Under "Database" every line should have a tick. Under "Settings", fix anything with a cross. Read the switches: the welcome email, the preview email, photos and the console should each say what you expect.
+2. `/admin/pilot` shows **Needs help** at the top. With no shops invited it says nobody needs help.
+3. Open an invite link for a test shop: the page shows three lines about which Google account to use, ticking the box, and nothing changing. Connecting ends on **You're connected**, not on a score.
+4. In Netlify, Functions, `cron-metrics-sync`: its log now also reports `rechecked` and `liveCount`. No new scheduled job was added.
+5. The next day, **Live shops in a month** for the current month lists the shops that are live, by name.
+
+**What changes for a shop that is already connected:** nothing is rewritten. A shop on a listing that does not match the one we invited, or that Google has not verified, now shows as **Connected, not live**, appears under Needs help, and has posts, replies, texts and reports **held** until a person presses **This is right** (or Google verifies it). Look at that list once on the day.
+
+**Settings to decide before inviting the 92:**
+
+- `WELCOME_EMAIL=on` if you want each shop to get one email when it connects.
+- `BILLING_PRICE_PENCE_PER_SHOP` and `BILLING_MONTHLY_CAP_SHOPS` before the first statement.
+- The wording for Tarkett to send is in `docs/invite-wording.md`. Links for every shop: **Generate links for all N without one**, then **Download CSV**.
+
+---
+
+## All thirteen migrations, in order
 
 | # | File | PR | Apply before stage |
 |---|---|---|---|
@@ -478,15 +546,18 @@ git branch -D rehearsal/final-2026-11-16
 | 8 | `20261116090000_retailer_voice_profile.sql` | #38 | 8 |
 | 9 | `20261116100000_shop_photos.sql` | #39 | 9 |
 | 10 | `20261116120000_profile_monthly_report_marker.sql` | #52 | 10 |
+| 11 | `20261117090000_connection_visibility.sql` | #55 | 11 |
+| 12 | `20261117100000_welcome_email_marker.sql` | #56 | 11 |
+| 13 | `20261117110000_ad_spend_and_live_months.sql` | #58 | 11 |
 
-All ten only add things or tighten access. Each is on staging already.
+All thirteen only add things or tighten access. Each is on staging already.
 
 ## The documents and the legal PRs
 
 - **#41** (this runbook), **#45** (`docs/test-listing-runbook.md`) and **#51** (`docs/README.md`, the index of documents) change no code and can be merged at any time. **Run the test in #45 before stage 1 if you can:** its first step is the real model call that #24 is waiting on.
 - **#30** (legal drafts) and then **#44** (the solicitor briefing, which sits on #30): only after the solicitor. #30 changes the live privacy and terms pages, not only documents.
 
-**One migration to leave alone:** `20261116110000_change_log_add_media.sql` (in #39). Do not apply it anywhere, staging included, until all ten above are on production. It changes an existing constraint rather than adding something, and applying it early makes the production script refuse everything after migration 1. It is only needed if listing photos are ever switched on. The file explains this at the top.
+**One migration to leave alone:** `20261116110000_change_log_add_media.sql` (in #39). Do not apply it anywhere, staging included, until all thirteen above are on production. It changes an existing constraint rather than adding something, and applying it early makes the production script refuse everything after migration 1. It is only needed if listing photos are ever switched on. The file explains this at the top.
 
 ---
 
@@ -494,8 +565,8 @@ All ten only add things or tighten access. Each is on staging already.
 
 - **A deploy misbehaves.** Netlify, Deploys, pick the last good one, "Publish deploy". That is instant and touches nothing else. Then tell me what you saw.
 - **Undo a merge that has been pushed.** `git revert -m 1 <the merge commit>` and push. Do not reset or force-push main.
-- **Migrations stay.** All ten only add things (tables, columns, indexes) or tighten access. Old code runs fine against them, so a code rollback never needs a database rollback.
-- **A merge conflict that is not described above.** Stop: `git merge --abort`. The rehearsal had exactly three conflicted merges (#27, #29, #36). Anything else means a branch has changed since 16 November.
+- **Migrations stay.** All thirteen only add things (tables, columns, indexes) or tighten access. Old code runs fine against them, so a code rollback never needs a database rollback.
+- **A merge conflict that is not described above.** Stop: `git merge --abort`. The rehearsal had exactly three conflicted merges (#27, #29, #36), and none in stage 11. Anything else means a branch has changed since 17 November.
 
 ---
 
