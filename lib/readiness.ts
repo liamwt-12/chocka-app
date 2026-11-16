@@ -56,7 +56,7 @@ export function settingChecks(env: Env = process.env): Check[] {
   const relaxed = (['matched', 'verified', 'access'] as const).filter((k) => !rules[k]);
   out.push({ key: 'LIVE_REQUIRES', label: 'What counts as live', ok: null, detail: relaxed.length ? `Relaxed: a shop counts as live without ${relaxed.join(', ')}.` : 'Connected, right listing, verified by Google, access not lost.' });
   const b = billingSettingsFromEnv(env);
-  out.push({ key: 'BILLING', label: 'Monthly statement', ok: null, detail: `Price per shop ${b.pricePence === null ? 'not set (the statement shows counts only)' : 'set'}; cap ${b.capShops === null ? 'not set' : 'set'}; a shop counts after ${b.minLiveDays} day${b.minLiveDays === 1 ? '' : 's'} live in the month.` });
+  out.push({ key: 'BILLING', label: 'Monthly statement', ok: null, detail: `Price per shop ${b.pricePence === null ? 'not set (the statement shows counts only)' : 'set'}; monthly cap ${b.capPence === null ? 'not set' : 'set'}. A shop counts for a month if it is live on the month's last day.` });
   return out;
 }
 
@@ -103,7 +103,7 @@ export async function dataChecks(db: ReadinessDb, tenantId: string, now: Date = 
     const active = (shops || []).filter((s: any) => !s.delisted_at);
     const noPlace = active.filter((s: any) => !s.place_id).length;
     out.push({ key: 'shops', label: 'Shops on record', ok: null, detail: `${active.length} shop${active.length === 1 ? '' : 's'}, ${active.filter((s: any) => s.user_id).length} connected.` });
-    out.push({ key: 'place_ids', label: 'Each shop has the Google listing we expect', ok: noPlace ? null : true, detail: noPlace ? `${noPlace} shop${noPlace === 1 ? ' has' : 's have'} no expected listing on record. Whatever listing ${noPlace === 1 ? 'it connects' : 'they connect'} will be accepted without being compared with anything, and will count as live. Add the expected listing first, or look at ${noPlace === 1 ? 'it' : 'each one'} by hand after it connects.` : 'All have one.' });
+    out.push({ key: 'place_ids', label: 'Each shop has the Google listing we expect', ok: noPlace ? null : true, detail: noPlace ? `${noPlace} shop${noPlace === 1 ? ' has' : 's have'} no expected listing on record. Whatever listing ${noPlace === 1 ? 'it connects' : 'they connect'} will show as "Check listing" and will not count as live, or have anything done for it, until a person presses "This is right".` : 'All have one.' });
     const { data: last } = await db.from('profiles').select('metrics_synced_at').not('metrics_synced_at', 'is', null).order('metrics_synced_at', { ascending: false }).limit(1);
     const when = last?.[0]?.metrics_synced_at;
     const hours = when ? (now.getTime() - Date.parse(when)) / 3_600_000 : null;

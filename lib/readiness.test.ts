@@ -15,10 +15,10 @@ describe('settings', () => {
     expect(checks.find((c) => c.key === 'CRON_SECRET')!.detail).toMatch(/no post, reply, figure or daily check runs/);
   });
   it('NEVER reveals a value, only whether it is there', () => {
-    const secretish = { ...FULL, SESSION_SECRET: 'TOPSECRET-session-value-123456789', ADMIN_PASSWORD: 'hunter2-hunter2-hunter2', CRON_SECRET: 'cron-value-xyz', GOOGLE_CLIENT_SECRET: 'google-secret-abc', BILLING_PRICE_PENCE_PER_SHOP: '4242', BILLING_MONTHLY_CAP_SHOPS: '77' };
+    const secretish = { ...FULL, SESSION_SECRET: 'TOPSECRET-session-value-123456789', ADMIN_PASSWORD: 'hunter2-hunter2-hunter2', CRON_SECRET: 'cron-value-xyz', GOOGLE_CLIENT_SECRET: 'google-secret-abc', BILLING_PRICE_PENCE_PER_SHOP: '4242', BILLING_MONTHLY_CAP_PENCE: '77777' };
     const text = JSON.stringify(settingChecks(secretish));
-    for (const v of ['TOPSECRET', 'hunter2', 'cron-value', 'google-secret', '4242', '77']) expect(text).not.toContain(v);
-    expect(text).toMatch(/Price per shop set; cap set/);
+    for (const v of ['TOPSECRET', 'hunter2', 'cron-value', 'google-secret', '4242', '77777']) expect(text).not.toContain(v);
+    expect(text).toMatch(/Price per shop set; monthly cap set/);
   });
   it('a short admin password is called out; the old cookie still being accepted is a thing to fix', () => {
     expect(settingChecks({ ...FULL, ADMIN_PASSWORD: 'short' }).find((c) => c.key === 'ADMIN_PASSWORD')).toMatchObject({ ok: false });

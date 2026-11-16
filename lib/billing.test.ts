@@ -1,21 +1,22 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
-import { billingSettingsFromEnv, planLiveMarks, buildStatement, statementCsv, recordLiveToday, ukDay, monthOf, type LiveMonthRow } from './billing';
+import { billingSettingsFromEnv, planLiveMarks, buildStatement, statementCsv, recordLiveToday, ukDay, monthOf, countsForMonth, lastDayOfMonth, type LiveMonthRow } from './billing';
 
 const row = (id: string, o: Partial<LiveMonthRow> = {}): LiveMonthRow => ({ month: '2026-12', retailer_id: id, tenant_id: 't', name: `Shop ${id}`, town: 'Town', live_days: 10, first_live_on: '2026-12-01', last_live_on: '2026-12-10', ...o });
 const shop = (id: string, name = `Shop ${id}`) => ({ retailerId: id, tenantId: 't', name, town: 'Town' });
 
-describe('settings: no price lives in the code', () => {
-  it('unset means counts only, no cap, one day', () => {
-    expect(billingSettingsFromEnv({})).toEqual({ pricePence: null, capShops: null, minLiveDays: 1 });
+describe('settings: no price and no cap lives in the code', () => {
+  it('unset means counts only and no cap', () => {
+    expect(billingSettingsFromEnv({})).toEqual({ pricePence: null, capPence: null });
   });
-  it('reads whole numbers and ignores nonsense', () => {
-    expect(billingSettingsFromEnv({ BILLING_PRICE_PENCE_PER_SHOP: '1000', BILLING_MONTHLY_CAP_SHOPS: '80', BILLING_MIN_LIVE_DAYS: '7' })).toEqual({ pricePence: 1000, capShops: 80, minLiveDays: 7 });
-    expect(billingSettingsFromEnv({ BILLING_PRICE_PENCE_PER_SHOP: '10.5', BILLING_MONTHLY_CAP_SHOPS: '-3', BILLING_MIN_LIVE_DAYS: '0' })).toEqual({ pricePence: null, capShops: null, minLiveDays: 1 });
+  it('reads whole pence and ignores nonsense', () => {
+    expect(billingSettingsFromEnv({ BILLING_PRICE_PENCE_PER_SHOP: '1000', BILLING_MONTHLY_CAP_PENCE: '25000' })).toEqual({ pricePence: 1000, capPence: 25000 });
+    expect(billingSettingsFromEnv({ BILLING_PRICE_PENCE_PER_SHOP: '10.5', BILLING_MONTHLY_CAP_PENCE: '-3' })).toEqual({ pricePence: null, capPence: null });
   });
-  it('the module itself contains no amount of money', () => {
+  it('the module itself contains no amount of money: both are settings with no default', () => {
     const src = readFileSync(new URL('./billing.ts', import.meta.url), 'utf8');
-    expect(src).not.toMatch(/£\s?\d|pricePence\s*[:=]\s*\d|1500/);
+    expect(src).not.toMatch(/£\s?\d|pricePence\s*[:=]\s*\d|capPence\s*[:=]\s*\d|\b1500\b|\b120000\b|\b1200\b/);
+    expect(src).toMatch(/capPence: wholeNumber\(env\.BILLING_MONTHLY_CAP_PENCE, 0\)/);
   });
 });
 
@@ -45,57 +46,93 @@ describe('marking who is live today', () => {
   });
 });
 
+describe('who counts for a month: live on its last day, decided in one place', () => {
+  const r = (last: string, month = '2026-12') => ({ month, last_live_on: last });
+  it('a month that has ended: only a shop live on the last day', () => {
+    expect(lastDayOfMonth('2026-12')).toBe('2026-12-31');
+    expect(lastDayOfMonth('2027-02')).toBe('2027-02-28');
+    expect(lastDayOfMonth('2028-02')).toBe('2028-02-29');
+    expect(countsForMonth(r('2026-12-31'), '2026-12', '2027-01-05')).toBe(true);
+    expect(countsForMonth(r('2026-12-30'), '2026-12', '2027-01-05')).toBe(false); // live for 30 days, lost it on the last
+    expect(countsForMonth(r('2026-12-31'), '2026-11', '2027-01-05')).toBe(false); // another month's row
+  });
+  it('the month in progress: live now (today, or yesterday if today has not been marked yet)', () => {
+    expect(countsForMonth(r('2026-12-10'), '2026-12', '2026-12-10')).toBe(true);
+    expect(countsForMonth(r('2026-12-09'), '2026-12', '2026-12-10')).toBe(true);
+    expect(countsForMonth(r('2026-12-08'), '2026-12', '2026-12-10')).toBe(false);
+  });
+  it('a month that has not begun: nobody', () => {
+    expect(countsForMonth(r('2027-01-01', '2027-01'), '2027-01', '2026-12-10')).toBe(false);
+  });
+  it('nothing else in the code decides it', () => {
+    const src = readFileSync(new URL('./billing.ts', import.meta.url), 'utf8');
+    expect(src.match(/countsForMonth\(r, month, today\)/g)).toHaveLength(2); // counted, and its complement
+    expect(src).not.toMatch(/minLiveDays|live_days >=/);
+  });
+});
+
 describe('the statement', () => {
+  const AFTER = '2027-01-05'; // December has ended
   const rows = [
-    row('c', { name: 'Carpets C', first_live_on: '2026-12-09' }),
-    row('a', { name: 'Floors A', first_live_on: '2026-12-01' }),
-    row('b', { name: 'Bare B', first_live_on: '2026-12-01' }),
-    row('d', { name: 'Brief D', first_live_on: '2026-12-20', live_days: 2 }),
-    row('z', { month: '2026-11', name: 'Last month only' }),
+    row('c', { name: 'Carpets C', first_live_on: '2026-12-09', last_live_on: '2026-12-31' }),
+    row('a', { name: 'Floors A', first_live_on: '2026-12-01', last_live_on: '2026-12-31' }),
+    row('b', { name: 'Bare B', first_live_on: '2026-12-01', last_live_on: '2026-12-31' }),
+    row('d', { name: 'Late D', first_live_on: '2026-12-31', last_live_on: '2026-12-31', live_days: 1 }),
+    row('e', { name: 'Left E', first_live_on: '2026-12-01', last_live_on: '2026-12-20', live_days: 20 }),
+    row('z', { month: '2026-11', name: 'Last month only', last_live_on: '2026-11-30' }),
   ];
+  const st = (settings: any, today = AFTER) => buildStatement('2026-12', rows, settings, today);
 
-  it('lists the month\'s live shops by name, earliest first, then by name', () => {
-    const s = buildStatement('2026-12', rows, { pricePence: null, capShops: null, minLiveDays: 1 });
-    expect(s.lines.map((l) => l.name)).toEqual(['Bare B', 'Floors A', 'Carpets C', 'Brief D']);
-    expect(s).toMatchObject({ liveShops: 4, shopsAboveCap: 0, billableShops: 4, money: null });
+  it('lists the shops live on the last day by name, earliest first; a shop that left is shown but not counted', () => {
+    const s = st({ pricePence: null, capPence: null });
+    expect(s.lines.map((l) => l.name)).toEqual(['Bare B', 'Floors A', 'Carpets C', 'Late D']);
+    expect(s.notCounted.map((l) => l.name)).toEqual(['Left E']);
+    expect(s).toMatchObject({ liveShops: 4, shopsAboveCap: 0, money: null, provisional: false, decidedOn: '2026-12-31' });
   });
 
-  it('with a cap, the shops beyond it are still listed, and shown as a credit', () => {
-    const s = buildStatement('2026-12', rows, { pricePence: 1000, capShops: 3, minLiveDays: 1 });
-    expect(s.lines.filter((l) => l.aboveCap).map((l) => l.name)).toEqual(['Brief D']);
-    expect(s).toMatchObject({ liveShops: 4, shopsAboveCap: 1, billableShops: 3 });
-    expect(s.money).toEqual({ grossPence: 4000, creditPence: 1000, totalPence: 3000 });
+  it('with a cap in money, every shop is still listed and priced, and the excess is one credit line', () => {
+    const s = st({ pricePence: 1000, capPence: 2500 });
+    expect(s.money).toEqual({ grossPence: 4000, creditPence: 1500, totalPence: 2500 });
     expect(s.money!.grossPence - s.money!.creditPence).toBe(s.money!.totalPence);
+    // Two shops fit wholly inside the cap; the other two are marked.
+    expect(s.lines.filter((l) => l.aboveCap).map((l) => l.name)).toEqual(['Carpets C', 'Late D']);
+    expect(s.shopsAboveCap).toBe(2);
   });
 
-  it('under the cap there is no credit', () => {
-    const s = buildStatement('2026-12', rows, { pricePence: 1000, capShops: 80, minLiveDays: 1 });
-    expect(s.money).toEqual({ grossPence: 4000, creditPence: 0, totalPence: 4000 });
+  it('under the cap, or with no cap, there is no credit', () => {
+    expect(st({ pricePence: 1000, capPence: 9000 }).money).toEqual({ grossPence: 4000, creditPence: 0, totalPence: 4000 });
+    expect(st({ pricePence: 1000, capPence: null }).money).toEqual({ grossPence: 4000, creditPence: 0, totalPence: 4000 });
+    expect(st({ pricePence: 1000, capPence: 4000 })).toMatchObject({ shopsAboveCap: 0, money: { creditPence: 0 } });
   });
 
   it('a cap of nought charges nothing and credits everything', () => {
-    expect(buildStatement('2026-12', rows, { pricePence: 1000, capShops: 0, minLiveDays: 1 }).money).toEqual({ grossPence: 4000, creditPence: 4000, totalPence: 0 });
+    expect(st({ pricePence: 1000, capPence: 0 }).money).toEqual({ grossPence: 4000, creditPence: 4000, totalPence: 0 });
   });
 
-  it('a minimum number of days leaves short stays out of the count, but still shows them', () => {
-    const s = buildStatement('2026-12', rows, { pricePence: 1000, capShops: null, minLiveDays: 7 });
-    expect(s.liveShops).toBe(3);
-    expect(s.notCounted.map((l) => l.name)).toEqual(['Brief D']);
+  it('the month in progress is provisional: who is live now', () => {
+    const now = [row('a', { name: 'Floors A', last_live_on: '2026-12-20' }), row('b', { name: 'Bare B', last_live_on: '2026-12-19' }), row('e', { name: 'Left E', last_live_on: '2026-12-12' })];
+    const s = buildStatement('2026-12', now, { pricePence: 1000, capPence: null }, '2026-12-20');
+    expect(s).toMatchObject({ provisional: true, decidedOn: '2026-12-20', liveShops: 2 });
+    expect(s.notCounted.map((l) => l.name)).toEqual(['Left E']);
+    expect(statementCsv(s)).toContain('Provisional: shops live now,2026-12-20');
   });
 
   it('an empty month is an empty statement, not an error', () => {
-    expect(buildStatement('2025-01', rows, { pricePence: 1000, capShops: 5, minLiveDays: 1 })).toMatchObject({ liveShops: 0, lines: [], money: { grossPence: 0, creditPence: 0, totalPence: 0 } });
+    expect(buildStatement('2025-01', rows, { pricePence: 1000, capPence: 500 }, AFTER)).toMatchObject({ liveShops: 0, lines: [], money: { grossPence: 0, creditPence: 0, totalPence: 0 } });
   });
 
   it('the spreadsheet adds up in the open, and a name cannot be read as a formula', () => {
-    const csv = statementCsv(buildStatement('2026-12', [...rows, row('e', { name: '=HYPERLINK("x")', first_live_on: '2026-12-02' }), row('f', { name: 'Smith, Jones & Co', first_live_on: '2026-12-03' })], { pricePence: 1000, capShops: 3, minLiveDays: 1 }));
+    const csv = statementCsv(buildStatement('2026-12', [...rows, row('f', { name: '=HYPERLINK("x")', first_live_on: '2026-12-02', last_live_on: '2026-12-31' }), row('g', { name: 'Smith, Jones & Co', first_live_on: '2026-12-03', last_live_on: '2026-12-31' })], { pricePence: 1000, capPence: 2500 }, AFTER));
     expect(csv).toContain('Month,2026-12');
+    expect(csv).toContain('Shops live on the last day of the month,2026-12-31');
     expect(csv).toContain('"\'=HYPERLINK(""x"")"');
     expect(csv).toContain('"Smith, Jones & Co"');
     expect(csv).toContain('Live shops,6');
     expect(csv).toContain('Live shops x 10.00,60.00');
-    expect(csv).toContain('Credit: 3 shops above the cap,-30.00');
-    expect(csv).toContain('Total,30.00');
+    expect(csv).toContain('Monthly cap,25.00');
+    expect(csv).toContain('Credit: above the monthly cap (4 shops),-35.00');
+    expect(csv).toContain('Total,25.00');
+    expect(csv).toContain('Not counted: live during the month, not on its last day');
   });
 });
 

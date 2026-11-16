@@ -31,7 +31,7 @@ No mobile number is needed.
   - If they turn posts on: their first three posts wait on their dashboard for them to approve, change or skip. After that, every Friday they get an email with next week's post, and can cancel it. If they don't, it goes out on Monday morning.
   - Replies to 4 and 5 star reviews go out automatically if they turn that on.
   - Replies to 1 to 3 star reviews wait for their approval.
-- **Every change we make is logged.** If they want anything put back, they email hello@stellarlocal.co.uk and we reverse it the same working day.
+- **Every change we make is logged, and they can undo any of it themselves.** In Settings there is a list of everything we have changed, each with an **Undo this** button. Or they email hello@stellarlocal.co.uk and we reverse it the same working day.
 - **What Tarkett sees:** that they take part, and a summary of how their listing is doing. Tarkett does not get their contact details, review text or anything about their customers.
 
 ## What not to say

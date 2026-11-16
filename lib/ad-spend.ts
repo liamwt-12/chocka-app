@@ -18,7 +18,7 @@
  *
  *   too early          the four weeks after are not complete yet
  *   not enough history Google has too few days either side to compare fairly
- *   too few to say     fewer than 20 actions in the four weeks before: a
+ *   too few to say     fewer than 10 actions in the four weeks before: a
  *                      percentage on a base that small is noise
  *   clear rise         up 10% or more, AND at least 5 points better than the
  *                      shops with no ads over the same weeks (when there are
@@ -32,8 +32,10 @@
  *
  * Pure. No database, no network.
  */
-import { MIN_BASE_FOR_PERCENT, type AdComparison, type MetricChange } from './ad-comparison';
+import { type AdComparison, type MetricChange } from './ad-comparison';
 
+/** Fewer customer actions than this in the four weeks before the ads, and the answer is "too few to say". */
+export const MIN_BASE_EVENTS = 10;
 /** A change smaller than this, either way, is not called a change. */
 export const CLEAR_CHANGE_PERCENT = 10;
 /** A rise must beat the shops with no ads by at least this many points to be called clear. */
@@ -70,13 +72,13 @@ export function adVerdict(spendPence: number | null | undefined, comparison: AdC
   if (comparison.status === 'not_enough_history') return { key: 'not_enough_history', label: 'Not enough history', detail: 'Google does not hold enough figures from before the ads started to compare fairly.', ...none };
 
   const before = sum(comparison.shop, 'before'), after = sum(comparison.shop, 'after');
-  if (before < MIN_BASE_FOR_PERCENT) return { key: 'too_few', label: 'Too few to say', detail: 'This shop had too few customer actions in the four weeks before its ads to give a meaningful percentage.', ...none };
+  if (before < MIN_BASE_EVENTS) return { key: 'too_few', label: 'Too few to say', detail: 'This shop had too few customer actions in the four weeks before its ads to give a meaningful percentage.', ...none };
   const change = pct(before, after);
 
   let noAdsChange: number | null = null;
   if (comparison.network) {
     const nb = sum(comparison.network.changes, 'before'), na = sum(comparison.network.changes, 'after');
-    if (nb >= MIN_BASE_FOR_PERCENT) noAdsChange = pct(nb, na);
+    if (nb >= MIN_BASE_EVENTS) noAdsChange = pct(nb, na);
   }
   const against = noAdsChange === null ? 'There are not enough shops without ads to compare against.' : `Shops with no ads changed by ${signed(noAdsChange)} over the same weeks.`;
   const beats = noAdsChange === null || change - noAdsChange >= MARGIN_OVER_NO_ADS;

@@ -258,7 +258,7 @@ export async function GET(request: NextRequest) {
         await revokeQuietly(tokens.refresh_token);
         return NextResponse.redirect(new URL(helpPath('google_error', parsedState.invite), baseUrl));
       }
-      const outcome = detectOwnership(listings, expected?.placeId ?? null);
+      const outcome = detectOwnership(listings, expected?.placeId ?? null, !!expected);
       console.log(`[auth] ownership: ${outcome.status}: ${outcome.detail}`);
       if (outcome.status === 'no_access') {
         if (expected) { await recordConnectionStatus(expected.retailerId, 'no_access', outcome.detail); await recordConnectIssue(expected.retailerId, 'no_listing'); }
@@ -751,7 +751,7 @@ async function bindManageableListing(
   const listings = await getManageableListings(accessToken);
   // Ownership detection (lib/ownership.ts): with an invite, prefer the listing
   // whose place ID matches the shop the invite was for.
-  const outcome = detectOwnership(listings, expected?.placeId ?? null);
+  const outcome = detectOwnership(listings, expected?.placeId ?? null, !!expected);
   console.log(`[auth] ownership: ${outcome.status}: ${outcome.detail}`);
   return bindOutcome(userId, tenantId, expected, outcome, listings.length);
 }
