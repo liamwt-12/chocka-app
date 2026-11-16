@@ -1,8 +1,9 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { useTenant } from '@/lib/tenant-context';
+import VoiceFields, { draftFromVoice, draftIsEmpty, EMPTY_DRAFT, type VoiceDraft } from '@/components/VoiceFields';
 
 const V = { bg:'#F0EDE8',card:'#FAFAF8',card2:'#F5F3EF',orange:'var(--brand-strong)',orangeLight:'var(--brand-strong-light)',orangeDark:'var(--brand-strong-dark)',green:'#2D7A4F',greenLight:'#E8F5EE',amber:'#B8860B',amberLight:'#FFF8E6',red:'#D93025',text:'#1A1A1A',textMid:'#555',textSoft:'#999',border:'rgba(0,0,0,0.07)',shadow:'0 2px 12px rgba(0,0,0,0.06)',star:'#FBBC04' };
 const sans = "'DM Sans',sans-serif";
@@ -11,7 +12,7 @@ const barlow = "'Barlow Condensed',sans-serif";
 
 const STEPS = ['Connecting to your Google profile','Reading your business information','Checking your opening hours','Scanning your reviews','Counting your photos','Checking your services','Analysing your visibility','Comparing against top profiles','Building your report'];
 
-type Phase = 'select'|'analysing'|'score'|'preview'|'confirm'|'phone'|'fixing'|'done';
+type Phase = 'select'|'analysing'|'score'|'voice'|'preview'|'confirm'|'phone'|'fixing'|'done';
 
 export default function OnboardingPage() {
   const router = useRouter();
@@ -28,6 +29,12 @@ export default function OnboardingPage() {
   const [post, setPost] = useState('');
   const [hrs, setHrs] = useState<any>(null);
   const [phone, setPhone] = useState('');
+  // Voice: a few short optional questions about how the shop sounds (lib/voice.ts).
+  // Only offered when a shop is linked to this account, which /api/voice decides.
+  const [voiceAvailable, setVoiceAvailable] = useState(false);
+  const [voiceDraft, setVoiceDraft] = useState<VoiceDraft>(EMPTY_DRAFT);
+  const [voiceErr, setVoiceErr] = useState('');
+  const [voiceSaving, setVoiceSaving] = useState(false);
 
   // Automation opt-in, shown only on a free tenant (see the users insert in the
   // OAuth callback). Both start FALSE and match the row as created, so a
@@ -114,6 +121,8 @@ export default function OnboardingPage() {
       setAudit(d.audit); setPredicted(d.predicted); setLocData(d.locationData);
       if (d.defaultHours) setHrs(d.defaultHours);
       fetchPreviews();
+      // Whether to ask the voice questions. Any failure just means they are not asked.
+      fetch('/api/voice').then(r => r.ok ? r.json() : null).then(v => { if (v?.available) { setVoiceAvailable(true); setVoiceDraft(draftFromVoice(v.voice)); } }).catch(() => {});
       setAuditReady(true);
     } catch (e: any) {
       console.error('Audit failed:', e);
@@ -156,21 +165,57 @@ export default function OnboardingPage() {
     }
   }
 
+  // Previews can be requested twice (again after the voice questions). Only the
+  // latest request may write its result, so a slow first answer cannot overwrite
+  // the one drafted in the shop's voice.
+  const previewSeq = useRef(0);
+
   async function fetchPreviews() {
+    const seq = ++previewSeq.current;
     setPreviewsLoading(true);
     try {
       const res = await fetch('/api/audit/previews', { method: 'POST' });
       if (!res.ok) throw new Error('Previews failed');
       const d = await res.json();
+      if (seq !== previewSeq.current) return;
       setPreviews(d.previews);
       if (d.previews?.description) setDesc(d.previews.description);
       if (d.previews?.services) setSvcs(d.previews.services);
       if (d.previews?.firstPost) setPost(d.previews.firstPost);
     } catch (e) {
       console.error('Preview generation failed:', e);
+      if (seq !== previewSeq.current) return;
       setPreviews({ description: null, services: null, firstPost: null, categories: null, reviewPreview: null });
     } finally {
-      setPreviewsLoading(false);
+      if (seq === previewSeq.current) setPreviewsLoading(false);
+    }
+  }
+
+  // Where the flow goes after the score: through the voice questions if they are
+  // on offer, otherwise straight to what it did before.
+  function afterScore() {
+    const next: Phase = audit?.fixes?.length > 0 ? 'preview' : 'phone';
+    setPhase(voiceAvailable ? 'voice' : next);
+  }
+
+  async function submitVoice(skip: boolean) {
+    const next: Phase = audit?.fixes?.length > 0 ? 'preview' : 'phone';
+    setVoiceErr('');
+    // Skipped, or nothing typed: nothing is saved and the default wording stays.
+    if (skip || draftIsEmpty(voiceDraft)) { setPhase(next); return; }
+    setVoiceSaving(true);
+    try {
+      const res = await fetch('/api/voice', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ voice: voiceDraft }) });
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok) { setVoiceErr(d.error || 'We could not save that. Please try again.'); return; }
+      // The post and reply previews were drafted before these answers existed,
+      // so draft them again in the shop's own voice.
+      if (next === 'preview') { setPost(''); setPreviews(null); fetchPreviews(); }
+      setPhase(next);
+    } catch {
+      setVoiceErr('We could not save that. Please try again.');
+    } finally {
+      setVoiceSaving(false);
     }
   }
 
@@ -445,13 +490,35 @@ export default function OnboardingPage() {
           </div>
 
           {audit.fixes.length > 0 ? (
-            <button onClick={()=>setPhase('preview')} style={btn}>See What We Can Fix Right Now →</button>
+            <button onClick={afterScore} style={btn}>See What We Can Fix Right Now →</button>
           ) : (
             <>
-              <button onClick={()=>setPhase('phone')} style={btn}>Continue To Setup →</button>
+              <button onClick={afterScore} style={btn}>Continue To Setup →</button>
               {audit.score === 0 && <p style={{textAlign:'center',fontSize:12,color:V.textSoft,marginTop:8}}>We&apos;ll run your full audit once you&apos;re set up.</p>}
             </>
           )}
+        </div>
+      </div>
+    );
+  }
+
+  /* ── VOICE (optional) ── */
+  if (phase === 'voice') {
+    return (
+      <div style={{...wrap,background:V.bg}}>
+        <div style={box}>
+          <div style={logoStyle}>{tenant.wordmark}</div>
+          <h2 style={{fontFamily:barlow,fontSize:28,fontWeight:800,textTransform:'uppercase',lineHeight:1,margin:'12px 0 4px',color:V.text}}>Make it sound<br/>like you.</h2>
+          <p style={{fontSize:13,color:V.textSoft,marginBottom:20}}>A few quick questions so your posts and review replies sound like your shop. All optional, and you can skip this.</p>
+          <div style={card}>
+            <VoiceFields value={voiceDraft} onChange={(d)=>{setVoiceDraft(d);setVoiceErr('');}} disabled={voiceSaving} accent={V.text}
+              inputStyle={{background:V.card2,color:V.text,border:`1px solid ${V.border}`,borderRadius:12,padding:'10px 12px',fontSize:14,fontFamily:sans,outline:'none'}}
+              labelStyle={{display:'block',fontSize:13,fontWeight:600,marginBottom:6,color:V.text}}
+              hintStyle={{fontSize:11,color:V.textSoft,marginTop:4}} />
+          </div>
+          {voiceErr && <p style={{color:V.red,fontSize:13,margin:'0 0 12px'}}>{voiceErr}</p>}
+          <button onClick={()=>submitVoice(false)} disabled={voiceSaving} style={{...btn,opacity:voiceSaving?0.6:1}}>{voiceSaving ? 'Saving…' : 'Continue →'}</button>
+          <button onClick={()=>submitVoice(true)} disabled={voiceSaving} style={btnGhost}>Skip for now</button>
         </div>
       </div>
     );

@@ -55,7 +55,7 @@ export interface PilotInvite { id: string; status: 'pending' | 'accepted' | 'rev
 export interface PilotUser extends ManagedAccessRow {
   created_at?: string | null;
   onboarding_step?: string | null;
-  profiles?: Array<{ google_location_name: string | null }> | null;
+  profiles?: Array<{ google_location_name: string | null; google_place_id?: string | null }> | null;
 }
 
 /**

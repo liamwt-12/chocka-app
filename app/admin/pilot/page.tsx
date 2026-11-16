@@ -1,6 +1,8 @@
 'use client';
 
 import { useState, useMemo } from 'react';
+import PhotoPanel from '@/components/admin/PhotoPanel';
+import VoiceFields, { draftFromVoice, EMPTY_DRAFT, type VoiceDraft } from '@/components/VoiceFields';
 
 // Pilot admin: add a retailer, generate invite links (never sends), see who is live.
 // Behind ADMIN_PASSWORD, like /admin. Links are shown once: only their hash is stored.
@@ -20,7 +22,8 @@ const STATE_LABEL: Record<string, [string, string, string]> = {
   not_invited: ['Not invited', C.soft, '#F5F3EF'],
 };
 
-type Row = { id: string; name: string; town: string | null; contactEmail: string | null; source: string; state: string; detail: string; joinedAt: string | null; delisted: boolean; adStartDate: string | null; connection: { status: string; label: string; detail: string | null; checkedAt: string | null; nextStep: string | null } | null };
+type Row = { id: string; name: string; town: string | null; contactEmail: string | null; source: string; state: string; detail: string; joinedAt: string | null; delisted: boolean; adStartDate: string | null; connection: { status: string; label: string; detail: string | null; checkedAt: string | null; nextStep: string | null } | null; voice: Voice | null; voiceUpdatedAt: string | null; voiceUpdatedBy: string | null; photos: { pending: number; approved: number } | null; review: { link: string; cardPath: string; source: 'connected' | 'baseline' } | null };
+type Voice = { tone: string | null; about: string | null; specialities: string[]; signOff: string | null; wordsToUse: string[]; wordsToAvoid: string[] };
 type Minted = { retailerId: string; name?: string; ok: boolean; link?: string; expiresAt?: string; error?: string };
 
 export default function PilotAdminPage() {
@@ -35,6 +38,12 @@ export default function PilotAdminPage() {
   const [form, setForm] = useState({ name: '', town: '', contactEmail: '' });
   const [msg, setMsg] = useState('');
   const [busy, setBusy] = useState(false);
+  // Voice editor: which shop is open, and what has been typed so far.
+  const [voiceFor, setVoiceFor] = useState<Row | null>(null);
+  const [voiceDraft, setVoiceDraft] = useState<VoiceDraft>(EMPTY_DRAFT);
+  // Photos: only shown when the server says SHOP_PHOTOS is on.
+  const [photosEnabled, setPhotosEnabled] = useState(false);
+  const [photosFor, setPhotosFor] = useState<Row | null>(null);
 
   const call = async (payload: object) => {
     const res = await fetch('/api/admin/pilot', {
@@ -51,7 +60,7 @@ export default function PilotAdminPage() {
     setBusy(true); setMsg('');
     try {
       const d = await call({ action: 'list' });
-      setRows(d.retailers); setCounts(d.counts); setAuthed(true);
+      setRows(d.retailers); setCounts(d.counts); setPhotosEnabled(!!d.photosEnabled); setAuthed(true);
     } catch (e: any) { setMsg(e.message === 'Unauthorized' ? 'Wrong password' : e.message); }
     setBusy(false);
   };
@@ -89,6 +98,26 @@ export default function PilotAdminPage() {
     try { await call({ action: 'set_ad_start', retailerId: id, date: date || null }); setMsg(date ? `Ad start date set to ${date}.` : 'Ad start date cleared.'); await load(); }
     catch (e: any) { setMsg(e.message); }
     setBusy(false);
+  };
+
+  const openVoice = (r: Row) => { setVoiceFor(r); setVoiceDraft(draftFromVoice(r.voice)); setMsg(''); };
+
+  const saveVoice = async () => {
+    if (!voiceFor) return;
+    setBusy(true); setMsg('');
+    try {
+      await call({ action: 'set_voice', retailerId: voiceFor.id, voice: voiceDraft });
+      setMsg(`Voice saved for ${voiceFor.name}. It applies from the next post or reply that is written.`);
+      setVoiceFor(null);
+      await load();
+    } catch (e: any) { setMsg(e.message); }
+    setBusy(false);
+  };
+
+  const copyReviewLink = async (r: Row) => {
+    if (!r.review) return;
+    try { await navigator.clipboard.writeText(r.review.link); setMsg(`Review link for ${r.name} copied: ${r.review.link}`); }
+    catch { setMsg(`Review link for ${r.name}: ${r.review.link}`); }
   };
 
   const downloadCsv = () => {
@@ -154,6 +183,29 @@ export default function PilotAdminPage() {
           </div>
         )}
 
+        {photosFor && photosEnabled && (
+          <div style={{ ...card, border: `2px solid ${C.text}` }}>
+            <PhotoPanel shop={{ id: photosFor.id, name: photosFor.name }} password={password} onClose={() => setPhotosFor(null)} onChanged={load} />
+          </div>
+        )}
+
+        {voiceFor && (
+          <div style={{ ...card, border: `2px solid ${C.text}` }}>
+            <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 2 }}>How {voiceFor.name} sounds</div>
+            <p style={{ color: C.mid, fontSize: 12, margin: '0 0 12px' }}>
+              Used when posts and 4 to 5 star review replies are written. All optional; leave everything empty to go back to the standard wording.
+              It never changes the safety rules, and 1 to 3 star reviews always get the fixed holding reply.
+              {voiceFor.voiceUpdatedAt ? ` Last changed ${voiceFor.voiceUpdatedAt.slice(0, 10)} by ${voiceFor.voiceUpdatedBy === 'shop' ? 'the shop' : 'a rep'}.` : ''}
+            </p>
+            <VoiceFields value={voiceDraft} onChange={setVoiceDraft} disabled={busy} accent={C.text}
+              inputStyle={input} labelStyle={{ display: 'block', fontSize: 12, fontWeight: 600, marginBottom: 4 }} hintStyle={{ fontSize: 11, color: C.soft, marginTop: 3 }} />
+            <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
+              <button onClick={saveVoice} disabled={busy} style={btn}>Save voice</button>
+              <button onClick={() => setVoiceFor(null)} disabled={busy} style={{ ...btn, background: '#888' }}>Cancel</button>
+            </div>
+          </div>
+        )}
+
         <div style={card}>
           <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 8 }}>Add a shop Tarkett has given you</div>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
@@ -174,7 +226,7 @@ export default function PilotAdminPage() {
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
               <thead>
                 <tr style={{ textAlign: 'left', color: C.soft, fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
-                  <th style={{ padding: 6 }}></th><th style={{ padding: 6 }}>Shop</th><th style={{ padding: 6 }}>Town</th><th style={{ padding: 6 }}>Status</th><th style={{ padding: 6 }}>Detail</th><th style={{ padding: 6 }}>Google connection</th><th style={{ padding: 6 }} title="When Tarkett's ads for this shop started. Used for the 'change during your ads' section of the monthly report.">Ads started</th><th style={{ padding: 6 }}></th>
+                  <th style={{ padding: 6 }}></th><th style={{ padding: 6 }}>Shop</th><th style={{ padding: 6 }}>Town</th><th style={{ padding: 6 }}>Status</th><th style={{ padding: 6 }}>Detail</th><th style={{ padding: 6 }}>Google connection</th><th style={{ padding: 6 }} title="When Tarkett's ads for this shop started. Used for the 'change during your ads' section of the monthly report.">Ads started</th><th style={{ padding: 6 }} title="How this shop's posts and replies should sound. Answered by the shop at onboarding, or set here by a rep.">Voice</th><th style={{ padding: 6 }} title="The shop's Google review link, and a card with a QR code to print for the counter. The same link for every customer: nothing is sent and no customer details are involved.">Review link</th>{photosEnabled && <th style={{ padding: 6 }} title="Photos of the shop's work. Uploaded through a link, used on posts only after you approve them.">Photos</th>}<th style={{ padding: 6 }}></th>
                 </tr>
               </thead>
               <tbody>
@@ -198,6 +250,25 @@ export default function PilotAdminPage() {
                       <td style={{ padding: 6 }}>
                         <input type="date" defaultValue={r.adStartDate ?? ''} disabled={busy} onBlur={(e) => { if ((e.target.value || null) !== r.adStartDate) setAdStart(r.id, e.target.value); }} style={{ ...input, padding: '4px 6px', fontSize: 12 }} />
                       </td>
+                      <td style={{ padding: 6, whiteSpace: 'nowrap' }}>
+                        <button onClick={() => openVoice(r)} disabled={busy} style={{ ...btn, background: 'transparent', color: r.voice ? C.green : C.mid, padding: '2px 6px', textDecoration: 'underline' }}>{r.voice ? 'Set, edit' : 'Not set'}</button>
+                      </td>
+                      <td style={{ padding: 6, whiteSpace: 'nowrap' }}>
+                        {r.review ? (
+                          <>
+                            <button onClick={() => copyReviewLink(r)} title={r.review.link} style={{ ...btn, background: 'transparent', color: C.text, padding: '2px 6px', textDecoration: 'underline' }}>Copy link</button>
+                            <a href={r.review.cardPath} target="_blank" rel="noreferrer" style={{ color: C.text, fontSize: 13, fontWeight: 600, padding: '2px 6px' }}>Card</a>
+                            {r.review.source === 'baseline' && <span title="This shop has not connected its listing yet, so the link uses the listing matched from Tarkett's store list. Scan the card and check it opens the right shop before printing." style={{ color: C.amber, fontSize: 12 }}> check first</span>}
+                          </>
+                        ) : <span style={{ color: C.soft }} title="No Google place ID on record for this shop yet. It appears once the shop connects its listing.">No listing yet</span>}
+                      </td>
+                      {photosEnabled && (
+                        <td style={{ padding: 6, whiteSpace: 'nowrap' }}>
+                          <button onClick={() => setPhotosFor(r)} style={{ ...btn, background: 'transparent', color: r.photos?.pending ? C.amber : C.mid, padding: '2px 6px', textDecoration: 'underline' }}>
+                            {r.photos ? `${r.photos.approved} approved${r.photos.pending ? `, ${r.photos.pending} to check` : ''}` : 'None'}
+                          </button>
+                        </td>
+                      )}
                       <td style={{ padding: 6 }}>{r.state === 'invited' && <button onClick={() => revoke(r.id)} disabled={busy} style={{ ...btn, background: 'transparent', color: C.red, padding: '2px 6px' }}>Revoke</button>}</td>
                     </tr>
                   );

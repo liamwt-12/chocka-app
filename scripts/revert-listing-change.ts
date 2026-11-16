@@ -30,7 +30,7 @@
  * read, so check the "Database" line it prints.
  */
 import { createClient } from '@supabase/supabase-js';
-import { refreshAccessToken, deleteLocalPost, deleteReviewReply } from '../lib/google';
+import { refreshAccessToken, deleteLocalPost, deleteReviewReply, deleteLocationMedia } from '../lib/google';
 import { decryptSecret, userTokenAad } from '../lib/secrets';
 import { resolveAccess, MANAGER_EMBED } from '../lib/managed-access';
 import { planRevert, loggedUpdateLocation, loggedReplyToReview, type ChangeRow, type RevertStep } from '../lib/change-log';
@@ -44,6 +44,7 @@ function describe(step: RevertStep): string {
   switch (step.kind) {
     case 'restore_fields': return `restore ${step.updateMask} on ${step.locationName} to ${JSON.stringify(step.body).slice(0, 300)}`;
     case 'delete_post': return `delete post ${step.postName}`;
+    case 'delete_media': return `delete listing photo ${step.mediaName}`;
     case 'restore_reply': return `restore previous reply on ${step.reviewName}: "${step.comment.slice(0, 120)}"`;
     case 'delete_reply': return `delete our reply on ${step.reviewName} (there was none before)`;
     case 'skip': return `SKIP: ${step.reason}`;
@@ -92,13 +93,14 @@ async function main() {
       else if (step.kind === 'restore_reply') await loggedReplyToReview(ctx, token, step.reviewName, step.comment);
       else if (step.kind === 'delete_post') await deleteLocalPost(token, step.postName);
       else if (step.kind === 'delete_reply') await deleteReviewReply(token, step.reviewName);
+      else if (step.kind === 'delete_media') await deleteLocationMedia(token, step.mediaName);
 
       // Deletions are recorded here; restores were recorded by the logged* call.
       let revertId: string | null = null;
-      if (step.kind === 'delete_post' || step.kind === 'delete_reply') {
+      if (step.kind === 'delete_post' || step.kind === 'delete_reply' || step.kind === 'delete_media') {
         const { data } = await db.from('change_log').insert({
           user_id: user!.id, profile_id: row.profile_id, location_name: row.location_name, source: 'revert',
-          action: row.action, target: step.kind === 'delete_post' ? step.postName : step.reviewName,
+          action: row.action, target: step.kind === 'delete_post' ? step.postName : step.kind === 'delete_media' ? step.mediaName : step.reviewName,
           before_value: row.after_value, after_value: null, status: 'applied',
         }).select('id').single();
         revertId = data?.id ?? null;

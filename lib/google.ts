@@ -406,6 +406,31 @@ export async function deleteLocalPost(accessToken: string, postName: string) {
   if (!res.ok) throw await gbpError(res, 'Failed to delete post');
 }
 
+/**
+ * Add one photo to the listing itself (its photo gallery), from an address
+ * Google can fetch. Only ever called through lib/change-log.ts, and only when
+ * SHOP_PHOTOS_TO_LISTING=on (lib/shop-photos.ts).
+ */
+export async function createLocationMedia(accessToken: string, locationName: string, sourceUrl: string, accountId?: string) {
+  const v4Path = accountId ? `${accountId}/${locationName}` : locationName;
+  const res = await fetch(`${GBP_POSTS_BASE}/${v4Path}/media`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ mediaFormat: 'PHOTO', locationAssociation: { category: 'ADDITIONAL' }, sourceUrl }),
+  });
+  if (!res.ok) throw await gbpError(res, 'Failed to add photo');
+  return res.json();
+}
+
+/** Delete a listing photo by its full v4 resource name. Used only by the revert script. */
+export async function deleteLocationMedia(accessToken: string, mediaName: string) {
+  const res = await fetch(`${GBP_POSTS_BASE}/${mediaName}`, {
+    method: 'DELETE',
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  if (!res.ok) throw await gbpError(res, 'Failed to delete photo');
+}
+
 /** Delete the owner's reply to a review. Used only by the revert script. */
 export async function deleteReviewReply(accessToken: string, reviewName: string) {
   const res = await fetch(`${GBP_POSTS_BASE}/${reviewName}/reply`, {
@@ -454,12 +479,19 @@ export async function updateAttributes(
 
 // ── Existing: Posts, reviews, metrics ──
 
-export async function createLocalPost(accessToken: string, locationName: string, content: string, accountId?: string) {
+/**
+ * `photoUrl` is optional: an address Google can fetch one photo from, attached
+ * to the post. Without it the request body is exactly what it always was.
+ */
+export async function createLocalPost(accessToken: string, locationName: string, content: string, accountId?: string, photoUrl?: string | null) {
   const v4Path = accountId ? `${accountId}/${locationName}` : locationName;
   const res = await fetch(`${GBP_POSTS_BASE}/${v4Path}/localPosts`, {
     method: 'POST',
     headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ languageCode: 'en-GB', summary: content, topicType: 'STANDARD' }),
+    body: JSON.stringify({
+      languageCode: 'en-GB', summary: content, topicType: 'STANDARD',
+      ...(photoUrl ? { media: [{ mediaFormat: 'PHOTO', sourceUrl: photoUrl }] } : {}),
+    }),
   });
   if (!res.ok) throw new Error(`Failed to create post: ${await res.text()}`);
   return res.json();

@@ -4,6 +4,7 @@ import { verifyCronSecret, unauthorizedResponse, getActiveUsersWithProfiles, gen
 import { refreshAccessToken, getReviews, parseStarRating } from '@/lib/google';
 import { loggedReplyToReview } from '@/lib/change-log';
 import { generateReviewReply } from '@/lib/ai';
+import { loadVoiceForUser } from '@/lib/voice';
 import { sendSMS, logSMS } from '@/lib/twilio';
 import { sendEmail, reviewAlertEmail } from '@/lib/email';
 import { getTenantForRow } from '@/lib/tenant';
@@ -106,6 +107,9 @@ export async function GET(request: NextRequest) {
                 reviewerName,
                 rating,
                 comment,
+                // Voice applies to 4 and 5 star replies only. The holding reply
+                // below is fixed wording for every shop, on purpose.
+                voice: await loadVoiceForUser(supabaseAdmin, user.id),
               })
             : holdingReply(reviewerName);
 

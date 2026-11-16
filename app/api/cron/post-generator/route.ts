@@ -6,6 +6,8 @@ import { sendEmail, postPreviewEmail } from '@/lib/email';
 import { getTenantForRow } from '@/lib/tenant';
 import { nextMondaySlot } from '@/lib/post-schedule';
 import { requiresPostApproval, AWAITING_APPROVAL, PUBLISHABLE } from '@/lib/safe-automation';
+import { loadVoiceForUser } from '@/lib/voice';
+import { reservePhotoForUser } from '@/lib/shop-photos';
 
 export async function GET(request: NextRequest) {
   if (!verifyCronSecret(request)) return unauthorizedResponse();
@@ -54,6 +56,10 @@ export async function GET(request: NextRequest) {
           month,
           season,
           recentPosts: (recentPosts || []).map((p: any) => p.content),
+          // The shop's own voice, if it has given one (lib/voice.ts). Null means
+          // the default wording. It changes how a post sounds and nothing else:
+          // the validator and the first-three-posts approval below are untouched.
+          voice: await loadVoiceForUser(supabaseAdmin, user.id),
         });
 
         // Monday morning, but on this profile's own minute inside the window
@@ -73,6 +79,11 @@ export async function GET(request: NextRequest) {
           .eq('status', 'published');
         const needsApproval = requiresPostApproval(publishedCount || 0);
 
+        // An approved photo of the shop's work, if SHOP_PHOTOS is on and there
+        // is one to use (lib/shop-photos.ts). Null otherwise, and then the row
+        // is inserted exactly as before, without the column.
+        const photoId = await reservePhotoForUser(supabaseAdmin, user.id, now);
+
         const { data: post } = await supabaseAdmin
           .from('scheduled_posts')
           .insert({
@@ -80,6 +91,7 @@ export async function GET(request: NextRequest) {
             content: postContent,
             scheduled_for: monday.toISOString(),
             status: needsApproval ? AWAITING_APPROVAL : PUBLISHABLE,
+            ...(photoId ? { photo_id: photoId } : {}),
           })
           .select()
           .single();
