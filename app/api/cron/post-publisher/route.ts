@@ -8,6 +8,7 @@ import { getTenantForRow } from '@/lib/tenant';
 import { decryptSecret, userTokenAad } from '@/lib/secrets';
 import { resolveAccess, MANAGER_EMBED } from '@/lib/managed-access';
 import { photoUrlForPost } from '@/lib/shop-photos';
+import { startBudget } from '@/lib/cron-budget';
 
 /**
  * Most posts this route will publish in a single invocation.
@@ -53,8 +54,15 @@ export async function GET(request: NextRequest) {
       .limit(MAX_POSTS_PER_RUN);
 
     let published = 0;
+    // Each post costs about a second and a quarter, so a full batch of 40 is
+    // 50 seconds: inside Netlify's limit, but past the 25 the scheduler waits,
+    // which raised a failure alert for a run that was working. Stop when the
+    // budget is spent; this job runs every 15 minutes and picks up the rest.
+    const budget = startBudget();
+    let leftForNextRun = 0;
 
     for (const post of pendingPosts || []) {
+      if (budget.exhausted()) { leftForNextRun++; continue; }
       const profile = post.profiles;
       const user = profile?.users;
       if (!user || !profile) continue;
@@ -171,7 +179,8 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    return NextResponse.json({ success: true, published });
+    if (leftForNextRun > 0) console.log(`[cron:post-publisher] published ${published}; ${leftForNextRun} more were due and will go on the next run`);
+    return NextResponse.json({ success: true, published, remaining: leftForNextRun, partial: leftForNextRun > 0 });
   } catch (err) {
     console.error('Post publisher cron failed:', err);
     return NextResponse.json({ error: 'Cron failed' }, { status: 500 });
