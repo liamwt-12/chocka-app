@@ -1653,17 +1653,19 @@ and `chocka.co.uk` were both checked on 2026-07-29 and have exactly one record e
 
 ## Deferred — shop photos
 
-### Photo files outlive a deleted shop record  [open — do before SHOP_PHOTOS is turned on in production]
-**Context:** added 2026-11-16 with shop photos (`lib/shop-photos.ts`). `shop_photos.retailer_id` is
-`on delete cascade`, so deleting a retailer row removes its photo **records**. The **files** in the
-`shop-photos` bucket are not removed by the database: storage objects are not tied to rows.
+### Photo files outlive a deleted shop record  [fixed 2026-11-16]
+**Was:** `shop_photos.retailer_id` is `on delete cascade`, so deleting a retailer row removed its
+photo records but left the files in the `shop-photos` bucket with nothing pointing at them.
 
-**Where it bites:** the retention job (`/api/cron/retailer-retention`, deliberately not scheduled)
-and any by-hand deletion of a retailer. Each would leave that shop's cleaned photos in the bucket
-under `<retailer id>/` with no record pointing at them.
+**Now:** `deletePhotoFilesForShops` (`lib/shop-photos.ts`) deletes a shop's files from storage, found
+both from its photo records and by listing its folder. It is called:
 
-**Fix when picked up:** before a retailer row is deleted, list and remove `shop-photos/<retailer id>/`.
-Rejecting a single photo already deletes its file (`/api/admin/photos`, action `reject`).
+- by the retention job (`/api/cron/retailer-retention`) BEFORE a record is deleted. A shop whose
+  files could not be deleted is kept and retried on the next run;
+- when a shop deletes its account (`/api/account/delete`): files and photo records both go, and the
+  upload link is cancelled. A failure there is logged and does not block the account deletion.
 
-**Also say so in the privacy notice** before turning it on: photos are a new kind of data held
-about a shop, with their own retention answer.
+**Still to do before `SHOP_PHOTOS` is turned on in production:** the privacy notice needs its photos
+line (draft in `docs/legal-drafts/photos-privacy-line.md`, needs solicitor review), and anyone
+deleting a retailer row BY HAND in the database must delete `shop-photos/<retailer id>/` first:
+the database still cannot do that for them.

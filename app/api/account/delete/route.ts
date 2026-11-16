@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
 import { cancelSubscription } from '@/lib/stripe';
 import { getSessionUserId, clearSessionCookies } from '@/lib/session';
+import { deletePhotoFilesForShops } from '@/lib/shop-photos';
 
 // PATCH — update user settings
 export async function PATCH(request: NextRequest) {
@@ -76,6 +77,30 @@ export async function DELETE(request: NextRequest) {
         console.error('Stripe cancellation failed:', err);
         // Continue with deletion anyway
       }
+    }
+
+    // The shop's photos go with the account. The shop's record itself outlives
+    // the account by design (retailers.user_id is `on delete set null`), so
+    // nothing would otherwise remove photos the shop uploaded: both the files
+    // and their records are deleted here. Done BEFORE the user row goes, while
+    // the link from account to shop still exists.
+    //
+    // A failure does not stop the account being deleted: someone asking to
+    // leave must be able to leave. It is logged loudly, the photo records stay
+    // (so the files can still be found and removed by a rep), and the retention
+    // job removes them with the shop record later.
+    try {
+      const { data: shops } = await supabaseAdmin.from('retailers').select('id').eq('user_id', userId);
+      const shopIds = (shops || []).map((s: any) => s.id);
+      if (shopIds.length) {
+        const photos = await deletePhotoFilesForShops(supabaseAdmin, supabaseAdmin.storage, shopIds, { alsoDeleteRecords: true });
+        for (const f of photos.failed) console.error(`[account/delete] PHOTOS NOT FULLY DELETED for shop ${f.id} (user ${userId}): ${f.reason}. Remove them by hand in /admin/pilot.`);
+        if (photos.filesRemoved) console.log(`[account/delete] removed ${photos.filesRemoved} photo file(s) for user ${userId}`);
+        // And the upload link stops working, so nothing new can arrive for a shop that has left.
+        await supabaseAdmin.from('retailers').update({ photo_link_hash: null, photo_link_expires_at: null }).in('id', shopIds);
+      }
+    } catch (err) {
+      console.error(`[account/delete] photo cleanup failed for user ${userId}:`, err);
     }
 
     // Delete user — cascades to profiles, reviews, posts, etc. via FK constraints
