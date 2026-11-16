@@ -1,8 +1,62 @@
-# Merge runbook: every open pull request (#24 to #60)
+# Merge runbook: every open pull request (#24 to #63)
 
-Updated 17 November 2026 for #54 to #60 (stage 11). Every step below was rehearsed on a throwaway local branch (`rehearsal/final-2026-11-16` for stages 1 to 10, then `rehearsal/final-2026-11-17` on top of it for stage 11; neither was pushed), with typecheck and the full test suite after every merge and a production build at the end. The result is file-for-file identical to the head of #60, which is the tree that also passed the staging dummy run (52 of 52), the scale check and the 92-shop simulation.
+Updated 18 November 2026 for #61 and #62 (stage 12) and for the single release PR (#63).
 
-**31 code PRs in 11 stages, 13 database migrations, 3 documents, and 2 legal PRs that wait for the solicitor.**
+**There are now two ways to do this.** Both end in exactly the same code. Read "Two ways to merge" below and pick one before you start.
+
+**33 code PRs in 12 stages, 14 database migrations, 3 documents, and 2 legal PRs that wait for the solicitor.** Or: one PR, #63, that contains all of the code and the three documents.
+
+Every step of both paths was rehearsed on throwaway local branches that were never pushed (`rehearsal/final-2026-11-16`, `-17` and `-18` for the staged path; `rehearsal/single-merge-2026-11-18` for the single merge), with typecheck and the full test suite. Both results are file-for-file identical to the head of #62, which is the tree that passed the staging dummy run (54 of 54), the scale check (58) and the 92-shop simulation (38).
+
+## Two ways to merge
+
+| | **A. One merge (#63)** | **B. Twelve stages (#24 to #62)** |
+|---|---|---|
+| What you do | Apply the 14 migrations in order, then merge one PR | Apply each stage's migrations, merge its PRs by hand, check, push; twelve times |
+| Deploys | 1 | 12 |
+| Time at the keyboard | About an hour | Most of a day, or spread over several |
+| Conflicts to resolve by hand | None | Three (#27, #29, #36), each described below |
+| What is live in between | Nothing: old code, then all of the new code | Eleven in-between versions, each for as long as you leave it |
+| How well tested is what goes live | The final tree is the one every proof run was run against | Each in-between version passed typecheck and the unit tests in rehearsal. None had the dummy run, the simulation or a browser run. Two are known to be unsafe to leave live: #49 without #53, and #54 to #59 without #60 |
+| If something misbehaves | You know it is this release, not which part. Roll back the whole release in one step | You know which stage. Roll back that stage |
+| Rolling back | Netlify: publish the previous deploy (instant). Or `git revert -m 1` of one merge commit | The same, for the stage |
+| Migrations | All 14 first, against the old code, which runs fine on them: they only add things | The same 14, spread out |
+| Review on GitHub | One very large diff. Review it by reading the 33 PRs it is made of; they stay open for that | Thirty-three readable diffs |
+| Chance of a slip | One push | Twelve pushes, three hand-resolved conflicts, 33 base changes |
+
+**The risk in A** is that it is everything at once: if a fault shows only in production, the release cannot say which change caused it, and the roll-back takes the good with the bad. **The risk in B** is the in-between versions and the hand work: more chances for a slip, and eleven versions live that were never tested as a whole.
+
+**Recommendation: A, the single merge**, provided no shop has been invited yet. What is being released is one tested tree. Stopping at eleven points on the way to it adds risk without adding information, because none of those points is somewhere you would choose to stay. The usual argument for small steps (find the fault early, with real users) does not apply while there are no real users on this brand: the first real test is the test-listing session, and that needs the final code.
+
+**Choose B instead if** shops are already connected and using the brand by the time you merge, or if you want to watch each scheduled job run on the new code for a day before the next change.
+
+Either way: **all new switches stay off**, and **run the test-listing session (#45) before inviting anyone.**
+
+### Path A, step by step
+
+1. **Not on the 1st or 2nd of a month. Not a Friday or Monday morning.** (Reasons under "Before you start".)
+2. Do "Before you start" below: new `ADMIN_PASSWORD`, `SESSION_SECRET`, the tag.
+3. **Apply all 14 migrations, in the order in "All fourteen migrations"**, each with a dry run first. Expect the "still differ" warning on the first thirteen; the fourteenth ends clean. The old code keeps running normally throughout.
+4. Merge:
+
+```bash
+cd ~/chocka-app && git checkout main && git pull --ff-only && git fetch origin
+git tag pre-nov-merge
+git merge --no-ff --no-edit origin/release/2026-11            # clean in rehearsal
+rm -rf .next && npx tsc --noEmit && npm test && npm run build  # 921 tests
+git diff --stat origin/stage8-value HEAD -- . ':!docs'         # must print nothing
+git push origin main
+```
+
+5. Do **every "Verify" list** in stages 1 to 12 below, top to bottom, once. Then `/admin/pilot`, **Ready to invite shops? → Check now.**
+6. The Netlify variables with a "when" of "a week after" or "a few days after" still apply, counted from this deploy.
+7. Leave the other PRs open until you are happy; then see "Branches and PRs to tidy afterwards".
+
+Do **not** use GitHub's "Squash and merge" on #63. A merge commit keeps the 33 PRs' history and lets GitHub see them as merged.
+
+### Path B
+
+Stages 1 to 12, in order, as written below.
 
 | Stage | PRs | Migration first |
 |---|---|---|
@@ -17,6 +71,7 @@ Updated 17 November 2026 for #54 to #60 (stage 11). Every step below was rehears
 | 9 | #39, #43 | 9 |
 | 10 | #48, #49, #50, #52, #53 | 10 |
 | 11 | #54, #55, #56, #57, #58, #59, #60 (together, never partway) | 11, 12, 13 |
+| 12 | #61, #62 | 14 |
 | any time | #41, #45, #51 (documents) | none |
 | after the solicitor | #30, then #44 | none |
 
@@ -63,9 +118,9 @@ All three must pass. `rm -rf .next` matters: without it, typecheck reports false
 
 Never paste migration SQL into the Supabase editor. It jams this script afterwards.
 
-### The "still differ" warning: expect it on the first twelve
+### The "still differ" warning: expect it on the first thirteen
 
-Staging already has all thirteen migrations. So after **each of the first twelve**, the script:
+Staging already has all fourteen migrations. So after **each of the first thirteen**, the script:
 
 1. prints `applied and recorded`,
 2. then prints `WARNING: production and staging still differ after applying:` followed by a list,
@@ -73,7 +128,7 @@ Staging already has all thirteen migrations. So after **each of the first twelve
 
 **That is expected, every time.** The migration has been applied and recorded. The list is simply what staging still has that production does not. What to check is that the list **gets shorter each time** and contains only things from later migrations.
 
-Only the thirteenth (`20261117110000_ad_spend_and_live_months`) ends with `identical across every probe`. If you stop early, the last one you apply still warns. **This has changed since the first version of this runbook:** the tenth used to end cleanly; now that staging also has 11 to 13, the tenth warns too, listing only things from those three.
+Only the fourteenth (`20261118090000_user_last_seen`) ends with `identical across every probe`. If you stop early, the last one you apply still warns. **This has changed twice:** the tenth used to end cleanly, then the thirteenth; now that staging also has the fourteenth, the thirteenth warns too, listing only one column on `users`.
 
 **A different message means stop.** If it says `REFUSED: production has objects staging does not. They have diverged`, do not continue. Nothing has been applied. Tell me what it listed.
 
@@ -105,8 +160,11 @@ PRs #46 to #53 add no new variables. #54 to #60 add these, **all optional, all o
 | `WELCOME_EMAIL` | Leave unset, or `on` | When you decide | `on` sends **one** email to a shop at the moment it connects, and never to a shop that has not (#56). Unset: nothing is sent |
 | `LIVE_REQUIRES` | Leave unset | Only to relax the definition | What counts as live beyond "connected". Default `matched,verified,access` (#55). Removing a word relaxes it |
 | `BILLING_PRICE_PENCE_PER_SHOP` | Whole pence per live shop | Before the first statement | The price is deliberately not in the code: the repository is public (#58). Unset: the statement shows counts only |
-| `BILLING_MONTHLY_CAP_SHOPS` | A number of shops | Before the first statement | Shops above it appear as a credit line (#58). Unset: no cap |
-| `BILLING_MIN_LIVE_DAYS` | Leave unset | Optional | Days live in a month to count. Default 1 |
+| `BILLING_MONTHLY_CAP_PENCE` | Whole pence a month | Before the first statement | The monthly cap, as money (#61). Every live shop is listed; anything above the cap is one credit line. Not in the code either. Unset: no cap |
+| `RETENTION_VIEW` | Leave unset, or `on` | After the privacy notice mentions it | `on` opens the retention view in `/admin/pilot` and starts recording when each shop last opened its dashboard: one date per shop (#62) |
+| `MONTHLY_REPORT_PLAIN_SUMMARY` | Leave unset, or `on` | When you have read one | `on` opens the shop's monthly report with "what we did" and "what changed" in sentences (#62). Unset: the report is exactly as before |
+
+`BILLING_MONTHLY_CAP_SHOPS` and `BILLING_MIN_LIVE_DAYS` from #58 **no longer exist** (#61). If you set either, remove it. A shop now counts for a month only if it is live on the month's last day.
 
 After stage 11, `/admin/pilot` has a **Ready to invite shops?** button that checks every variable is present (never its value), every migration is applied and the scheduled jobs are running.
 
@@ -494,7 +552,7 @@ The onboarding flow rebuilt: no default opening hours, every change checked befo
 /usr/local/bin/python3.14 scripts/apply-migration-to-production.py 20261117110000_ad_spend_and_live_months.sql --confirm
 ```
 
-Expected: the first two end with the "still differ" warning (shorter each time). **The third ends with `identical across every probe`** and a tick.
+Expected: all three end with the "still differ" warning, shorter each time. After the third it lists only `users.last_seen_at`, which is stage 12's.
 
 **Then merge:**
 
@@ -508,7 +566,7 @@ git merge --no-ff --no-edit origin/stage4-ads-billing-undo    # #58  clean
 git merge --no-ff --no-edit origin/stage5-improvements        # #59  clean
 git merge --no-ff --no-edit origin/stage6-proof               # #60  clean
 rm -rf .next && npx tsc --noEmit && npm test && npm run build   # 878 tests
-git diff --stat origin/stage6-proof HEAD                      # must print nothing
+git diff --stat origin/stage6-proof HEAD -- . ':!docs'        # must print nothing
 git push origin main
 ```
 
@@ -527,12 +585,62 @@ In the rehearsal all seven merged with no conflicts, and typecheck and the suite
 **Settings to decide before inviting the 92:**
 
 - `WELCOME_EMAIL=on` if you want each shop to get one email when it connects.
-- `BILLING_PRICE_PENCE_PER_SHOP` and `BILLING_MONTHLY_CAP_SHOPS` before the first statement.
+- `BILLING_PRICE_PENCE_PER_SHOP` and `BILLING_MONTHLY_CAP_PENCE` before the first statement (the cap setting is from stage 12).
 - The wording for Tarkett to send is in `docs/invite-wording.md`. Links for every shop: **Generate links for all N without one**, then **Download CSV**.
 
 ---
 
-## All thirteen migrations, in order
+## Stage 12: decisions, and three things that show value (#61, #62)
+
+#61 applies the decisions on what #54 to #60 left open. #62 adds a monthly summary to the console, a retention view to `/admin/pilot`, and a plain-words opening to the shop's monthly report. **Everything in #62 is behind a switch that is off.**
+
+**One migration first:**
+
+```bash
+/usr/local/bin/python3.14 scripts/apply-migration-to-production.py 20261118090000_user_last_seen.sql
+/usr/local/bin/python3.14 scripts/apply-migration-to-production.py 20261118090000_user_last_seen.sql --confirm
+```
+
+Expected: **ends with `identical across every probe`** and a tick. It adds one empty column.
+
+**Then merge:**
+
+```bash
+for n in 61 62; do gh pr edit $n --base main; done
+git merge --no-ff --no-edit origin/stage7-decisions           # #61  clean
+git merge --no-ff --no-edit origin/stage8-value               # #62  clean
+rm -rf .next && npx tsc --noEmit && npm test && npm run build   # 921 tests
+git diff --stat origin/stage8-value HEAD -- . ':!docs'        # must print nothing
+git push origin main
+```
+
+In the rehearsal both merged with no conflicts and the result was identical to the tested tree.
+
+**What changes the moment this is live, with no switch:**
+
+1. **A shop we invited with no expected listing on record shows "Check listing"**, is not live, and has nothing done for it unattended until a person presses **This is right**. That includes any such shop that is *already connected*: the daily check will move it to "Check listing" within a day. **Before this stage, look at "Ready to invite shops?": it says how many shops have no expected listing. If any of them is already connected, be ready to confirm it the next morning.**
+2. **The statement counts a shop only if it is live on the month's last day.** The month in progress is marked provisional.
+3. **The cap is money**, from `BILLING_MONTHLY_CAP_PENCE`. Remove the two old settings if you set them.
+4. "Too few to say" for ads is now under 10 customer actions in the four weeks before, not 20.
+
+**Verify:**
+
+1. `/admin/pilot`, **Ready to invite shops? → Check now.** "When a shop last opened its dashboard" has a tick. The retention view and the plain summary both say **Off**.
+2. **Live shops in a month**: the current month says **provisional**. With no price set it shows counts only.
+3. **Which shops are not getting much from this? → Show** says the view is switched off.
+4. `/console/summary` is a 404 (the console is still off).
+
+**The last day of each month matters now.** The count of live shops is taken by the hourly job. If that job did not run at all on the last day of a month, the statement for that month says so in red and counts nobody, rather than guessing. Check the job's log on the 1st.
+
+**Before switching anything on:**
+
+- `RETENTION_VIEW`: recording when a shop last opened its dashboard is a new use of its data, however small. Add the line to the privacy notice first (it is on the solicitor's list).
+- `MONTHLY_REPORT_PLAIN_SUMMARY`: switch it on in the week before a month end and read the first few reports that go out.
+- The console summary comes with `TARKETT_CONSOLE_ENABLED`; the privacy checklist for the console covers it.
+
+---
+
+## All fourteen migrations, in order
 
 | # | File | PR | Apply before stage |
 |---|---|---|---|
@@ -549,15 +657,43 @@ In the rehearsal all seven merged with no conflicts, and typecheck and the suite
 | 11 | `20261117090000_connection_visibility.sql` | #55 | 11 |
 | 12 | `20261117100000_welcome_email_marker.sql` | #56 | 11 |
 | 13 | `20261117110000_ad_spend_and_live_months.sql` | #58 | 11 |
+| 14 | `20261118090000_user_last_seen.sql` | #62 | 12 |
 
-All thirteen only add things or tighten access. Each is on staging already.
+All fourteen only add things or tighten access. Each is on staging already. **On path A, apply all fourteen, in this order, before the merge.**
 
 ## The documents and the legal PRs
 
 - **#41** (this runbook), **#45** (`docs/test-listing-runbook.md`) and **#51** (`docs/README.md`, the index of documents) change no code and can be merged at any time. **Run the test in #45 before stage 1 if you can:** its first step is the real model call that #24 is waiting on.
 - **#30** (legal drafts) and then **#44** (the solicitor briefing, which sits on #30): only after the solicitor. #30 changes the live privacy and terms pages, not only documents.
 
-**One migration to leave alone:** `20261116110000_change_log_add_media.sql` (in #39). Do not apply it anywhere, staging included, until all thirteen above are on production. It changes an existing constraint rather than adding something, and applying it early makes the production script refuse everything after migration 1. It is only needed if listing photos are ever switched on. The file explains this at the top.
+**One migration to leave alone:** `20261116110000_change_log_add_media.sql` (in #39). Do not apply it anywhere, staging included, until all fourteen above are on production. It changes an existing constraint rather than adding something, and applying it early makes the production script refuse everything after migration 1. It is only needed if listing photos are ever switched on. The file explains this at the top.
+
+---
+
+## Branches and PRs to tidy afterwards
+
+Nothing here has been deleted or closed. This is a list for you, for after the release is live and you are happy with it.
+
+**If you took path A (#63):** GitHub marks a PR as merged when its commits reach its base branch. Most of these PRs are based on each other, not on `main`, so they will stay "open" with nothing left to merge. For each, either change its base to `main` (`gh pr edit <n> --base main`), which lets GitHub mark it merged, or close it with a note pointing at #63.
+
+| PRs | State after path A |
+|---|---|
+| #24 to #29, #31 to #40, #42, #43, #46 to #50, #52 to #62 (33 code PRs) | Superseded by #63: all of their commits are in it |
+| #41, #45, #51 (documents) | Superseded by #63: included |
+| #30, #44 (legal drafts, solicitor briefing) | **Not included. Still open on purpose**, until the solicitor has been through them. #30 changes the live privacy and terms pages |
+
+**If you took path B:** #63 is superseded. Close it.
+
+**Branches no PR points at, safe to delete once the release is in `main`:**
+
+| Branch | What it was |
+|---|---|
+| `integration/nov-2026`, `-b`, `-c`, `-d` | Stepping stones the stacked PRs were based on. All four are contained in the release |
+| `feat-invite-sending` | August work on sending invitations from the app, never opened as a PR. **Not in the release, and not wanted as it stands:** invitations are sent by Tarkett, not by us. Keep it only if you want the code for reference |
+| `release/2026-11` | The release branch, once #63 is merged |
+| Already merged into `main` long ago: `fix-invite-token-percent-decode`, `fix-invite-token-whitespace`, `gate-stellar-login-without-invite`, `retailer-invite-engine`, `slice-2`, `stellar-copy-price-sweep`, `stellar-cron-entitlement`, `stellar-match-verification`, `stellar-no-stripe`, `stellar-tenant-resolution` | Old PR branches |
+
+**On your machine only (never pushed), safe to delete:** every branch starting `rehearsal/`, plus `dummy-run/2026-11-16` and `test/all-2026-11-16`. The older planning branches (`slices-0-1`, `slice-2-plan`, `slice-3`, `slice-3-plan`, `slice-4-plan`, `multi-tenant-plan`, `stellar-landing`) are from the summer; look before deleting.
 
 ---
 
@@ -565,8 +701,8 @@ All thirteen only add things or tighten access. Each is on staging already.
 
 - **A deploy misbehaves.** Netlify, Deploys, pick the last good one, "Publish deploy". That is instant and touches nothing else. Then tell me what you saw.
 - **Undo a merge that has been pushed.** `git revert -m 1 <the merge commit>` and push. Do not reset or force-push main.
-- **Migrations stay.** All thirteen only add things (tables, columns, indexes) or tighten access. Old code runs fine against them, so a code rollback never needs a database rollback.
-- **A merge conflict that is not described above.** Stop: `git merge --abort`. The rehearsal had exactly three conflicted merges (#27, #29, #36), and none in stage 11. Anything else means a branch has changed since 17 November.
+- **Migrations stay.** All fourteen only add things (tables, columns, indexes) or tighten access. Old code runs fine against them, so a code rollback never needs a database rollback.
+- **A merge conflict that is not described above.** Stop: `git merge --abort`. The rehearsal had exactly three conflicted merges (#27, #29, #36), none in stages 11 or 12, and none on path A. Anything else means a branch has changed since 18 November.
 
 ---
 
