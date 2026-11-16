@@ -8,7 +8,8 @@ import { resolveAccess, MANAGER_EMBED } from '@/lib/managed-access';
 import { getSessionUserId } from '@/lib/session';
 import { ONBOARDING_REPLY_CAP } from '@/lib/review-intake';
 import { ukTomorrowAt } from '@/lib/post-schedule';
-import { AWAITING_APPROVAL } from '@/lib/safe-automation';
+import { AWAITING_APPROVAL, aiReplyAllowed } from '@/lib/safe-automation';
+import { loadVoiceForUser } from '@/lib/voice';
 
 export async function POST(request: NextRequest) {
   try {
@@ -83,14 +84,20 @@ export async function POST(request: NextRequest) {
     if (replyToReviews) {
       try {
         const revData = await getReviews(accessToken, locName, acctId);
-        const allUnrep = (revData.reviews || []).filter((r: any) => !r.reviewReply);
+        // 4 and 5 stars only. Before this, onboarding wrote and published an AI
+        // reply to every unreplied review, including 1 to 3 stars, which the
+        // low-star rule (lib/safe-automation.ts) forbids everywhere else. A
+        // low-star review is now left alone here: nothing is written and
+        // nothing is published for it.
+        const allUnrep = (revData.reviews || []).filter((r: any) => !r.reviewReply && aiReplyAllowed(parseStarRating(r.starRating)));
         const unrep = allUnrep.slice(0, ONBOARDING_REPLY_CAP);
+        const voice = await loadVoiceForUser(supaAdmin, userId);
         let count = 0;
         for (const rev of unrep) {
           try {
             const rating = parseStarRating(rev.starRating);
             const rName = rev.reviewer?.displayName || 'Customer';
-            const reply = await generateReviewReply({ businessName: profile.business_name, category: profile.category || '', reviewerName: rName, rating, comment: rev.comment || '' });
+            const reply = await generateReviewReply({ businessName: profile.business_name, category: profile.category || '', reviewerName: rName, rating, comment: rev.comment || '', voice });
             await loggedReplyToReview(log, accessToken, rev.name, reply, rev.reviewReply?.comment ?? null);
             await supaAdmin.from('reviews').upsert({ profile_id: profile.id, google_review_id: rev.reviewId || rev.name, reviewer_name: rName, rating, comment: rev.comment || '', review_date: rev.createTime }, { onConflict: 'google_review_id' });
             count++;

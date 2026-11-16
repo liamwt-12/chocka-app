@@ -6,6 +6,7 @@ import { sendEmail, postPreviewEmail } from '@/lib/email';
 import { getTenantForRow } from '@/lib/tenant';
 import { nextMondaySlot } from '@/lib/post-schedule';
 import { requiresPostApproval, AWAITING_APPROVAL, PUBLISHABLE } from '@/lib/safe-automation';
+import { loadVoiceForUser } from '@/lib/voice';
 
 export async function GET(request: NextRequest) {
   if (!verifyCronSecret(request)) return unauthorizedResponse();
@@ -54,6 +55,10 @@ export async function GET(request: NextRequest) {
           month,
           season,
           recentPosts: (recentPosts || []).map((p: any) => p.content),
+          // The shop's own voice, if it has given one (lib/voice.ts). Null means
+          // the default wording. It changes how a post sounds and nothing else:
+          // the validator and the first-three-posts approval below are untouched.
+          voice: await loadVoiceForUser(supabaseAdmin, user.id),
         });
 
         // Monday morning, but on this profile's own minute inside the window

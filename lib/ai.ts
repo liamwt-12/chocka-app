@@ -1,4 +1,5 @@
 import { replyBreaksRules } from './safe-automation';
+import { voicePromptBlock, type VoiceProfile } from './voice';
 const ANTHROPIC_API = 'https://api.anthropic.com/v1/messages';
 
 // Model id from the environment, so a retirement is a config change rather than
@@ -117,8 +118,11 @@ async function generateWithValidation(
 export async function generatePost(params: {
   businessName: string; category: string; city: string;
   month: string; season: string; recentPosts: string[];
+  /** The shop's voice (lib/voice.ts). Optional: without it the prompt is exactly what it was before. */
+  voice?: VoiceProfile | null;
 }): Promise<string> {
-  const system = `You write Google Business Profile posts for UK tradespeople. British English. Sound like a real tradesperson - friendly, professional, no corporate speak. No hashtags. One emoji max. 2-3 sentences. Soft call to action. Never repeat themes from recent posts.` + SAFETY_RULES;
+  // Voice first, strict rules last, so the rules have the final word.
+  const system = `You write Google Business Profile posts for UK tradespeople. British English. Sound like a real tradesperson - friendly, professional, no corporate speak. No hashtags. One emoji max. 2-3 sentences. Soft call to action. Never repeat themes from recent posts.` + voicePromptBlock(params.voice, 'post') + SAFETY_RULES;
   const user = `Business: ${params.businessName}\nTrade: ${params.category}\nLocation: ${params.city}\nMonth: ${params.month}\nSeason: ${params.season}\nRecent posts to avoid:\n${params.recentPosts.map((p, i) => `${i + 1}. ${p}`).join('\n')}\n\nWrite a new post.`;
   return generateWithValidation(system, user, 'post');
 }
@@ -126,9 +130,11 @@ export async function generatePost(params: {
 export async function generateReviewReply(params: {
   businessName: string; category: string; reviewerName: string;
   rating: number; comment: string;
+  /** The shop's voice (lib/voice.ts). Optional, and never used for 1 to 3 stars: those get the fixed holding reply. */
+  voice?: VoiceProfile | null;
 }): Promise<string> {
   const tone = params.rating >= 4 ? 'warm, grateful, genuine' : 'professional, empathetic, constructive';
-  const system = `You write review replies for UK tradespeople. British English. Sound real, not corporate. Be ${tone}. 2-3 sentences. Use reviewer's first name. Never defensive about negatives. Never admit fault, apologise for a specific failing, or offer a refund, discount, compensation or anything free. Never promise future action.` + SAFETY_RULES;
+  const system = `You write review replies for UK tradespeople. British English. Sound real, not corporate. Be ${tone}. 2-3 sentences. Use reviewer's first name. Never defensive about negatives. Never admit fault, apologise for a specific failing, or offer a refund, discount, compensation or anything free. Never promise future action.` + voicePromptBlock(params.voice, 'reply') + SAFETY_RULES;
   const user = `Business: ${params.businessName}\nTrade: ${params.category}\nReviewer: ${params.reviewerName}\nRating: ${params.rating}/5\nComment: ${params.comment || '(no comment)'}\n\nWrite a reply.`;
   return generateWithValidation(system, user, 'reply');
 }

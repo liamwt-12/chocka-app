@@ -7,6 +7,8 @@ import { decryptSecret, userTokenAad } from '@/lib/secrets';
 import { resolveAccess, MANAGER_EMBED } from '@/lib/managed-access';
 import { getSessionUserId } from '@/lib/session';
 import { ONBOARDING_REPLY_CAP } from '@/lib/review-intake';
+import { aiReplyAllowed } from '@/lib/safe-automation';
+import { loadVoiceForUser } from '@/lib/voice';
 
 function getSeason(): string {
   const m = new Date().getMonth();
@@ -57,6 +59,9 @@ export async function POST(request: NextRequest) {
     const existDesc = location.profile?.description || '';
     const existSvcs = (location.serviceItems || []).map((s: any) => s.freeFormServiceItem?.label?.displayName || s.structuredServiceItem?.description || '').filter(Boolean);
 
+    // The shop's voice, if the onboarding questions have been answered by now.
+    const voice = await loadVoiceForUser(supaAdmin, userId);
+
     // Generate all applicable previews — each individually catch-wrapped
     const [description, servicesList, firstPost, catSuggestions] = await Promise.all([
       audit.fixes.some(f => f.key === 'description')
@@ -66,7 +71,7 @@ export async function POST(request: NextRequest) {
         ? generateServices({ businessName: profile.business_name, category: primaryCat, existingServices: existSvcs }).catch(() => null)
         : null,
       audit.fixes.some(f => f.key === 'firstPost')
-        ? generatePost({ businessName: profile.business_name, category: primaryCat, city, month: new Date().toLocaleString('en-GB', { month: 'long' }), season: getSeason(), recentPosts: [] }).catch(() => null)
+        ? generatePost({ businessName: profile.business_name, category: primaryCat, city, month: new Date().toLocaleString('en-GB', { month: 'long' }), season: getSeason(), recentPosts: [], voice }).catch(() => null)
         : null,
       audit.fixes.some(f => f.key === 'categories')
         ? suggestCategories({ primaryCategory: primaryCat, businessName: profile.business_name }).catch(() => null)
@@ -75,13 +80,15 @@ export async function POST(request: NextRequest) {
 
     // Review reply preview — individually wrapped
     let reviewPreview = null;
-    const unreplied = (reviews.reviews || []).filter((r: any) => !r.reviewReply);
+    // 4 and 5 stars only, matching what /api/profile-fix will actually reply to:
+    // an AI reply is never written for a 1 to 3 star review, not even as a preview.
+    const unreplied = (reviews.reviews || []).filter((r: any) => !r.reviewReply && aiReplyAllowed(parseStarRating(r.starRating)));
     if (unreplied.length > 0) {
       try {
         const sample = unreplied[0];
         const rating = parseStarRating(sample.starRating);
         const name = sample.reviewer?.displayName || 'Customer';
-        const reply = await generateReviewReply({ businessName: profile.business_name, category: primaryCat, reviewerName: name, rating, comment: sample.comment || '' });
+        const reply = await generateReviewReply({ businessName: profile.business_name, category: primaryCat, reviewerName: name, rating, comment: sample.comment || '', voice });
         reviewPreview = { reviewerName: name, rating, comment: sample.comment || '(no comment)', suggestedReply: reply, totalUnreplied: Math.min(unreplied.length, ONBOARDING_REPLY_CAP) };
       } catch {
         reviewPreview = null;
