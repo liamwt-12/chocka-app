@@ -92,7 +92,7 @@ export default function ConsoleClient({ view }: { view: 'console' | 'league' }) 
     </div>
     <div style={{ ...card, overflowX: 'auto' }}>
       <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-        <thead><tr><th style={th}>Shop</th><th style={th}>Town</th><th style={th}>Status</th><th style={th}>Google</th><th style={th}>Score at start</th><th style={th}>Posts (30 days)</th><th style={th}>Replies (30 days)</th><th style={th}>Since joining</th><th style={th}>Ads from</th></tr></thead>
+        <thead><tr><th style={th}>Shop</th><th style={th}>Town</th><th style={th}>Status</th><th style={th}>Google</th><th style={th}>Score at start</th><th style={th}>Posts (30 days)</th><th style={th}>Replies (30 days)</th><th style={th}>Since joining</th><th style={th}>Ads from</th><th style={th}>Ad spend</th><th style={th}>Change alongside the ads</th></tr></thead>
         <tbody>{data.shops.map((s: any) => (
           <tr key={s.retailerId}>
             <td style={td}>{s.name}</td><td style={{ ...td, color: C.mid }}>{s.town || ''}</td>
@@ -100,10 +100,12 @@ export default function ConsoleClient({ view }: { view: 'console' | 'league' }) 
             <td style={td}>{s.scoreAtActivation ?? '–'}</td><td style={td}>{s.postsLast30 ?? '–'}</td><td style={td}>{s.repliesLast30 ?? '–'}</td>
             <td style={{ ...td, color: bandColour(s.improvement) }}>{s.improvement ? (s.actionsChange !== null ? `${s.improvement} (${pct(s.actionsChange)} actions)` : s.improvement) : '–'}</td>
             <td style={td}>{s.adStartDate || '–'}</td>
+            <td style={td}>{s.adSpend || '–'}</td>
+            <td style={{ ...td, color: s.adChange?.flag ? '#B8860B' : undefined }} title={s.adChange?.detail || ''}>{s.adChange ? <><strong>{s.adChange.label}</strong><div style={{ fontSize: 12, color: C.mid }}>{s.adChange.detail}</div></> : '–'}</td>
           </tr>
         ))}</tbody>
       </table>
-      <p style={{ fontSize: 12, color: C.soft, marginTop: 10 }}>Contact details, review text and anything about shops&apos; customers are not shown here. Scores are shown only for shops that have joined.</p>
+      <p style={{ fontSize: 12, color: C.soft, marginTop: 10 }}>Contact details, review text and anything about shops&apos; customers are not shown here. Scores are shown only for shops that have joined. “Change alongside the ads” compares customer actions (calls, website clicks, direction requests) in the four weeks before and after the ads started, against shops with no ads over the same weeks. It shows what changed, not what caused it.</p>
     </div>
   </>);
 }

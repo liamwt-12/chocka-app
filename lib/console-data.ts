@@ -17,6 +17,8 @@ import { ADMIN_LABELS, type ConnectionStatus } from './ownership';
 import { MANAGER_EMBED } from './managed-access';
 import { loadMetricRows, isoDate, type MetricRow } from './metrics';
 import { buildLeague, leagueWindows, type LeagueEntry, type LeagueExcluded } from './league';
+import { compareAdPeriod, comparisonRange } from './ad-comparison';
+import { adVerdict, formatPounds } from './ad-spend';
 
 export interface ConsoleShop {
   retailerId: string;
@@ -33,6 +35,10 @@ export interface ConsoleShop {
   viewsChange: number | null;
   improvement: string | null;
   adStartDate: string | null;
+  /** What has been spent on ads for this shop, as text ("£250"). Never sent to the shop. */
+  adSpend: string | null;
+  /** Change alongside the ads, in words and a percentage. No raw counts. */
+  adChange: { label: string; detail: string; flag: boolean } | null;
 }
 
 export interface ConsoleData {
@@ -47,7 +53,7 @@ interface Db { from(table: string): any }
 export async function loadConsoleData(db: Db, tenantId: string, now: Date = new Date()): Promise<ConsoleData> {
   const { data: retailers, error } = await db
     .from('retailers')
-    .select('id, name, town, user_id, connection_status, connection_detail, connection_checked_at, connect_issue, connect_issue_at, invite_bounced_at, listing_confirmed_at, ad_start_date')
+    .select('id, name, town, user_id, connection_status, connection_detail, connection_checked_at, connect_issue, connect_issue_at, invite_bounced_at, listing_confirmed_at, ad_start_date, ad_spend_pence')
     .eq('tenant_id', tenantId)
     .order('name');
   if (error) throw error;
@@ -68,6 +74,7 @@ export async function loadConsoleData(db: Db, tenantId: string, now: Date = new 
 
   const since30 = new Date(now.getTime() - 30 * 86_400_000).toISOString();
   const leagueInputs: Parameters<typeof buildLeague>[0] = [];
+  const withProfile: Array<{ shop: ConsoleShop; profileId: string; adStart: string | null; spend: number | null }> = [];
   const shops: ConsoleShop[] = [];
 
   for (const r of rows) {
@@ -82,6 +89,7 @@ export async function loadConsoleData(db: Db, tenantId: string, now: Date = new 
       connection: r.connection_status ? ADMIN_LABELS[r.connection_status as ConnectionStatus] ?? r.connection_status : null,
       participating, joinedOn: null, scoreAtActivation: null, postsLast30: null, repliesLast30: null,
       actionsChange: null, viewsChange: null, improvement: null, adStartDate: participating ? r.ad_start_date ?? null : null,
+      adSpend: participating && r.ad_spend_pence != null ? formatPounds(r.ad_spend_pence) : null, adChange: null,
     };
     if (participating) {
       const joinedOn = isoDate(new Date(profile.created_at));
@@ -96,8 +104,27 @@ export async function loadConsoleData(db: Db, tenantId: string, now: Date = new 
       const w = leagueWindows(joinedOn, now);
       const metricRows: MetricRow[] = await loadMetricRows(db, profile.id, w.baselineFrom, w.recentTo);
       leagueInputs.push({ retailerId: r.id, name: r.name, town: r.town, activatedOn: joinedOn, rows: metricRows });
+      withProfile.push({ shop, profileId: profile.id, adStart: r.ad_start_date ?? null, spend: r.ad_spend_pence ?? null });
     }
     shops.push(shop);
+  }
+
+  // Change alongside the ads (lib/ad-spend.ts): each shop with an ad start
+  // date, against the shops with none over the same weeks. Rows for the
+  // no-ads shops are loaded once per start date.
+  const noAds = withProfile.filter((x) => !x.adStart);
+  const noAdsRows = new Map<string, MetricRow[][]>();
+  for (const x of withProfile.filter((y) => y.adStart)) {
+    try {
+      const { from, to } = comparisonRange(x.adStart!);
+      if (!noAdsRows.has(x.adStart!)) {
+        const sets: MetricRow[][] = [];
+        for (const n of noAds) sets.push(await loadMetricRows(db, n.profileId, from, to));
+        noAdsRows.set(x.adStart!, sets);
+      }
+      const v = adVerdict(x.spend, compareAdPeriod(x.adStart!, await loadMetricRows(db, x.profileId, from, to), noAdsRows.get(x.adStart!)!, now));
+      x.shop.adChange = { label: v.label, detail: v.detail, flag: v.flag };
+    } catch (e) { console.error(`[console] ad comparison failed for ${x.shop.retailerId}: ${String((e as any)?.message).slice(0, 160)}`); }
   }
 
   const league = buildLeague(leagueInputs, now);

@@ -6,11 +6,13 @@ import { decryptSecret, userTokenAad } from '@/lib/secrets';
 import { resolveAccess } from '@/lib/managed-access';
 import { syncDailyMetrics, pickProfilesToSync, markSyncAttemptFailed } from '@/lib/metrics';
 import { recheckConnection } from '@/lib/connection-check';
+import { recordLiveToday } from '@/lib/billing';
 
 // Hourly. For each shop that is due (about once a day):
 //   1. fetch Google's daily figures (lib/metrics.ts)
 //   2. look again at the connection: right listing, verified, still accessible
 //      (lib/connection-check.ts)
+// and, first, once a day: mark which shops are live for the monthly count.
 // and if Google says our permission is gone for good, record that, so the shop
 // and whoever is helping are told within a day rather than never.
 //
@@ -21,6 +23,11 @@ export async function GET(request: NextRequest) {
   if (!verifyCronSecret(request)) return unauthorizedResponse();
   const started = Date.now();
   try {
+    // Mark today's live shops for the monthly count (lib/billing.ts). A few
+    // requests however many shops there are; only the first run of the day
+    // writes anything; it never fails this job.
+    const liveCount = await recordLiveToday(supabaseAdmin);
+
     const users = await getActiveUsersWithProfiles(supabaseAdmin, 'metrics-sync', { includeHeld: true });
     const queue = pickProfilesToSync(users, new Date());
 
@@ -75,7 +82,7 @@ export async function GET(request: NextRequest) {
         if (result) rechecked++;
       }
     }
-    return NextResponse.json({ success: true, queued: queue.length, synced, failed, rechecked, lostAccess: lost });
+    return NextResponse.json({ success: true, queued: queue.length, synced, failed, rechecked, lostAccess: lost, liveCount });
   } catch (err) {
     console.error('Metrics sync cron failed:', err);
     return NextResponse.json({ error: 'Cron failed' }, { status: 500 });
