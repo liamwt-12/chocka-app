@@ -72,6 +72,19 @@ describe('scale check', () => {
         } finally { stop(); }
       }, 600_000);
     }
+    for (const [label, withAds] of [['no ad dates', false], ['1 shop in 5 has an ad date', true]] as const) {
+      it(`monthly-report, repeated every 5 minutes (${label}): ${n} shops`, async () => {
+        const stop = await world_(n, (c) => {
+          seedMetrics(c);
+          if (withAds) { const start = new Date(Date.now() - 35 * DAY).toISOString().slice(0, 10); c.sim.tables.retailers.forEach((r: any, i: number) => { if (i % 5 === 0) r.ad_start_date = start; }); }
+        });
+        try {
+          const d = await drain('monthly-report', 5, 48, (r) => r.remaining === 0);
+          const to = world.emails.map((e) => e.to);
+          drains.push({ job: `monthly-report (${label})`, shops: n, runsAvailable: 48, runsUsed: d.runs, longestRunSeconds: d.longestRunSeconds, reached: new Set(to).size, duplicates: to.length - new Set(to).size });
+        } finally { stop(); }
+      }, 600_000);
+    }
     it(`post-publisher, every 15 minutes until a full backlog is cleared: ${n} shops`, async () => {
       const stop = await world_(n, (c) => { seedPublishedPosts(c, 1); seedDuePosts(c, c.profiles); });
       try {

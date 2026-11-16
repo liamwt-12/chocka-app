@@ -601,6 +601,19 @@ describe('dummy run on staging', () => {
       need(fourTimes.length === 0, 'the report shows four times the true figure');
       return `shop A: views ${want.views}, calls ${want.calls}, website clicks ${want.website}, directions ${want.directions}: all match; ${sent.length} reports captured (not sent), all to test addresses`;
     });
+    await step('report', 'the report is sent once: every listing is marked for the month, and a second run sends nothing', async () => {
+      const { data: marks } = await db.from('profiles').select('id, monthly_report_sent_for').in('id', ['a', 'b', 'c', 'd', 'e'].map((k) => shops[k].profileId).filter(Boolean));
+      const months = Array.from(new Set(marks.map((m: any) => m.monthly_report_sent_for)));
+      need(marks.length === 5 && months.length === 1 && /^\d{4}-\d{2}$/.test(String(months[0])), `markers after the first run: ${JSON.stringify(months)}`);
+      const em0 = world.emails.length;
+      const again = await cron('monthly-report');
+      need(again.data.sent === 0 && again.data.remaining === 0 && world.emails.length === em0, `a second run sent ${again.data.sent} (${world.emails.length - em0} emails)`);
+      // The database refuses a malformed month, so a bug cannot write nonsense there.
+      const bad = await db.from('profiles').update({ monthly_report_sent_for: 'October' }).eq('id', shops.b.profileId);
+      need(bad.error, 'the database accepted a malformed month marker');
+      return `all 5 marked ${months[0]}; second run: sent 0; a malformed marker is refused by the database`;
+    });
+
     await step('before and after', 'the report shows "Change during your ads" against shops without ads', async () => {
       const html = world.emails.filter((e) => e.to === EMAIL('a')).pop()!.html;
       need(html.includes('Change during your ads'), 'the section is missing from the report of the shop with an ad date');

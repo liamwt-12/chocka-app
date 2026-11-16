@@ -1,21 +1,21 @@
 # Scale check: the scheduled jobs at 10, 180 and 500 shops
 
-Run 16 November 2026.
+Run 16 November 2026. Updated the same day when the monthly report was fixed (the last section).
 
 ## The short version
 
-**Before this PR, four of the scheduled jobs would have quietly stopped working somewhere between 17 and 75 shops.** They work through shops one at a time, each shop takes one to three and a half seconds, and Netlify stops a job after 60. Whoever was not reached got nothing: no post, no weekly text, no review check. No error, and always the same shops.
+**Before these fixes, four of the scheduled jobs would have quietly stopped working somewhere between 17 and 75 shops.** They work through shops one at a time, each shop takes one to three and a half seconds, and Netlify stops a job after 60. Whoever was not reached got nothing: no post, no weekly text, no review check. No error, and always the same shops.
 
-| Job | Shops reached before it is cut off (before) | At 180 shops, before | At 180 shops, with this PR |
+| Job | Shops reached before it is cut off (before) | At 180 shops, before | At 180 shops, now |
 |---|---|---|---|
 | Weekly post writer | **about 17** | 163 shops get no post, every week | All 180, over 2.5 hours on Friday morning |
 | Weekly stats text | about 43 | 137 shops get no text | All 180, within an hour on Monday |
 | Daily review check | 42 to 75 | Over 100 shops never checked | All 180 checked through the day |
 | Post publisher | 40 per run (its own cap) | Works, but raised false failure alerts | Works, no false alerts |
-| **Monthly report** | **about 35** | **145 shops get no report** | **Not fixed. See below** |
+| Monthly report | about 35 | 145 shops get no report | All 180, within an hour and a quarter on the 1st (fixed separately: see the last section) |
 | Figures sync, onboarding texts, approval previews | No limit reached | Fine | Fine |
 
-The pilot is small, so none of this bites on day one. **The monthly report needs fixing before there are more than about 30 live shops.**
+The pilot is small, so none of this would have bitten on day one. It would have bitten well before 180.
 
 ## How it was measured
 
@@ -124,13 +124,7 @@ No shop was done twice in any run: no duplicate post, text or reply.
 
 **This holds to about 250 shops. It is not the answer for 500.** That needs the proper fix below.
 
-## Not fixed here
-
-### The monthly report (do this before about 30 live shops)
-
-One run, on the 1st of the month, reaches about 35 shops before it is cut off. I have not changed it, because unlike the others it **cannot tell who it has already sent to**: emails are not recorded anywhere, so running it again would send some shops two reports.
-
-**The fix** is small but needs a database change, so it is a separate piece of work: record the month each shop's report was sent for (one new column), then give it the same stop-and-carry-on treatment.
+## Still to do
 
 ### The proper fix for all of them: background functions
 
@@ -151,7 +145,7 @@ At the assumed 300 requests a minute, shared by all shops:
 
 | Job | Google requests per minute while running | Verdict |
 |---|---|---|
-| Monthly report | about 250 | **Close to the limit.** Do not speed this job up by running shops side by side without also pacing it |
+| Monthly report | about 250 while a run is working, but each run is now only 20 seconds in every five minutes | Fine as scheduled. Do not speed it up by running shops side by side without also pacing it |
 | Daily review check | about 180 | Fine |
 | Weekly stats text | about 90 | Fine |
 | Post publisher | about 95 | Fine |
@@ -159,13 +153,13 @@ At the assumed 300 requests a minute, shared by all shops:
 
 Two jobs running in the same minute add together. The new schedules overlap on Monday mornings (stats text and publisher) at about 185 a minute combined: fine.
 
-**At 180 shops a month's report needs 1,260 Google requests**, which is over four minutes at the quota however it is arranged. That is another reason the monthly report belongs in a background function or spread over several runs.
+**At 180 shops a month's report needs 1,260 Google requests**, which is over four minutes at the quota however it is arranged. That was another reason to spread the monthly report over several runs, which it now is (last section).
 
 ## Database load
 
 Nothing here fans out badly, with one exception:
 
-- **The monthly report's "change during your ads" section** reads the figures for every shop *without* an ad date, all at once, the first time it meets a shop *with* one. At 180 shops that is a burst of about 145 database requests in the same instant. It happens once per distinct ad start date per run, so it is a spike rather than a flood, but it should be done ten at a time. Not changed here.
+- **The monthly report's "change during your ads" section** reads the figures for every shop *without* an ad date, all at once, the first time it meets a shop *with* one. At 180 shops that is a burst of about 145 database requests in the same instant. It happens once per distinct ad start date per run, so it is a spike rather than a flood, but it should be done ten at a time. **Now done ten at a time** (last section).
 - Everything else makes four or five database requests per shop, one after another.
 - **The 1,000-row limit** did not bite anywhere at 500 shops. Two places would have at larger numbers and are now read in pages (the review check, above). One remains: the list of active shops itself would be cut off silently beyond 1,000 shops. Not a concern at this size; noted.
 
@@ -173,6 +167,51 @@ Nothing here fans out badly, with one exception:
 
 1. **Merge this PR** with the others. It makes four jobs safe to about 250 shops.
 2. **Check which region the site's functions run in** (Netlify: Project configuration, Functions). If it is the US and the plan allows, move it to match the database.
-3. **Fix the monthly report** before the 30th live shop.
-4. **Run the scale check again** after any change to a scheduled job. It takes about ten seconds.
-5. **Plan background functions** before 250 shops.
+3. **Run the scale check again** after any change to a scheduled job. It takes about ten seconds.
+4. **Plan background functions** before 250 shops.
+
+## The monthly report (fixed in its own PR)
+
+It was left out of the first round because it could not tell who it had already sent to: an email leaves no trace, so running it again would have sent some shops two reports.
+
+**The fix:** one new column, `profiles.monthly_report_sent_for`, holding the month a listing's last report covered. With that, the report gets the same treatment as the others: stop when the time is up, carry on at the next run.
+
+| | Before | After |
+|---|---|---|
+| Schedule (UTC) | Once, 08:00 on the 1st | Every 5 minutes, 08:00 to 11:55, on the 1st and the 2nd |
+| How it knows who is done | It did not | The marker, written just before each email goes |
+
+### Timings
+
+Simulated shops, same assumptions as above.
+
+| Shops | Before: one run | After: one run | After: runs until everyone is sent | Reached | Sent twice |
+|---|---|---|---|---|---|
+| 10 | 17 s | 17 s | 1 | 10 of 10 | 0 |
+| 180 | **302 s** (cut off at 60: about 35 sent) | 21 s, sends 12 | **15 runs: 75 minutes** | 180 of 180 | 0 |
+| 500 | **838 s** (cut off at 60) | 21 s, sends 12 | **42 runs: 3.5 hours** | 500 of 500 | 0 |
+| 500, with 1 shop in 5 on ads | **842 s** | 21 s, sends 11 | 46 runs: 3.8 hours | 500 of 500 | 0 |
+
+48 runs are available each morning, so 500 fits on the 1st with a little to spare. The 2nd is there so that a bad morning on the 1st is not a missed month. On a normal month the runs on the 2nd find nobody left and each costs two database requests.
+
+### Why "claim, then send"
+
+The marker is written **before** the email goes, and only if it is not already that month. That choice has consequences worth knowing:
+
+- **Two runs overlapping cannot both send.** The database lets only one of them write the marker. This was run against the real staging database, not just the simulation.
+- **If the email is refused**, the marker is put back and the next run tries again.
+- **If the job dies between writing the marker and sending**, that one shop misses that month's report. That is deliberate: a missed report is a smaller harm than a shop getting the same report twice, or every five minutes all morning.
+- **If the marker cannot be written at all** (the migration has not been applied, or the database is down), **nothing is sent.** So the migration must be applied before this code is deployed.
+
+### Also in that PR
+
+The "change during your ads" comparison now reads the other shops' figures ten at a time, not all at once. That was the burst of about 145 simultaneous database requests noted above.
+
+### Two things to know when releasing it
+
+1. **Apply the migration first** (`20261116120000_profile_monthly_report_marker.sql`).
+2. **Do not release it on the 1st or 2nd of a month.** Every listing starts with no marker. If the old code has already sent that month's reports and this code goes live the same morning, it would send them again.
+
+### Google quota
+
+Unchanged per shop (seven requests), but now spread out: about 84 requests per five-minute run, far below the 300-a-minute limit. The earlier worry, 1,260 requests in a few minutes at 180 shops, no longer applies.
