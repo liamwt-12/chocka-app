@@ -369,42 +369,54 @@ Things worth knowing:
 
 ---
 
-## After this runbook: #38, #40, #42, #39, #43
+## After this runbook: the ten newer code PRs
 
-Five newer PRs sit on top of all of the above, **in this order.** Not part of this runbook's scope, but all five were merged together on top of #37 locally: clean, 542 tests, build passes.
+Ten newer PRs sit on top of all of the above, **in this order.** Not part of this runbook's original scope, but the whole sequence was rehearsed on top of #37 on 16 November: every merge is clean, and the result is file-for-file identical to the head of #50, which passes typecheck, 566 tests, `next build` and the staging dummy run (39 of 39).
 
 | Order | PR | Migration to apply first | Notes |
 |---|---|---|---|
 | 14 | #38 voice profile | `20261116090000_retailer_voice_profile.sql` (migration 8) | Still warns; lists the photo items |
 | 15 | #40 review link and card | none | No migration, no flag. Does not need photos |
-| 16 | #42 low-star reviews at onboarding | none | Needs #38 only. Can go before or after #40 |
-| 17 | #39 shop photos | `20261116100000_shop_photos.sql` (migration 9) | **This is the one that ends with `identical across every probe`.** Both photo flags stay off |
-| 18 | #43 photo deletion and draft privacy line | none | Needs #39. Do not turn `SHOP_PHOTOS` on without it |
+| 16 | #46 dependency security patches | none | Patch-level only. After #40, because both touch the package files |
+| 17 | #42 low-star reviews at onboarding | none | |
+| 18 | #47 fix: reviews recorded, never reply over a reply | none | **A real bug fix.** Do not leave it behind if #42 goes in |
+| 19 | #39 shop photos | `20261116100000_shop_photos.sql` (migration 9) | **This is the one that ends with `identical across every probe`.** Both photo flags stay off |
+| 20 | #43 photo deletion and draft privacy line | none | Do not turn `SHOP_PHOTOS` on without it |
+| 21 | #48 staging dummy run (test tooling and report) | none | Adds no behaviour |
+| 22 | #49 scheduled jobs stop on time and resume | none | **Changes three job schedules**, see below |
+| 23 | #50 consistency fixes | none | |
 
-Retarget each to main first, then merge, one stage each:
+Retarget each to main first, then merge. One stage per PR, or group the ones with no migration:
 
 ```bash
-gh pr edit 38 --base main
-git merge --no-ff --no-edit origin/feat-voice-profile          # #38  clean
-gh pr edit 40 --base main
-git merge --no-ff --no-edit origin/feat-review-link-card       # #40  clean
-gh pr edit 42 --base main
-git merge --no-ff --no-edit origin/feat-onboarding-low-star    # #42  clean
-gh pr edit 39 --base main
-git merge --no-ff --no-edit origin/feat-shop-photos            # #39  clean
-gh pr edit 43 --base main
-git merge --no-ff --no-edit origin/feat-photo-deletion         # #43  clean
+for n in 38 40 46 42 47 39 43 48 49 50; do gh pr edit $n --base main; done
+
+git merge --no-ff --no-edit origin/feat-voice-profile          # #38  apply migration 8 first
+git merge --no-ff --no-edit origin/feat-review-link-card       # #40
+git merge --no-ff --no-edit origin/chore-dependency-patches    # #46  run `npm ci` after this one
+git merge --no-ff --no-edit origin/feat-onboarding-low-star    # #42
+git merge --no-ff --no-edit origin/fix-review-recording        # #47
+git merge --no-ff --no-edit origin/feat-shop-photos            # #39  apply migration 9 first
+git merge --no-ff --no-edit origin/feat-photo-deletion         # #43
+git merge --no-ff --no-edit origin/test-staging-dummy-run      # #48
+git merge --no-ff --no-edit origin/perf-cron-time-budgets      # #49
+git merge --no-ff --no-edit origin/chore-consistency-fixes     # #50
 ```
 
-Run the usual check before each push, and apply that PR's migration before pushing it. You can stop after #42 and leave photos (#39, #43) for later: nothing before them needs photos.
+All ten are clean. Run the usual check before each push (after #46, run `npm ci` first, because the installed packages change). You can stop after #47 and leave photos and everything after for later.
+
+**When the last one is in:** `git diff --stat origin/chore-consistency-fixes main` should list only the documents from #41, #45 and #51, if those are merged, and nothing else.
 
 **Verify:**
 - After #38: `/admin/pilot` has a "Voice" column.
 - After #40: a "Review link" column with "Copy link" and "Card". Open one card and scan it with a phone.
-- After #42: a shop's dashboard shows "Replies waiting for you" only when a low-star reply is waiting. With none waiting, nothing changes.
+- After #46: the site builds and loads as before. Nothing visible changes.
+- After #42 and #47: a shop's dashboard shows "Replies waiting for you" only when a low-star reply is waiting.
 - After #39 and #43: nothing visible changes (the flags are off). `/photos/anything` returns 404 and there is no "Photos" column.
+- **After #49, in Netlify, Functions:** three schedules have changed. `cron-post-generator` now runs every 5 minutes from 09:00 to 12:55 UTC on Fridays; `cron-monday-stats` every 5 minutes from 08:00 to 10:55 UTC on Mondays; `cron-review-alerts` every half hour from 08:00 to 18:30 UTC. Their logs will show many short runs, most saying nothing was left to do. That is correct.
+- After #50: `/admin` still accepts the admin password.
 
-**Docs-only PRs, any time:** #41 (this runbook) and #45 (`docs/test-listing-runbook.md`, the end-to-end test on your own listing). **Run that test before stage 1 if you can**: its first step is the model test call that #24 is waiting on.
+**Docs-only PRs, any time:** #41 (this runbook), #45 (`docs/test-listing-runbook.md`) and #51 (`docs/README.md`, the index of every document). **Run the test in #45 before stage 1 if you can**: its first step is the model test call that #24 is waiting on.
 
 **One migration to leave alone:** `20261116110000_change_log_add_media.sql` (in #39). Do not apply it anywhere, staging included, until all nine above are on production. It changes an existing constraint rather than adding something, and applying it early makes the production script refuse everything after migration 1. It is only needed if listing photos are ever switched on. The file explains this at the top.
 
