@@ -74,6 +74,7 @@ These stay on Liam's machine. They contain prices, names or commercial terms, or
 |---|---|
 | `docs/overnight-report.md` | Running report of each working session: what was done, pull request links, the merge order, what is blocked, and questions for Liam |
 | `docs/secrets-scan.md` | See "Checks and reports" above |
+| `docs/pr-review.md` | The review of every open pull request: status, problems found, what was fixed, and decisions for Liam |
 | `docs/audit-2026-11-14.md` | The November audit of the product against what was agreed |
 | `docs/build-plan-2026-11.md` | The build plan that the November pull requests follow |
 | `docs/monday-brief.md`, `docs/monday-plan.md` | Notes for the meeting with Tarkett |
