@@ -168,3 +168,16 @@ About two minutes. It refuses to run unless staging is empty, and it is not part
 - **The screens.** This drives the server, not a browser. The onboarding pages, the dashboard card and the photo upload page have not been clicked through.
 - **A rep adding us as a manager** (the route most shops will use). Every shop here signed in for itself.
 - **Timing.** Jobs were run by hand, one after another. The scale check covers how long they take.
+
+## Run of 18 November 2026: 54 of 54
+
+Against the head of #62 (decisions, the network summary, the retention view, the report in words, and the review fixes). Staging was left exactly as found.
+
+Two checks are new, and the console and statement checks were extended:
+
+| Check | What it proves |
+|---|---|
+| **unknown listing** | A connected shop we hold no expected listing for becomes "Check listing" at the next daily check, is not live and is under Needs help. A person presses "This is right" and it is live. The next daily check leaves that confirmation alone |
+| **retention** | With the switch off the view is closed and a dashboard visit records nothing. With it on, one visit is recorded (not two within the hour), the shop that lost its connection is at the top, and neither the view nor its download holds a contact detail |
+| **console** (extended) | The monthly summary's shop counts match the shop list; totals are shown only from three shops or more; shop A's ads show its spend and "Clear rise"; no contact detail anywhere in it |
+| **statement** (extended) | The cap is money; the excess is one credit line and the total adds up; a shop not live on the deciding day is listed and not counted; the month in progress is marked provisional. The figures used are made-up test settings |
