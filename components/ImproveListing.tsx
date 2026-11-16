@@ -91,6 +91,10 @@ export default function ImproveListing({ audit, hours, manual, offerLowStar, wor
   // Every reply, in full, before any of them can be posted.
   const [drafts, setDrafts] = useState<Draft[]>([]);
   const [draftsLeft, setDraftsLeft] = useState(0);
+  // True from the start whenever there are replies to draft, until the last one
+  // has arrived. The button stays shut meanwhile, so a shop cannot press it in
+  // the gap before the first drafts appear and miss its replies altogether.
+  const [draftsLoading, setDraftsLoading] = useState(audit.fixes.some((f) => f.key === 'reviews'));
   const [draftsNote, setDraftsNote] = useState('');
   const [moreFound, setMoreFound] = useState(0);
   const draftsRef = useRef<Draft[]>([]);
@@ -124,6 +128,9 @@ export default function ImproveListing({ audit, hours, manual, offerLowStar, wor
   // Drafts arrive three at a time, so a shop with twenty reviews is never left
   // waiting on one long request, and can start reading at once.
   async function loadDrafts(isDead: () => boolean) {
+    try { await loadDraftRounds(isDead); } finally { if (!isDead()) setDraftsLoading(false); }
+  }
+  async function loadDraftRounds(isDead: () => boolean) {
     for (let round = 0; round < 12; round++) {
       try {
         const res = await fetch('/api/onboarding/reply-drafts', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ have: draftsRef.current.map((x) => x.reviewId) }) });
@@ -351,7 +358,8 @@ export default function ImproveListing({ audit, hours, manual, offerLowStar, wor
             </div>
           ))}
           {draftsLeft > 0 && <p style={{ fontSize: 14, color: V.soft, margin: '8px 0 0' }} aria-live="polite">Writing {draftsLeft} more…</p>}
-          {!drafts.length && !draftsLeft && !draftsNote && <p style={{ fontSize: 14, color: V.soft, margin: 0 }} aria-live="polite">Writing replies…</p>}
+          {!drafts.length && draftsLoading && !draftsNote && <p style={{ fontSize: 14, color: V.soft, margin: 0 }} aria-live="polite">Writing replies…</p>}
+          {!drafts.length && !draftsLoading && !draftsNote && <p style={{ fontSize: 14, color: V.soft, margin: 0 }}>There are no replies to post.</p>}
           {draftsNote && <p style={{ fontSize: 14, color: V.amber, margin: '8px 0 0' }}>{draftsNote}</p>}
           {moreFound > 0 && <p style={{ fontSize: 13, color: V.soft, margin: '8px 0 0' }}>You have {moreFound} more unanswered reviews than we show here. We start with the newest and leave the older ones alone.</p>}
         </div>
@@ -379,8 +387,8 @@ export default function ImproveListing({ audit, hours, manual, offerLowStar, wor
             {[descOn && desc.trim() && 'description', svcsOn && svcs.length && `${svcs.length} services`, catsOn && cats.length && `${cats.length} categories`, hrsOn && hrsCheck?.ok && `hours (${describeHours(hrsCheck.value).filter((l) => !l.endsWith('closed')).length} days open)`, repliesOn.length && `${repliesOn.length} repl${repliesOn.length === 1 ? 'y' : 'ies'}`, postOn && post.trim() && 'first post'].filter(Boolean).join(' · ')}
           </div>
         )}
-        <button onClick={start} disabled={chosen === 0 || loading || draftsLeft > 0} style={{ ...btn, opacity: chosen === 0 || loading || draftsLeft > 0 ? 0.5 : 1 }}>
-          {loading || draftsLeft > 0 ? 'Still writing…' : chosen === 0 ? 'Nothing ticked' : `Make ${chosen === 1 ? 'this 1 change' : `these ${chosen} changes`}`}
+        <button onClick={start} disabled={chosen === 0 || loading || draftsLoading} style={{ ...btn, opacity: chosen === 0 || loading || draftsLoading ? 0.5 : 1 }}>
+          {loading || draftsLoading ? 'Still writing…' : chosen === 0 ? 'Nothing ticked' : `Make ${chosen === 1 ? 'this 1 change' : `these ${chosen} changes`}`}
         </button>
         {onSkip && <button onClick={onSkip} style={ghost}>Not now. Change nothing.</button>}
       </div>

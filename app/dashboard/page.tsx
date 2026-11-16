@@ -1,4 +1,5 @@
 'use client';
+import PostsToManage from '@/components/PostsToManage';
 
 import { useState, useEffect } from 'react';
 import { useTenant } from '@/lib/tenant-context';
@@ -98,7 +99,8 @@ export default function DashboardPage() {
         <div style={{...card,padding:'14px 16px'}}>
           <div style={lbl}>Managed For</div>
           <div style={{fontSize:38,fontWeight:600,lineHeight:1,marginTop:6,fontFamily:mono,color:V.text}}>{p.streak_weeks||0}<span style={{fontSize:14,color:V.textSoft}}> wks</span></div>
-          <div style={bdg(V.greenLight,V.green)}>0 tasks missed</div>
+          {/* "0 tasks missed" was printed for everyone, whatever had happened. Nothing counted it. */}
+          {tenant.priceMonthlyGbp>0&&<div style={bdg(V.greenLight,V.green)}>0 tasks missed</div>}
           <div style={{marginTop:10}}><div style={{fontSize:11,color:V.textSoft}}>Actions taken</div><div style={{fontSize:18,fontWeight:600,fontFamily:mono,marginTop:2}}>{totalActions}</div></div>
         </div>
       </div>)}
@@ -112,6 +114,9 @@ export default function DashboardPage() {
           <a href="/api/auth/callback/google?action=reconnect" style={{display:'inline-block',background:'var(--brand-strong)',color:'#fff',borderRadius:10,padding:'12px 18px',fontSize:15,fontWeight:600,textDecoration:'none',fontFamily:sans}}>Reconnect Google</a>
         </div>
       )}
+
+      {/* Posts waiting for the shop, with Approve, Change the wording, Skip. */}
+      {d.postsToManage?.length>0&&<PostsToManage posts={d.postsToManage} cardStyle={card} />}
 
       {/* Ownership detection: tell an invited shop what is still needed. */}
       {d.connection && (
@@ -158,7 +163,9 @@ export default function DashboardPage() {
       )}
 
       {/* Value banner */}
-      {estCalls>0&&(<div style={{background:V.text,color:'white',borderRadius:16,padding:'16px 18px',display:'flex',alignItems:'center',justifyContent:'space-between',animation:'fadeUp .5s .1s ease both'}}>
+      {/* A pound figure built from a fixed guess at the value of a job. Not shown
+          on a free brand: nobody measured it, and it reads as a promise. */}
+      {estCalls>0&&tenant.priceMonthlyGbp>0&&(<div style={{background:V.text,color:'white',borderRadius:16,padding:'16px 18px',display:'flex',alignItems:'center',justifyContent:'space-between',animation:'fadeUp .5s .1s ease both'}}>
         <div>
           <div style={{fontSize:11,opacity:.5,textTransform:'uppercase',letterSpacing:'0.08em',marginBottom:4,fontFamily:sans}}>Est. work generated</div>
           <div style={{fontSize:28,fontWeight:600,fontFamily:mono,color:'#fff'}}>£{estValue.toLocaleString()}</div>
@@ -181,7 +188,8 @@ export default function DashboardPage() {
             <SC num={String(g.metrics.totalActions)} label="Total actions" hl/>
             {g.reviews&&<SC num={String(g.reviews.avgRating)} label="Star rating" star/>}
           </div>
-          <div style={{background:V.greenLight,borderRadius:12,padding:'12px 14px',display:'flex',justifyContent:'space-between',alignItems:'center',marginTop:10}}>
+          {/* An estimate from fixed minutes per action, not a measurement: paid brand only. */}
+          <div style={{background:V.greenLight,borderRadius:12,padding:'12px 14px',display:tenant.priceMonthlyGbp>0?'flex':'none',justifyContent:'space-between',alignItems:'center',marginTop:10}}>
             <span style={{fontSize:12,color:V.green,fontWeight:500,fontFamily:sans}}>⏱ Time saved this month</span>
             <span style={{fontSize:16,fontWeight:600,fontFamily:mono,color:V.green}}>{timeSaved} hrs</span>
           </div>
@@ -189,7 +197,26 @@ export default function DashboardPage() {
       )}
 
       {/* This week */}
-      {d.plan&&(<div style={{...card,animation:'fadeUp .5s .25s ease both'}}>
+      {/* What is switched on, and the way back to "what we could improve". On a
+          free brand this replaces the "This week" list, which ticked off jobs by
+          the day of the week whether or not they had been done. */}
+      {tenant.priceMonthlyGbp===0&&(
+        <div style={card}>
+          <div style={lbl}>What we do for you</div>
+          {[['Write a short post each week',d.user?.auto_post_enabled],['Reply to good reviews',d.user?.auto_reply_enabled]].map(([label,on]:any)=>(
+            <div key={label} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'8px 0',borderBottom:`1px solid ${V.border}`,fontFamily:sans}}>
+              <span style={{fontSize:15,color:V.text}}>{label}</span>
+              <span style={{fontSize:13,fontWeight:700,color:on?V.green:V.textSoft}}>{on?'On':'Off'}</span>
+            </div>
+          ))}
+          <div style={{display:'flex',gap:10,flexWrap:'wrap',marginTop:12}}>
+            <a href="/onboarding" style={{flex:'1 1 160px',textAlign:'center',background:'var(--brand-strong)',color:'#fff',borderRadius:10,padding:'12px 14px',fontSize:15,fontWeight:600,textDecoration:'none',fontFamily:sans}}>See what we could improve</a>
+            <a href="/settings" style={{flex:'1 1 120px',textAlign:'center',background:V.card2,color:V.text,borderRadius:10,padding:'12px 14px',fontSize:15,fontWeight:600,textDecoration:'none',fontFamily:sans}}>Change these</a>
+          </div>
+        </div>
+      )}
+
+      {d.plan&&tenant.priceMonthlyGbp>0&&(<div style={{...card,animation:'fadeUp .5s .25s ease both'}}>
         <div style={lbl}>This Week</div>
         <div style={{display:'flex',flexDirection:'column',gap:10}}>
           {d.plan.map((item:any,i:number)=>(
@@ -307,10 +334,11 @@ export default function DashboardPage() {
       </div>
 
       {/* Empty state */}
-      {!g&&d.recentPosts?.length===0&&(<div style={{...card,textAlign:'center',padding:'2rem'}}><p style={{fontWeight:600,fontSize:15,margin:'0 0 4px',fontFamily:sans}}>Your first post is on its way</p><p style={{fontSize:13,color:V.textSoft,margin:0,fontFamily:sans}}>We will write and publish to your Google profile this week.</p></div>)}
+      {!g&&d.recentPosts?.length===0&&tenant.priceMonthlyGbp>0&&(<div style={{...card,textAlign:'center',padding:'2rem'}}><p style={{fontWeight:600,fontSize:15,margin:'0 0 4px',fontFamily:sans}}>Your first post is on its way</p><p style={{fontSize:13,color:V.textSoft,margin:0,fontFamily:sans}}>We will write and publish to your Google profile this week.</p></div>)}
 
       {/* REFERRAL — prominent */}
-      <ReferralBlock code={d.user?.referral_code||''} count={referralCount} earned={referralEarned}/>
+      {/* "You get a free month" means nothing on a brand that is already free. */}
+      {tenant.priceMonthlyGbp>0&&<ReferralBlock code={d.user?.referral_code||''} count={referralCount} earned={referralEarned}/>}
 
       <div style={{height:50}}/>
     </>

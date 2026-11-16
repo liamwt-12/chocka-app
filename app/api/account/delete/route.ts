@@ -36,10 +36,16 @@ export async function PATCH(request: NextRequest) {
     // check is for the retailer's benefit, this one is the actual constraint.
     if ('phone_number' in body) {
       const raw = typeof body.phone_number === 'string' ? body.phone_number.replace(/\s/g, '') : '';
-      if (!/^(\+44|0)7\d{9}$/.test(raw)) {
-        return NextResponse.json({ error: 'Not a valid UK mobile number' }, { status: 400 });
+      // A mobile number is optional. An empty value removes it, and with it
+      // every text we would otherwise send.
+      if (raw === '') {
+        updates.phone_number = null;
+      } else {
+        if (!/^(\+44|0)7\d{9}$/.test(raw)) {
+          return NextResponse.json({ error: 'Not a valid UK mobile number' }, { status: 400 });
+        }
+        updates.phone_number = raw;
       }
-      updates.phone_number = raw;
     }
 
     const { error } = await supabaseAdmin

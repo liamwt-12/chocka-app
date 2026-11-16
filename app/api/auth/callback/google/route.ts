@@ -9,6 +9,7 @@ import { parseInviteRef } from '@/lib/invite-token';
 import { detectOwnership, type ConnectionStatus, type OwnershipResult } from '@/lib/ownership';
 import { releaseStaleClaim } from '@/lib/connection-reset';
 import { helpPath, type HelpReason } from '@/lib/connect-help';
+import { sendWelcomeOnce } from '@/lib/welcome';
 import { setSessionCookie } from '@/lib/session';
 
 export async function GET(request: NextRequest) {
@@ -181,8 +182,12 @@ export async function GET(request: NextRequest) {
         .single();
 
       let dest: string;
+      // A free brand has no setup to finish: connecting is the whole of it, so
+      // a shop that has connected goes to its dashboard, or to the "you're
+      // connected" page the first time. A paid brand still has its setup steps.
+      const free = tenant.priceMonthlyGbp === 0;
       if (existingProfile) {
-        dest = existingUser.onboarding_step === 'complete' ? '/dashboard' : '/onboarding';
+        dest = existingUser.onboarding_step === 'complete' ? '/dashboard' : free ? '/connected' : '/onboarding';
       } else {
         // Defaults to connect_failed, not no_profile: if anything below throws
         // before assigning, "we could not ask" is the honest reading.
@@ -203,7 +208,7 @@ export async function GET(request: NextRequest) {
             err,
           );
         }
-        dest = result === 'onboarding' ? (existingUser.onboarding_step === 'complete' ? '/dashboard' : '/onboarding')
+        dest = result === 'onboarding' ? (existingUser.onboarding_step === 'complete' ? '/dashboard' : free ? '/connected' : '/onboarding')
              : result === 'select' ? '/onboarding?select=1'
              : result === 'connect_failed' ? '/onboarding?connect=failed'
              : parsedState.invite ? helpPath('no_listing', parsedState.invite)
@@ -214,6 +219,7 @@ export async function GET(request: NextRequest) {
       // signed up previously, or accepted, abandoned, and come back later. Runs
       // after everything above has succeeded, so it cannot affect the sign-in.
       await linkInviteToUser(parsedState.invite, existingUser.id, tenant.slug);
+      if (dest === '/connected') await afterConnected(existingUser, tenant);
 
       const response = NextResponse.redirect(new URL(dest, baseUrl));
       setSessionCookie(response, existingUser.id);
@@ -407,7 +413,8 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    const dest = result === 'onboarding' ? `/onboarding?plan=${plan}`
+    // Free brand: connected is done. Everything else is offered from there.
+    const dest = result === 'onboarding' ? (tenant.priceMonthlyGbp === 0 ? '/connected' : `/onboarding?plan=${plan}`)
                : result === 'select' ? `/onboarding?select=1&plan=${plan}`
                : result === 'connect_failed' ? `/onboarding?connect=failed&plan=${plan}`
                : '/no-profile';
@@ -415,6 +422,7 @@ export async function GET(request: NextRequest) {
     // The invited-retailer case this whole flow exists for. Last thing before the
     // response, after the user row and the credential are safely in place.
     await linkInviteToUser(parsedState.invite, newUser.id, tenant.slug);
+    if (dest === '/connected') await afterConnected(newUser, tenant);
 
     const response = NextResponse.redirect(new URL(dest, baseUrl));
     setSessionCookie(response, newUser.id);
@@ -863,5 +871,23 @@ async function revokeQuietly(token: string | null | undefined): Promise<void> {
     });
   } catch (err) {
     console.error('[auth] could not hand back an unused Google permission:', err);
+  }
+}
+
+/**
+ * A free-brand shop has just connected a listing. That is the whole of setup,
+ * so mark it done (a returning shop then lands on its dashboard), and send the
+ * one welcome email if that is switched on (lib/welcome.ts: off by default,
+ * once only, never to anyone who has not connected). Never throws.
+ */
+async function afterConnected(user: { id: string; email?: string | null }, tenant: ReturnType<typeof getTenantBySlug>): Promise<void> {
+  try {
+    const { error } = await supabaseAdmin.from('users').update({ onboarding_step: 'complete' }).eq('id', user.id);
+    if (error) console.error(`[auth] could not mark setup as done for ${user.id}: ${error.message}`);
+    const { data: profile } = await supabaseAdmin.from('profiles').select('business_name').eq('user_id', user.id).maybeSingle();
+    const outcome = await sendWelcomeOnce(supabaseAdmin, user, profile?.business_name || '', tenant);
+    if (outcome !== 'off') console.log(`[auth] welcome email for ${user.id}: ${outcome}`);
+  } catch (err) {
+    console.error('[auth] afterConnected failed, sign-in unaffected:', err);
   }
 }
