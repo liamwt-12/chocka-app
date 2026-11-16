@@ -108,13 +108,33 @@ export async function undoChange(db: RevertDb, changeId: string, opts: { confirm
 
     // A field changed again since (by us or by the shop in Google) is not put
     // back blindly: that would throw away the later edit.
+    const changedSince = `${view.what} has been changed again since this was made, so undoing it would lose that later change. Look at the listing and undo the most recent change first.`;
     if (step.kind === 'restore_fields' && !opts.allowLaterEdits) {
       const fields = maskFields(step.updateMask);
       const now = pickFields(await g.getLocationFields(token, step.locationName, fields), fields);
-      const ours = pickFields(row.after_value ?? {}, fields);
-      if (Object.keys(ours).length && !same(now, ours)) {
-        return { ok: false, message: `${view.what} has been changed again since this was made, so undoing it would lose that later change. Look at the listing and undo the most recent change first.` };
+      if (row.status === 'pending') {
+        // We never recorded how this change ended. If the listing still holds
+        // what was there before, there is nothing to undo; otherwise we cannot
+        // tell our change from someone else's, and a person has to look.
+        if (!same(now, pickFields(row.before_value ?? {}, fields))) return { ok: false, message: `We do not have a complete record of this change, and ${view.what.toLowerCase()} is not what it was before it. Check the listing in Google before putting anything back.` };
+      } else if (!same(now, pickFields(row.after_value ?? {}, fields))) {
+        // Compared even when what we wrote was "nothing" (a field we cleared):
+        // if it has something in it now, that is a later change.
+        return { ok: false, message: changedSince };
       }
+    }
+    // A reply is only ever removed or replaced if it is still the one WE wrote.
+    // If the shop has since rewritten it in its own words, it is left alone.
+    let reviewNow: any = null;
+    if (step.kind === 'delete_reply' || step.kind === 'restore_reply') {
+      const account = /^(accounts\/[^/]+)\//.exec(step.reviewName)?.[1];
+      const reviews = (await g.getReviews(token, row.location_name, account)).reviews || [];
+      reviewNow = reviews.find((r: any) => r.name === step.reviewName) ?? null;
+      const current = String(reviewNow?.reviewReply?.comment ?? '').trim();
+      const ours = String(row.after_value?.comment ?? '').trim();
+      if (!reviewNow) return { ok: false, message: 'That review is no longer on the listing, so there is nothing to undo.' };
+      if (!current) return { ok: false, message: 'There is no reply on that review any more, so there is nothing to undo.' };
+      if (!opts.allowLaterEdits && (!ours || current !== ours)) return { ok: false, message: 'The reply on that review is not the one we wrote: it has been changed since, so we have left it alone.' };
     }
     if (!opts.confirm) return { ok: true, message: `Would put ${view.what.toLowerCase()} back to: ${view.before}.` };
 
@@ -144,7 +164,17 @@ export async function undoChange(db: RevertDb, changeId: string, opts: { confirm
     }
     const { error: stampError } = await db.from('change_log').update({ reverted_at: new Date().toISOString(), reverted_by_change_id: revertId }).eq('id', row.id);
     if (stampError) console.error(`[revert] undone on Google, but change ${row.id} could not be marked as undone: ${stampError.message}`);
-    return { ok: true, message: `${view.what} put back to: ${view.before}. Checked on Google.` };
+    // Only say "checked" for what was read back.
+    if (step.kind === 'delete_reply' || step.kind === 'restore_reply') {
+      const account = /^(accounts\/[^/]+)\//.exec(step.reviewName)?.[1];
+      const after = ((await g.getReviews(token, row.location_name, account)).reviews || []).find((r: any) => r.name === step.reviewName);
+      const now = String(after?.reviewReply?.comment ?? '').trim();
+      const want = step.kind === 'restore_reply' ? step.comment.trim() : '';
+      if (now !== want) return { ok: false, message: 'We asked Google to put the reply back, but the review does not show it yet. Check the review in Google.' };
+      return { ok: true, message: `${view.what} put back to: ${view.before}. Checked on Google.` };
+    }
+    if (step.kind === 'restore_fields') return { ok: true, message: `${view.what} put back to: ${view.before}. Checked on Google.` };
+    return { ok: true, message: `${view.what}: removed from the listing.` };
   } catch (e) {
     const raw = String((e as any)?.message ?? e).replace(/\s+/g, ' ').slice(0, 300);
     console.error(`[revert] change ${changeId}: ${raw}`);

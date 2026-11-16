@@ -4,6 +4,42 @@ Run on 16 November 2026, three times. **Final result: 39 of 39 checks pass, and 
 
 The first run found **two real bugs**, both in code that predates this month's work. They are fixed in PR #47.
 
+## Update, 17 November 2026: 52 of 52 on the new onboarding flow
+
+The run was brought up to date for PRs #54 to #60 and run again several times. **Final result: 52 of 52 checks pass, and staging was left exactly as it was found.** The run found **three real bugs** in the new code, all fixed in #60:
+
+1. **An undo was refused as "changed since" when nothing had changed.** The database stores a logged value with its keys in a different order from the one Google returns, and the two were compared as text.
+2. **The count of live shops left rows behind.** They do not hang off the shop's record (on purpose, so a past month survives a shop leaving), so the clean-up has to remove them by name.
+3. **The command-line undo script reported every change it had chosen to skip as a failure.**
+
+Checks added in this round:
+
+| Area | What is proven against the staging database |
+|---|---|
+| Launch check | Every database change is in place; no secret appears in the answer |
+| Connecting | A connected shop lands on "You're connected" with everything off and no mobile number asked for |
+| Welcome email | Off: nothing. On: one email to the shop that connected (captured, not sent); a second sign-in sends nothing |
+| Wrong Google account | No account is made; the reason is recorded and shown to support; the same link then works with the right account |
+| Cancel, and the unticked box | Each leads to a help page that keeps the invitation; no account; the link is still good; support sees which it was |
+| "This is not my shop" | A button, not a link; removes only the signed-in shop's own account; the invitation works again |
+| Invite opened | Recorded once, by the page's script; a made-up link gets the same answer |
+| Not live | The wrong listing and the unverified listing are connected and are not counted as live |
+| Opening hours | An empty or missing week is refused and nothing is written. There is no default |
+| Applying changes | Each change on its own, checked on "Google"; replies sent a few at a time, each with its own result; a reply to a low-star review refused; the score afterwards is measured and the score at activation is unchanged |
+| Honesty | A change "Google" refuses is reported as not done, in plain words, and recorded as failed |
+| Posts | Post 1 is the one the shop read and ticked. Posts 2 and 3 wait; approve, change the wording and skip all work from the dashboard; another shop is refused; nothing piles up while one waits |
+| Held shops | No post is written for a shop on an unconfirmed listing until a person says "this is right" |
+| Daily check | A listing Google has since verified goes from "waiting" to connected by itself; a person's confirmation is kept; today's live shops are marked once |
+| Statement | Live shops by name; with a cap, the shops above it are a credit and the total adds up (made-up test settings) |
+| Ad spend | Saved by an admin; nonsense refused; not in the shop's dashboard or emails; in Tarkett's console with "Clear rise" and no raw counts |
+| Lost access | The daily check notices; the shop is told on its dashboard; support sees "Connection lost" in plain words |
+| Settings | Holiday hours and website written, read back and logged; a past date and a nonsense address refused |
+| Undo | The shop undoes one of its own changes; not twice; not another shop's; support undoes one from the admin page; an undo that would lose a later change is refused |
+
+Totals for the last run: 52 checks, about 325 requests to "Google" faked, 15 model calls faked, 13 emails and 9 texts captured and not sent (all to test addresses), no request blocked, none the fake could not answer.
+
+The account below is of the first version of the run, on 16 November, kept as it was written.
+
 ## What this was
 
 Every code PR (#24 to #43, without #30) merged together locally, then driven end to end against the **staging database**, through the **real route handlers**: the same code Netlify would run.

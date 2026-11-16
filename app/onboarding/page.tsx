@@ -54,7 +54,7 @@ export default function OnboardingPage() {
   const [listingsHelp, setListingsHelp] = useState<{title:string;message:string;nextStep:string}|null>(null);
   const [expectedShop, setExpectedShop] = useState<{name:string;town:string|null}|null>(null);
   const [selecting, setSelecting] = useState<string>('');
-  const [wrongAccountPath, setWrongAccountPath] = useState<string>('');
+  const [canStartAgain, setCanStartAgain] = useState(false);
   const [returnTo, setReturnTo] = useState<string>('');
 
   useEffect(() => {
@@ -126,7 +126,7 @@ export default function OnboardingPage() {
       setListings(d.listings || []);
       setListingsHelp(d.help || null);
       setExpectedShop(d.expected || null);
-      setWrongAccountPath(d.wrongAccountPath || '');
+      setCanStartAgain(!!d.canStartAgain);
     } catch (e: any) {
       console.error('Load listings failed:', e);
       setListingsError(e.message || 'Failed to load listings');
@@ -255,7 +255,7 @@ export default function OnboardingPage() {
               <button onClick={loadListings} style={btn}>Try Again</button>
             </div>
           ) : listings.length === 0 ? (
-            <div style={{...card,padding:20,textAlign:'center'}}><p style={{fontSize:14,color:V.textMid,margin:0}}>We couldn&apos;t find a Google Business Profile you manage.</p>{wrongAccountPath && <a href={wrongAccountPath} style={{display:'block',marginTop:12,fontSize:15,color:V.text,textDecoration:'underline'}}>Try a different Google account</a>}</div>
+            <div style={{...card,padding:20,textAlign:'center'}}><p style={{fontSize:14,color:V.textMid,margin:0}}>We couldn&apos;t find a Google Business Profile you manage.</p>{canStartAgain && returnTo !== 'settings' && <form action="/api/connection/reset" method="post"><button type="submit" style={{display:'block',width:'100%',marginTop:12,fontSize:15,color:V.text,textDecoration:'underline',background:'none',border:'none',cursor:'pointer',fontFamily:sans}}>Try a different Google account</button></form>}</div>
           ) : (
             <>
             {listingsHelp && (
@@ -278,7 +278,7 @@ export default function OnboardingPage() {
                 </button>
               ))}
             </div>
-            {wrongAccountPath && <a href={wrongAccountPath} style={{display:'block',textAlign:'center',fontSize:15,color:V.textMid,padding:'14px 8px',textDecoration:'underline'}}>None of these is my shop</a>}
+            {canStartAgain && returnTo !== 'settings' && <form action="/api/connection/reset" method="post"><button type="submit" style={{display:'block',width:'100%',textAlign:'center',fontSize:15,color:V.textMid,padding:'14px 8px',textDecoration:'underline',background:'none',border:'none',cursor:'pointer',fontFamily:sans}}>None of these is my shop: use a different Google account</button></form>}
             </>
           )}
         </div>

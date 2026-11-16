@@ -368,6 +368,26 @@ describe('dummy run on staging', () => {
       return 'Cancel: help page, reason "cancelled"; unticked box: help page, reason "unticked"; no account either time; the link is still good; support sees which it was';
     });
 
+    await step('dead ends', 'a connected shop that says "this is not my shop" can start again itself, with the same invitation', async () => {
+      const before = await retailerRow('d');
+      const oldUser = shops.d.userId;
+      const peek = await call('connection/reset', 'GET', '/api/connection/reset', { cookie: shops.d.cookie });
+      need(peek.status === 405 && (await retailerRow('d')).user_id === before.user_id, 'opening the address without pressing the button changed something');
+      const nobody = await call('connection/reset', 'POST', '/api/connection/reset');
+      need(nobody.location?.endsWith('/login'), `with nobody signed in it went to ${nobody.location}`);
+      const reset = await call('connection/reset', 'POST', '/api/connection/reset', { cookie: shops.d.cookie });
+      need(reset.status === 303 && reset.location?.includes('/api/auth/callback/google?invite='), `reset went to ${reset.status} ${reset.location}`);
+      const r = await retailerRow('d');
+      const { data: gone } = await db.from('users').select('id').eq('id', oldUser).maybeSingle();
+      const { data: inv } = await db.from('retailer_invites').select('status, user_id').eq('retailer_id', shops.d.retailerId).single();
+      need(!gone && r.user_id === null && r.listing_confirmed_at === null && inv.status === 'pending' && !inv.user_id, `after reset: account ${gone ? 'still there' : 'gone'}, shop linked: ${!!r.user_id}, invite ${inv.status}`);
+      // Another shop's session cannot reset this one: the route only ever acts on the signed-in shop.
+      const again = await signIn('d');
+      need(again.dest === '/connected' && (await retailerRow('d')).connection_status === 'connected', `reconnecting went to ${again.dest}`);
+      need(shops.d.userId !== oldUser, 'the old account was reused');
+      return 'a button, not a link; removes only the signed-in shop\'s own account; the invitation works again; reconnected';
+    });
+
     await step('visibility', 'opening an invite is recorded by the page\'s script, once, and says nothing about whether a link is real', async () => {
       const open = (token: string) => call('invite/opened', 'POST', '/api/invite/opened', { body: { token } });
       const real = await open(shops.g.inviteToken!), fake = await open('not-a-real-token-not-a-real-token');

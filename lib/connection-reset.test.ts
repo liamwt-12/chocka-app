@@ -34,7 +34,7 @@ function fakeDb(seed: { retailers: any[]; users: any[]; profiles: any[]; retaile
 const NOW = new Date('2026-11-20T10:00:00Z');
 const base = () => ({
   retailers: [{ id: 'shop', user_id: 'wrong', connection_status: 'no_access' }],
-  users: [{ id: 'wrong', google_refresh_token: 'sealed' }],
+  users: [{ id: 'wrong', google_refresh_token: 'sealed', created_at: '2026-11-20T09:55:00Z' }],
   profiles: [] as any[],
   retailer_invites: [{ id: 'inv', retailer_id: 'shop', status: 'accepted', user_id: 'wrong' as string | null, expires_at: '2026-12-10T00:00:00Z', created_at: '2026-11-10T00:00:00Z' }],
 });
@@ -46,7 +46,7 @@ beforeEach(() => { fetched = []; });
 describe('releaseStaleClaim: the wrong Google account does not lock a shop out', () => {
   it('removes an account that never bound a listing, re-opens the link, and hands the permission back', async () => {
     const db = fakeDb(base());
-    expect(await releaseStaleClaim(db, 'shop', NOW, fakeFetch)).toBe(true);
+    expect(await releaseStaleClaim(db, 'shop', { now: NOW, fetchImpl: fakeFetch, evenIfRecent: true })).toBe(true);
     expect(db.t.users).toHaveLength(0);
     expect(db.t.retailers[0]).toMatchObject({ user_id: null, connection_status: 'invited' });
     expect(db.t.retailer_invites[0]).toMatchObject({ status: 'pending', user_id: null });
@@ -57,7 +57,7 @@ describe('releaseStaleClaim: the wrong Google account does not lock a shop out',
   it('NEVER removes an account that has a listing bound', async () => {
     const seed = base(); seed.profiles = [{ id: 'p', user_id: 'wrong', google_location_name: 'locations/1' }];
     const db = fakeDb(seed);
-    expect(await releaseStaleClaim(db, 'shop', NOW, fakeFetch)).toBe(false);
+    expect(await releaseStaleClaim(db, 'shop', { now: NOW, fetchImpl: fakeFetch, evenIfRecent: true })).toBe(false);
     expect(db.t.users).toHaveLength(1);
     expect(db.t.retailers[0].user_id).toBe('wrong');
     expect(fetched).toHaveLength(0);
@@ -66,28 +66,66 @@ describe('releaseStaleClaim: the wrong Google account does not lock a shop out',
   it('a profile row with no listing chosen (left at the picker) still counts as stale', async () => {
     const seed = base(); seed.profiles = [{ id: 'p', user_id: 'wrong', google_location_name: null }];
     const db = fakeDb(seed);
-    expect(await releaseStaleClaim(db, 'shop', NOW, fakeFetch)).toBe(true);
+    expect(await releaseStaleClaim(db, 'shop', { now: NOW, fetchImpl: fakeFetch, evenIfRecent: true })).toBe(true);
     expect(db.t.users).toHaveLength(0);
   });
 
   it('a shop that is already free stays free, and a link left marked "used" is re-opened', async () => {
     const seed = base(); seed.retailers[0].user_id = null as any; seed.users = [];
     const db = fakeDb(seed);
-    expect(await releaseStaleClaim(db, 'shop', NOW, fakeFetch)).toBe(true);
+    expect(await releaseStaleClaim(db, 'shop', { now: NOW, fetchImpl: fakeFetch, evenIfRecent: true })).toBe(true);
     expect(db.t.retailer_invites[0].status).toBe('pending');
   });
 
   it('is safe to run twice', async () => {
     const db = fakeDb(base());
-    await releaseStaleClaim(db, 'shop', NOW, fakeFetch);
-    expect(await releaseStaleClaim(db, 'shop', NOW, fakeFetch)).toBe(true);
+    await releaseStaleClaim(db, 'shop', { now: NOW, fetchImpl: fakeFetch, evenIfRecent: true });
+    expect(await releaseStaleClaim(db, 'shop', { now: NOW, fetchImpl: fakeFetch, evenIfRecent: true })).toBe(true);
     expect(db.t.retailer_invites.filter((i) => i.status === 'pending')).toHaveLength(1);
   });
 
   it('still frees the shop if Google cannot be reached to hand the permission back', async () => {
     const db = fakeDb(base());
-    expect(await releaseStaleClaim(db, 'shop', NOW, (async () => { throw new Error('offline'); }) as any)).toBe(true);
+    expect(await releaseStaleClaim(db, 'shop', { now: NOW, fetchImpl: (async () => { throw new Error('offline'); }) as any, evenIfRecent: true })).toBe(true);
     expect(db.t.retailers[0].user_id).toBeNull();
+  });
+});
+
+describe('releaseStaleClaim is careful about whose account it removes', () => {
+  it('a shop in the middle of choosing its listing is not interrupted by someone else using its link', async () => {
+    const db = fakeDb(base()); // the holding account was made five minutes ago
+    expect(await releaseStaleClaim(db, 'shop', { now: NOW, fetchImpl: fakeFetch })).toBe(false);
+    expect(db.t.users).toHaveLength(1);
+    // Left for a while, it is cleared.
+    expect(await releaseStaleClaim(db, 'shop', { now: new Date('2026-11-20T10:30:00Z'), fetchImpl: fakeFetch })).toBe(true);
+  });
+
+  it('fails shut: if the listing cannot be read for certain, nothing is removed', async () => {
+    const db = fakeDb(base());
+    const real = db.from;
+    (db as any).from = (t: string) => (t === 'profiles' ? { select: () => ({ eq: async () => ({ data: null, error: { message: 'db hiccup' } }) }) } : real(t));
+    expect(await releaseStaleClaim(db, 'shop', { now: NOW, fetchImpl: fakeFetch, evenIfRecent: true })).toBe(false);
+    expect(db.t.users).toHaveLength(1);
+  });
+
+  it('two profile rows, one with a listing: still a real connection', async () => {
+    const seed = base(); seed.profiles = [{ id: 'p1', user_id: 'wrong', google_location_name: null }, { id: 'p2', user_id: 'wrong', google_location_name: 'locations/9' }];
+    const db = fakeDb(seed);
+    expect(await releaseStaleClaim(db, 'shop', { now: NOW, fetchImpl: fakeFetch, evenIfRecent: true })).toBe(false);
+  });
+
+  it('never gives an expired link more time; only a person pressing Reset does', async () => {
+    const seed = base(); seed.retailer_invites[0].expires_at = '2026-11-01T00:00:00Z';
+    const db = fakeDb(seed);
+    await releaseStaleClaim(db, 'shop', { now: NOW, fetchImpl: fakeFetch, evenIfRecent: true });
+    expect(db.t.retailer_invites[0].expires_at).toBe('2026-11-01T00:00:00Z');
+  });
+
+  it('a reset, or a release, withdraws an earlier "this is right"', async () => {
+    const seed = base(); (seed.retailers[0] as any).listing_confirmed_at = '2026-11-19T00:00:00Z';
+    const db = fakeDb(seed);
+    await resetConnection(db, 'shop', NOW, fakeFetch);
+    expect((db.t.retailers[0] as any).listing_confirmed_at).toBeNull();
   });
 });
 

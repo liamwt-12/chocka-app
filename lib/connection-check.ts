@@ -29,7 +29,10 @@ export function decideRecheck(listings: Listing[], boundLocationName: string, ex
   if (expectedPlaceId && bound.placeId && bound.placeId !== expectedPlaceId) {
     return { status: 'check_listing', detail: `connected to ${bound.title}, which is not the listing we expected` };
   }
-  if (expectedPlaceId && !bound.placeId) return { status: 'connected', detail: `${bound.title}; Google gave no place ID to compare` };
+  // Nothing to compare with is not the same as a match. Sign-in treats this
+  // as "check listing", so the daily check must not quietly turn it into
+  // "connected": that would lift a hold without anyone having looked.
+  if (expectedPlaceId && !bound.placeId) return { status: 'check_listing', detail: `${bound.title}; Google gave no place ID to compare with the shop we expected` };
   return { status: 'connected', detail: expectedPlaceId ? `${bound.title} matches the expected shop` : `${bound.title}; no baseline place ID to check against` };
 }
 

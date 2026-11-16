@@ -98,6 +98,12 @@ export default function ImproveListing({ audit, hours, manual, offerLowStar, wor
   const [draftsNote, setDraftsNote] = useState('');
   const [moreFound, setMoreFound] = useState(0);
   const draftsRef = useRef<Draft[]>([]);
+  // Which suggestions have been put in front of the shop. A box stays on screen
+  // once shown, even if the shop empties it, so it can type its own words.
+  const offered = useRef<Record<string, boolean>>({});
+  const [shown, setShown] = useState<Record<string, boolean>>({});
+  // One retry at a time: two in flight would each work from a stale copy of the list.
+  const [retrying, setRetrying] = useState(false);
 
   // Suggestions that were wanted and could not be written (the model was busy).
   const [notWritten, setNotWritten] = useState<string[]>([]);
@@ -116,11 +122,16 @@ export default function ImproveListing({ audit, hours, manual, offerLowStar, wor
         if (dead) return;
         setNotWritten((d.failed || []).filter((k: string) => has(k)));
         const p = d.previews || {};
-        if (p.description && has('description')) { setDesc(p.description); setDescOn(true); }
-        if (p.services?.length && has('services')) { setSvcs(p.services); setSvcsOn(true); }
-        if (p.categories?.length && has('categories')) { setCats(p.categories); setCatsOn(true); }
-        if (p.firstPost && has('firstPost')) { setPost(p.firstPost); setPostOn(true); }
-        if (p.lowStarUnreplied && offerLowStar) { setLowStar(p.lowStarUnreplied); setLowOn(true); }
+        // On "Try again", only what could not be written the first time is
+        // filled in. Anything the shop has already read, edited or unticked is
+        // left exactly as it is.
+        const fill = (key: string) => attempt === 0 || offered.current[key] !== true;
+        if (p.description && has('description') && fill('description')) { setDesc(p.description); setDescOn(true); offered.current.description = true; }
+        if (p.services?.length && has('services') && fill('services')) { setSvcs(p.services); setSvcsOn(true); offered.current.services = true; }
+        if (p.categories?.length && has('categories') && fill('categories')) { setCats(p.categories); setCatsOn(true); offered.current.categories = true; }
+        if (p.firstPost && has('firstPost') && fill('firstPost')) { setPost(p.firstPost); setPostOn(true); offered.current.firstPost = true; }
+        if (p.lowStarUnreplied && offerLowStar && attempt === 0) { setLowStar(p.lowStarUnreplied); setLowOn(true); }
+        setShown({ ...offered.current });
       } catch { if (!dead) setNotWritten(['description', 'services', 'firstPost', 'categories'].filter(has)); }
       if (!dead) setLoading(false);
       if (has('reviews') && attempt === 0) loadDrafts(() => dead);
@@ -232,11 +243,15 @@ export default function ImproveListing({ audit, hours, manual, offerLowStar, wor
   }
 
   async function retry(id: string) {
-    const i = jobs.findIndex((j) => j.id === id); if (i < 0) return;
-    const out = [...jobs];
-    out[i] = { ...out[i], state: 'working' }; setJobs([...out]);
-    out[i] = await runJob(out[i]); setJobs([...out]);
-    await finish();
+    if (retrying) return;
+    const job = jobs.find((j) => j.id === id); if (!job) return;
+    setRetrying(true);
+    try {
+      setJobs((list) => list.map((j) => (j.id === id ? { ...j, state: 'working' } : j)));
+      const done = job.body.step === 'reply' ? (await runReplyBatch([job]))[0] : await runJob(job);
+      setJobs((list) => list.map((j) => (j.id === id ? done : j)));
+      await finish();
+    } finally { setRetrying(false); }
   }
 
   const wrap: CSSProperties = { minHeight: '100vh', fontFamily: sans, display: 'flex', justifyContent: 'center', background: '#F0EDE8', color: V.text };
@@ -268,7 +283,7 @@ export default function ImproveListing({ audit, hours, manual, offerLowStar, wor
   /* ── RESULTS ── */
   if (stage === 'results') {
     const done = jobs.filter((j) => j.state === 'done');
-    const bad = jobs.filter((j) => j.state === 'failed');
+    const bad = jobs.filter((j) => j.state === 'failed' || (retrying && j.state === 'working'));
     return (
       <div style={wrap}><div style={box}>
         {logo}
@@ -299,7 +314,7 @@ export default function ImproveListing({ audit, hours, manual, offerLowStar, wor
                 <div style={{ fontSize: 15, fontWeight: 600 }}>{j.label}</div>
                 <div style={{ fontSize: 14, color: V.text, marginTop: 2 }}>{j.result?.message}</div>
                 {j.result?.nextStep && <div style={{ fontSize: 14, color: V.mid, marginTop: 2 }}>{j.result.nextStep}</div>}
-                {j.result?.retryable && <button onClick={() => retry(j.id)} style={{ ...btn, width: 'auto', padding: '9px 16px', fontSize: 14, marginTop: 8 }}>Try again</button>}
+                {j.result?.retryable && <button disabled={retrying} onClick={() => retry(j.id)} style={{ ...btn, width: 'auto', padding: '9px 16px', fontSize: 14, marginTop: 8, opacity: retrying ? 0.5 : 1 }}>{j.state === 'working' ? 'Trying…' : 'Try again'}</button>}
               </div>
             ))}
           </div>
@@ -325,7 +340,7 @@ export default function ImproveListing({ audit, hours, manual, offerLowStar, wor
   }
 
   /* ── CHOOSE ── */
-  const nothingToOffer = !loading && !notWritten.length && !desc && !svcs.length && !cats.length && !post && !has('hours') && !has('reviews') && !lowStar;
+  const nothingToOffer = !loading && !notWritten.length && !shown.description && !svcs.length && !cats.length && !shown.firstPost && !has('hours') && !has('reviews') && !lowStar;
   const NAMES: Record<string, string> = { description: 'a description', services: 'a list of services', firstPost: 'a first post', categories: 'extra categories' };
   return (
     <div style={wrap}><div style={box}>
@@ -349,7 +364,7 @@ export default function ImproveListing({ audit, hours, manual, offerLowStar, wor
         </Section>
       ))}
 
-      {desc && (
+      {shown.description && (
         <Section title="Business description" on={descOn} onChange={setDescOn} note="Shown under “From the business” on Google. Edit it so it is true for you.">
           <textarea value={desc} onChange={(e) => setDesc(e.target.value)} rows={7} maxLength={750} style={area} aria-label="Business description" />
           <div style={{ fontSize: 12, color: desc.length > 730 ? V.red : V.soft, textAlign: 'right' }}>{desc.length} of 750</div>
@@ -404,7 +419,7 @@ export default function ImproveListing({ audit, hours, manual, offerLowStar, wor
         </Section>
       )}
 
-      {post && (
+      {shown.firstPost && (
         <Section title="Your first post" on={postOn} onChange={setPostOn} note="Goes up tomorrow at about 10am. You can cancel it from your dashboard before then.">
           <textarea value={post} onChange={(e) => setPost(e.target.value)} rows={4} style={area} aria-label="Your first post" />
         </Section>

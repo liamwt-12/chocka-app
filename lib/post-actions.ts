@@ -53,8 +53,9 @@ export function decidePostAction(post: PostRow | null, action: PostAction, conte
 
 /**
  * When an approved post should go up. A post approved after its slot has
- * passed goes at the next 10am-ish rather than at once in the middle of the
- * night, so the publisher's normal run picks it up. Pure.
+ * passed is given a time five minutes from now, so the publisher's next run
+ * takes it: the shop has just pressed Approve and expects to see it. A post
+ * whose slot is still ahead keeps it. Pure.
  */
 export function publishTimeAfterApproval(scheduledFor: string, now: Date = new Date()): string | null {
   return Date.parse(scheduledFor) > now.getTime() ? null : new Date(now.getTime() + 5 * 60_000).toISOString();

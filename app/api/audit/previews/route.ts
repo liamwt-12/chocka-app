@@ -63,6 +63,11 @@ export async function POST(request: NextRequest) {
     // The shop's voice, if the onboarding questions have been answered by now.
     const voice = await loadVoiceForUser(supaAdmin, userId);
 
+    // A first post is not offered again while one is already booked or waiting
+    // for the shop: looking at the suggestions twice must not book two.
+    const { data: inHand } = await supaAdmin.from('scheduled_posts').select('id').eq('profile_id', profile.id).in('status', ['pending_approval', 'awaiting_approval']).limit(1);
+    const postInHand = !!inHand?.length;
+
     // Generate all applicable previews — each individually catch-wrapped
     const [description, servicesList, firstPost, catSuggestions] = await Promise.all([
       audit.fixes.some(f => f.key === 'description')
@@ -71,7 +76,7 @@ export async function POST(request: NextRequest) {
       audit.fixes.some(f => f.key === 'services')
         ? generateServices({ businessName: profile.business_name, category: primaryCat, existingServices: existSvcs }).catch(() => null)
         : null,
-      audit.fixes.some(f => f.key === 'firstPost')
+      audit.fixes.some(f => f.key === 'firstPost') && !postInHand
         ? generatePost({ businessName: profile.business_name, category: primaryCat, city, month: new Date().toLocaleString('en-GB', { month: 'long' }), season: getSeason(), recentPosts: [], voice }).catch(() => null)
         : null,
       audit.fixes.some(f => f.key === 'categories')
@@ -90,7 +95,7 @@ export async function POST(request: NextRequest) {
     // screen cannot tell "your listing needs nothing" from "we could not write
     // anything just now", and used to say the first when it meant the second.
     const wanted: Array<[string, unknown]> = [['description', description], ['services', servicesList], ['firstPost', firstPost], ['categories', catSuggestions]];
-    const failed = wanted.filter(([key, value]) => audit.fixes.some((f) => f.key === key) && (value === null || (Array.isArray(value) && value.length === 0))).map(([key]) => key);
+    const failed = wanted.filter(([key, value]) => audit.fixes.some((f) => f.key === key) && !(key === 'firstPost' && postInHand) && (value === null || (Array.isArray(value) && value.length === 0))).map(([key]) => key);
 
     return NextResponse.json({
       previews: { description, services: servicesList, firstPost, categories: catSuggestions, reviewPreview, lowStarUnreplied },

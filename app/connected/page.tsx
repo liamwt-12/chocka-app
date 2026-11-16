@@ -74,7 +74,11 @@ export default function ConnectedPage() {
         <div style={{ fontSize: 18, fontWeight: 700, marginTop: 14 }}>{d.shop.name}</div>
         {d.shop.address && <div style={{ fontSize: 15, color: C.mid }}>{d.shop.address}</div>}
         <p style={{ fontSize: 15, color: C.text, margin: '12px 0 0' }}>That is all we needed. <strong>Nothing has been changed on your Google listing.</strong></p>
-        {d.wrongAccountPath && <a href={d.wrongAccountPath} style={{ display: 'inline-block', marginTop: 10, fontSize: 14, color: C.mid, textDecoration: 'underline' }}>This is not my shop</a>}
+        {d.canStartAgain && (
+          <form action="/api/connection/reset" method="post" onSubmit={(e) => { if (!window.confirm('Start again with a different Google account?\n\nThis disconnects the listing shown here. Nothing on Google is changed.')) e.preventDefault(); }}>
+            <button type="submit" style={{ marginTop: 10, fontSize: 14, color: C.mid, textDecoration: 'underline', background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontFamily: sans }}>This is not my shop</button>
+          </form>
+        )}
       </div>
 
       {d.note && (

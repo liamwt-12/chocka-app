@@ -149,20 +149,38 @@ export function toGoogleSpecialPeriods(days: SpecialDay[]) {
     : { startDate: gdate(d.date), endDate: gdate(d.date), closed: true }));
 }
 
-/** Read Google's special periods back into dates, keeping only today onwards. Anything spanning several days is kept as-is by the caller. */
+const isoOf = (d: any) => (d?.year && d?.month && d?.day ? `${d.year}-${String(d.month).padStart(2, '0')}-${String(d.day).padStart(2, '0')}` : null);
+
+/** One of Google's special periods as a day the editor can show, or null if it cannot. Pure. */
+function showableSpecialDay(p: any): SpecialDay | null {
+  const s = isoOf(p?.startDate), e = isoOf(p?.endDate ?? p?.startDate);
+  if (!s || !e || s !== e) return null;
+  if (p.closed) return { date: s, open: false, from: '', to: '' };
+  const from = timeToText(p.openTime), to = timeToText(p.closeTime);
+  // "24:00" (open all day) and anything not a plain same-day opening cannot be typed into the editor.
+  if (from === null || to === null || !TIME_RE.test(from) || !TIME_RE.test(to) || from >= to) return null;
+  return { date: s, open: true, from, to };
+}
+
+/**
+ * Is this an entry the editor could NOT show the shop, and which has not yet
+ * passed? Such entries are sent back to Google exactly as they are whenever the
+ * shop saves its own list: what the shop cannot see, it cannot have agreed to lose.
+ */
+export function unshowableSpecialPeriod(p: any, today: string): boolean {
+  if (showableSpecialDay(p)) return false;
+  const e = isoOf(p?.endDate ?? p?.startDate);
+  return e === null || e >= today;
+}
+
+/** Read Google's special periods back into dates, keeping only today onwards. `complex` says some entries could not be shown. */
 export function fromGoogleSpecialPeriods(periods: unknown, today: string): { days: SpecialDay[]; complex: boolean } {
   const days: SpecialDay[] = [];
   let complex = false;
   for (const p of (Array.isArray(periods) ? periods : []) as any[]) {
-    const s = p?.startDate, e = p?.endDate ?? p?.startDate;
-    if (!s?.year || !s?.month || !s?.day) { complex = true; continue; }
-    const iso = (d: any) => `${d.year}-${String(d.month).padStart(2, '0')}-${String(d.day).padStart(2, '0')}`;
-    if (iso(s) !== iso(e)) { if (iso(e) >= today) complex = true; continue; }
-    if (iso(s) < today) continue;
-    if (p.closed) { days.push({ date: iso(s), open: false, from: '', to: '' }); continue; }
-    const from = timeToText(p.openTime), to = timeToText(p.closeTime);
-    if (from === null || to === null || from >= to) { complex = true; continue; }
-    days.push({ date: iso(s), open: true, from, to });
+    const day = showableSpecialDay(p);
+    if (!day) { if (unshowableSpecialPeriod(p, today)) complex = true; continue; }
+    if (day.date >= today) days.push(day);
   }
   return { days: days.sort((a, b) => a.date.localeCompare(b.date)), complex };
 }

@@ -2,8 +2,6 @@ import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
 import { getSessionUserId } from '@/lib/session';
 import { SHOP_MESSAGES } from '@/lib/ownership';
-import { signInviteRef } from '@/lib/invite-token';
-import { helpPath } from '@/lib/connect-help';
 
 /**
  * What the "you're connected" page shows: which shop, and anything the shop
@@ -21,12 +19,8 @@ export async function GET(request: NextRequest) {
     ]);
     if (!profile?.google_location_name) return NextResponse.json({ connected: false });
 
-    // "Not my shop": a way back to Google with a different account, keeping the invite.
-    let wrongAccountPath: string | null = null;
-    if (retailer) {
-      const { data: inv } = await supabaseAdmin.from('retailer_invites').select('id').eq('retailer_id', retailer.id).order('created_at', { ascending: false }).limit(1);
-      if (inv?.[0]?.id) { try { wrongAccountPath = helpPath('wrong_account', signInviteRef(inv[0].id)); } catch { /* no shortcut */ } }
-    }
+    // "This is not my shop": an invited shop can start again with a different Google account.
+    const canStartAgain = !!retailer;
     const st = retailer?.connection_status;
     const note = st === 'waiting_google' || (st === 'check_listing' && !retailer?.listing_confirmed_at)
       ? { status: st, ...SHOP_MESSAGES[st as 'waiting_google' | 'check_listing'] } : null;
@@ -35,7 +29,7 @@ export async function GET(request: NextRequest) {
       connected: true,
       shop: { name: profile.business_name, address: profile.address },
       note,
-      wrongAccountPath,
+      canStartAgain,
       choices: { posts: !!user?.auto_post_enabled, replies: !!user?.auto_reply_enabled, hasMobile: !!user?.phone_number },
     });
   } catch (e: any) {
