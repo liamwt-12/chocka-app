@@ -1,4 +1,5 @@
 import { getTenant, type Tenant } from './tenant';
+import { redact } from './redact';
 import { presenceComparison } from './presence-score';
 
 const RESEND_API = 'https://api.resend.com/emails';
@@ -40,7 +41,8 @@ export async function sendEmail({ to, subject, html, tenant }: SendEmailParams):
       }),
     });
     if (!res.ok) {
-      console.error('Resend email failed:', await res.text());
+      // The provider's error can quote the address it refused. Keep the reason, not the address.
+      console.error('Resend email failed:', res.status, redact(await res.text()));
       return false;
     }
     return true;

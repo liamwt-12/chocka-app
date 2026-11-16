@@ -15,7 +15,7 @@ describe('presenceComparison', () => {
 });
 
 describe('monthlyReportEmail', () => {
-  const base = { businessName: 'Arbons Flooring', month: 'November 2026', postsPublished: 4, reviewsReplied: 3, totalViews: 1200, totalCalls: 9 };
+  const base = { businessName: 'Testwell Flooring', month: 'November 2026', postsPublished: 4, reviewsReplied: 3, totalViews: 1200, totalCalls: 9 };
 
   it('includes the presence score, the comparison and directions', () => {
     const html = monthlyReportEmail({ ...base, totalDirections: 17, presenceScore: 81, presenceBand: 'Strong', presenceScoreAtStart: 62 });

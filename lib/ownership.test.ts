@@ -13,16 +13,16 @@ describe('detectOwnership', () => {
   });
 
   it('binds the expected listing even when the account manages several', () => {
-    const r = detectOwnership([L('Other'), L('Arbons', 'ChIJ1'), L('Third')], 'ChIJ1');
+    const r = detectOwnership([L('Other'), L('Testwell', 'ChIJ1'), L('Third')], 'ChIJ1');
     expect(r.status).toBe('connected');
-    expect(r.bind?.title).toBe('Arbons');
+    expect(r.bind?.title).toBe('Testwell');
     expect(r.needsPicker).toBe(false);
   });
 
   it('expected listing not verified yet: waiting on Google (still bound, so it picks up later)', () => {
-    const r = detectOwnership([L('Arbons', 'ChIJ1', false)], 'ChIJ1');
+    const r = detectOwnership([L('Testwell', 'ChIJ1', false)], 'ChIJ1');
     expect(r.status).toBe('waiting_google');
-    expect(r.bind?.title).toBe('Arbons');
+    expect(r.bind?.title).toBe('Testwell');
   });
 
   it('one listing that is not the expected one: bound, but flagged to check', () => {
@@ -39,16 +39,16 @@ describe('detectOwnership', () => {
   });
 
   it('undefined verification is unknown, never "waiting"', () => {
-    expect(detectOwnership([L('Arbons', 'ChIJ1', undefined)], 'ChIJ1').status).toBe('connected');
+    expect(detectOwnership([L('Testwell', 'ChIJ1', undefined)], 'ChIJ1').status).toBe('connected');
   });
 });
 
 describe('statusForChosenListing', () => {
   it('matches, mismatches, unverified, and no baseline', () => {
-    expect(statusForChosenListing(L('Arbons', 'ChIJ1'), 'ChIJ1').status).toBe('connected');
+    expect(statusForChosenListing(L('Testwell', 'ChIJ1'), 'ChIJ1').status).toBe('connected');
     expect(statusForChosenListing(L('Other', 'ChIJ2'), 'ChIJ1').status).toBe('check_listing');
-    expect(statusForChosenListing(L('Arbons', 'ChIJ1', false), 'ChIJ1').status).toBe('waiting_google');
-    expect(statusForChosenListing(L('Arbons'), null).status).toBe('connected');
+    expect(statusForChosenListing(L('Testwell', 'ChIJ1', false), 'ChIJ1').status).toBe('waiting_google');
+    expect(statusForChosenListing(L('Testwell'), null).status).toBe('connected');
   });
 });
 
@@ -69,7 +69,7 @@ describe('getManageableListings reads verification and place ID from metadata', 
       const u = String(url);
       if (u.includes('/accounts') && !u.includes('/locations')) return new Response(JSON.stringify({ accounts: [{ name: 'accounts/1', role: 'OWNER', type: 'PERSONAL' }] }), { status: 200 });
       return new Response(JSON.stringify({ locations: [
-        { name: 'locations/1', title: 'Arbons', metadata: { placeId: 'ChIJ1', hasVoiceOfMerchant: false } },
+        { name: 'locations/1', title: 'Testwell', metadata: { placeId: 'ChIJ1', hasVoiceOfMerchant: false } },
         { name: 'locations/2', title: 'Other', metadata: { mapsUri: 'https://maps.google.com/maps?cid=1&place_id=ChIJ2' } },
       ] }), { status: 200 });
     }) as any;

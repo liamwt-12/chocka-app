@@ -171,12 +171,12 @@ describe('fetchDailyMetrics (mocked Google)', () => {
 
 describe('monthly email with too little data', () => {
   it('shows a plain note instead of numbers', () => {
-    const html = monthlyReportEmail({ businessName: 'Arbons', month: 'November 2026', postsPublished: 1, reviewsReplied: 0, totalViews: null, totalCalls: null });
+    const html = monthlyReportEmail({ businessName: 'Testwell', month: 'November 2026', postsPublished: 1, reviewsReplied: 0, totalViews: null, totalCalls: null });
     expect(html).toContain("hasn't given us a full month of figures");
     expect(html).toContain('&ndash;');
   });
   it('shows the Search share when known', () => {
-    const html = monthlyReportEmail({ businessName: 'Arbons', month: 'November 2026', postsPublished: 1, reviewsReplied: 0, totalViews: 465, searchViews: 310, totalCalls: 31, totalDirections: 31, totalWebsiteClicks: 62 });
+    const html = monthlyReportEmail({ businessName: 'Testwell', month: 'November 2026', postsPublished: 1, reviewsReplied: 0, totalViews: 465, searchViews: 310, totalCalls: 31, totalDirections: 31, totalWebsiteClicks: 62 });
     expect(html).toContain('310 from Google Search');
     expect(html).toContain('Website Clicks');
   });

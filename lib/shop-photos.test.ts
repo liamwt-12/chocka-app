@@ -34,7 +34,7 @@ describe('the switches are off unless turned on', () => {
 });
 
 describe('the upload link', () => {
-  const shopRow = { id: 'r1', tenant_id: 't1', name: 'Arbons', town: 'Leeds', photo_link_expires_at: photoLinkExpiresAt(NOW).toISOString(), delisted_at: null };
+  const shopRow = { id: 'r1', tenant_id: 't1', name: 'Testwell', town: 'Leeds', photo_link_expires_at: photoLinkExpiresAt(NOW).toISOString(), delisted_at: null };
   /** A fake retailers table that only answers when asked for the right hash. */
   const dbWith = (row: any, token: string) => {
     const seen: any[] = [];
@@ -58,7 +58,7 @@ describe('the upload link', () => {
   it('finds the shop for a valid link, looked up by hash and never by the token itself', async () => {
     const token = generatePhotoLinkToken();
     const db = dbWith(shopRow, token);
-    expect(await findShopByPhotoToken(db, token, NOW)).toEqual({ id: 'r1', tenant_id: 't1', name: 'Arbons', town: 'Leeds' });
+    expect(await findShopByPhotoToken(db, token, NOW)).toEqual({ id: 'r1', tenant_id: 't1', name: 'Testwell', town: 'Leeds' });
     expect(db.seen).toEqual([['photo_link_hash', hashPhotoLinkToken(token)]]);
   });
   it('refuses a wrong, malformed, expired or delisted-shop link', async () => {

@@ -43,10 +43,10 @@ describe('parseVoiceProfile', () => {
   it.each([
     ['a price', { about: 'Carpets from £9 a metre' }],
     ['a percentage', { specialities: '20% off vinyl' }],
-    ['a web address', { signOff: 'See www.arbons.co.uk' }],
-    ['a bare domain', { signOff: 'arbons.co.uk' }],
-    ['an email address', { about: 'Email dave@arbons.co.uk' }],
-    ['a social handle', { signOff: 'Dave @arbonsfloors' }],
+    ['a web address', { signOff: 'See www.example.co.uk' }],
+    ['a bare domain', { signOff: 'example.co.uk' }],
+    ['an email address', { about: 'Email dave@example.co.uk' }],
+    ['a social handle', { signOff: 'Dave @testwellfloors' }],
     ['a phone number', { signOff: 'Call 0113 496 0000' }],
     ['an accreditation', { about: 'We are TrustMark accredited fitters' }],
     ['a guarantee', { wordsToUse: 'guaranteed' }],
@@ -140,8 +140,8 @@ describe('voice in the post and reply prompts (mocked model)', () => {
   beforeEach(() => { bodies = []; process.env.ANTHROPIC_API_KEY = 'test-key'; });
   afterEach(() => { global.fetch = realFetch; });
 
-  const POST = { businessName: 'Arbons', category: 'Flooring shop', city: 'Leeds', month: 'November', season: 'autumn', recentPosts: [] };
-  const REPLY = { businessName: 'Arbons', category: 'Flooring shop', reviewerName: 'Sam Jones', rating: 5, comment: 'Lovely stair runner.' };
+  const POST = { businessName: 'Testwell', category: 'Flooring shop', city: 'Leeds', month: 'November', season: 'autumn', recentPosts: [] };
+  const REPLY = { businessName: 'Testwell', category: 'Flooring shop', reviewerName: 'Sam Jones', rating: 5, comment: 'Lovely stair runner.' };
   const GOOD_POST = 'Autumn is a great time to freshen up the hallway. Pop in to the showroom and have a look. Dave and the team';
   const GOOD_REPLY = 'Thanks so much, Sam. Really glad you are pleased with the stair runner. Dave and the team';
 
