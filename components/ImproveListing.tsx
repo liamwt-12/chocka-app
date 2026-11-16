@@ -282,7 +282,7 @@ export default function ImproveListing({ audit, hours, manual, offerLowStar, wor
                 <span style={{ fontSize: 14, color: V.text }}>{j.result?.message || j.label}</span>
               </div>
             ))}
-            <p style={{ fontSize: 13, color: V.soft, margin: '10px 0 0' }}>We keep a record of what each of these replaced. If you want any of them put back, tell us and we will.</p>
+            <p style={{ fontSize: 13, color: V.soft, margin: '10px 0 0' }}>We keep a record of what each of these replaced. You can put any of them back yourself, at any time, under Settings.</p>
           </div>
         )}
 

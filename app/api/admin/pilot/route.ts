@@ -11,6 +11,7 @@ import { shopStatus, liveRulesFromEnv } from '@/lib/shop-status';
 import { parseSpendPounds, adDatesProblem } from '@/lib/ad-spend';
 import { loadStatement, statementCsv, billingSettingsFromEnv } from '@/lib/billing';
 import { describeChange, undoChange } from '@/lib/revert';
+import { settingChecks, schemaChecks, dataChecks, summary } from '@/lib/readiness';
 import {
   verifyAdminAuth, validateNewRetailer, pilotStatus, mintInvites, parseAdStartDate,
   PILOT_TENANT_SLUG, MANUAL_SOURCE, type PilotInvite, type PilotUser,
@@ -25,6 +26,7 @@ import {
  * POST { action: 'revoke', retailerId }                    revoke a retailer's pending link
  * POST { action: 'set_ad_start', retailerId, date|null }   record when Tarkett's ads for a shop started
  * POST { action: 'reset_connection', retailerId }        remove the linked account and re-open the shop's link
+ * POST { action: 'readiness' }                           is everything in place to invite shops? (settings present, migrations applied)
  * POST { action: 'set_ad_spend', retailerId, spend, endDate? } optional ad spend in pounds, beside the ad start date
  * POST { action: 'set_excluded', retailerId, excluded }  leave a test or internal shop out of the monthly count
  * POST { action: 'statement', month }                    live shops for a month, by name, with cap and credit
@@ -132,6 +134,12 @@ export async function POST(request: NextRequest) {
         if (!result.ok) return NextResponse.json({ error: result.detail }, { status: 500 });
         console.log(`[admin/pilot] connection reset for shop ${r.id}: account removed=${result.removedAccount}, link reusable=${result.linkReusable}`);
         return NextResponse.json({ reset: result });
+      }
+
+      case 'readiness': {
+        // Is everything in place to invite shops? Presence of settings only, never a value.
+        const checks = { settings: settingChecks(), database: await schemaChecks(supabaseAdmin), shops: await dataChecks(supabaseAdmin, tenantRow.id) };
+        return NextResponse.json({ checks, ...summary([...checks.settings, ...checks.database, ...checks.shops]) });
       }
 
       case 'set_ad_spend': {

@@ -13,6 +13,7 @@
  * about a shop's customers, and any score for a shop that has not joined.
  */
 import { pilotStatus, type PilotInvite, type PilotUser } from './pilot';
+import { shopStatus, type StatusInvite } from './shop-status';
 import { ADMIN_LABELS, type ConnectionStatus } from './ownership';
 import { MANAGER_EMBED } from './managed-access';
 import { loadMetricRows, isoDate, type MetricRow } from './metrics';
@@ -25,6 +26,8 @@ export interface ConsoleShop {
   name: string;
   town: string | null;
   pilotState: string;
+  /** Why a shop is not live yet, and what would help, in plain words. Null when it is live. */
+  statusNote: { label: string; why: string; action: string } | null;
   connection: string | null;
   participating: boolean;
   joinedOn: string | null;
@@ -79,13 +82,16 @@ export async function loadConsoleData(db: Db, tenantId: string, now: Date = new 
 
   for (const r of rows) {
     const user: PilotUser | null = r.user_id ? userById.get(r.user_id) ?? null : null;
-    const state = pilotStatus(r, user, (invites || []).filter((i: any) => i.retailer_id === r.id) as PilotInvite[], now).state;
+    const shopInvites = (invites || []).filter((i: any) => i.retailer_id === r.id) as PilotInvite[];
+    const state = pilotStatus(r, user, shopInvites, now).state;
+    const full = shopStatus(r, user, shopInvites as StatusInvite[], now);
     const profile = (user as any)?.profiles?.[0] ?? null;
     // Taking part = connected with a listing bound. Whether it is LIVE is the
     // state above, decided in lib/shop-status.ts like everywhere else.
     const participating = !!(r.user_id && profile?.google_location_name);
     const shop: ConsoleShop = {
       retailerId: r.id, name: r.name, town: r.town, pilotState: state,
+      statusNote: full.live || full.key === 'not_invited' ? null : { label: full.label, why: full.why, action: full.action },
       connection: r.connection_status ? ADMIN_LABELS[r.connection_status as ConnectionStatus] ?? r.connection_status : null,
       participating, joinedOn: null, scoreAtActivation: null, postsLast30: null, repliesLast30: null,
       actionsChange: null, viewsChange: null, improvement: null, adStartDate: participating ? r.ad_start_date ?? null : null,

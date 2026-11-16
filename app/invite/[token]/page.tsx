@@ -20,6 +20,7 @@ import { resolveRetailerScore } from '@/lib/retailer-score';
 import { ScoreBadge } from '@/components/ScoreBadge';
 import Button from '@/components/Button';
 import InviteOpened from '@/components/InviteOpened';
+import ForwardInvite from '@/components/ForwardInvite';
 
 interface InviteRow {
   id: string;
@@ -242,6 +243,17 @@ export default async function InvitePage({ params }: { params: { token: string }
           Connect my Google profile
         </Button>
       </form>
+
+      {/* What is about to happen, before Google's screen, in three lines. The two
+          commonest ways to get stuck are the wrong Google account and an unticked
+          box; both are easier to avoid than to recover from. */}
+      <ol className="text-left text-sm text-gray-600 mt-5 space-y-2 list-decimal pl-5">
+        <li><strong className="text-charcoal">Sign in with the Google account you use for your shop</strong>, the one you would use to reply to a review or change your opening times.</li>
+        <li><strong className="text-charcoal">Google will ask permission. Tick the box about business listings</strong>, then press Continue.</li>
+        <li><strong className="text-charcoal">Nothing changes on your listing.</strong> You choose what happens next, and you can remove us at any time.</li>
+      </ol>
+
+      <ForwardInvite shopName={retailer.name} />
 
       <p className="text-xs text-gray-400 mt-4">
         Invited by {tenant.brandName} · free while in pilot
