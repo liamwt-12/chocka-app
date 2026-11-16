@@ -76,16 +76,32 @@ export default function PilotAdminPage() {
     setBusy(false);
   };
 
-  const invite = async () => {
-    if (!selected.size) return;
+  // Links for any number of shops in one go. The server makes at most 25 per
+  // request (so no request runs long); this sends as many requests as it takes
+  // and gathers the results into one list and one download. If a request fails
+  // partway, the links already made are still shown, and pressing again only
+  // makes the ones still missing: a shop with a valid link is never given a second.
+  const CHUNK = 25;
+  const inviteIds = async (ids: string[]) => {
+    if (!ids.length) return;
     setBusy(true); setMsg('');
+    const all: Minted[] = [];
     try {
-      const d = await call({ action: 'invite', retailerIds: Array.from(selected) });
-      setMinted(d.results); setSelected(new Set());
-      await load();
-    } catch (e: any) { setMsg(e.message); }
+      for (let i = 0; i < ids.length; i += CHUNK) {
+        setMsg(`Making links: ${Math.min(i + CHUNK, ids.length)} of ${ids.length}…`);
+        const d = await call({ action: 'invite', retailerIds: ids.slice(i, i + CHUNK) });
+        all.push(...d.results);
+        setMinted([...all]);
+      }
+      const made = all.filter((m) => m.ok).length;
+      setMsg(`${made} link${made === 1 ? '' : 's'} made. Nothing has been sent: download the list and pass it to Tarkett.`);
+    } catch (e: any) { setMsg(`${e.message}. ${all.filter((m) => m.ok).length} link(s) were made before that and are listed below; press again to make the rest.`); }
+    setSelected(new Set());
+    await load().catch(() => {});
     setBusy(false);
   };
+  const invite = () => inviteIds(Array.from(selected));
+  const withoutLink = useMemo(() => rows.filter((r) => (r.state === 'not_invited' || r.state === 'invite_expired') && !r.delisted), [rows]);
 
   const revoke = async (id: string) => {
     setBusy(true); setMsg('');
@@ -295,6 +311,7 @@ export default function PilotAdminPage() {
           <div style={{ display: 'flex', gap: 8, marginBottom: 10, flexWrap: 'wrap' }}>
             <input placeholder="Search shop or town" value={filter} onChange={(e) => setFilter(e.target.value)} style={{ ...input, flex: '1 1 200px' }} />
             <button onClick={invite} disabled={busy || !selected.size} style={btn}>Generate links for {selected.size} selected</button>
+            <button onClick={() => { if (window.confirm(`Make a link for each of the ${withoutLink.length} shops that do not have one?\n\nNothing is sent. You get one list to download.`)) inviteIds(withoutLink.map((r) => r.id)); }} disabled={busy || !withoutLink.length} style={{ ...btn, background: C.green }}>Generate links for all {withoutLink.length} without one</button>
             <button onClick={load} disabled={busy} style={{ ...btn, background: '#888' }}>Refresh</button>
           </div>
           <div style={{ overflowX: 'auto' }}>

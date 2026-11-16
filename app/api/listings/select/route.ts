@@ -5,6 +5,8 @@ import { decryptSecret, userTokenAad } from '@/lib/secrets';
 import { resolveAccess, MANAGER_EMBED } from '@/lib/managed-access';
 import { getSessionUserId } from '@/lib/session';
 import { statusForChosenListing, SHOP_MESSAGES } from '@/lib/ownership';
+import { getTenantForRow } from '@/lib/tenant';
+import { sendWelcomeOnce } from '@/lib/welcome';
 
 // Bind (or re-bind) the user's single profile to a listing they chose.
 // Reached from the onboarding picker and the settings "change listing" path.
@@ -26,7 +28,7 @@ export async function POST(request: NextRequest) {
 
     const { data: user } = await supabaseAdmin
       .from('users')
-      .select(`id, google_refresh_token, token_status, tenant_id, managed_by_user_id, ${MANAGER_EMBED}`)
+      .select(`id, email, google_refresh_token, token_status, tenant_id, managed_by_user_id, tenants ( slug ), ${MANAGER_EMBED}`)
       .eq('id', userId)
       .single();
     if (!user) {
@@ -120,8 +122,21 @@ export async function POST(request: NextRequest) {
       connection = { status: result.status, ...SHOP_MESSAGES[result.status] };
     }
 
+    // On a free brand, choosing the listing completes the connection: the page
+    // goes to "you're connected", and the welcome email (if on) is sent once.
+    let connectedPage = false;
+    try {
+      const tenant = getTenantForRow(user as any);
+      if (tenant.priceMonthlyGbp === 0) {
+        connectedPage = true;
+        await supabaseAdmin.from('users').update({ onboarding_step: 'complete' }).eq('id', userId);
+        await sendWelcomeOnce(supabaseAdmin, { id: userId, email: (user as any).email }, chosen.title, tenant);
+      }
+    } catch (err) { console.error('[listings/select] after-connect steps failed, selection unaffected:', err); }
+
     return NextResponse.json({
       ok: true,
+      connectedPage,
       listing: { title: chosen.title, address: chosen.address, accountDisplay: chosen.accountDisplay },
       connection,
     });

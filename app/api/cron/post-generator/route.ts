@@ -49,6 +49,16 @@ export async function GET(request: NextRequest) {
       .order('id', { ascending: true })
       .range(from, to));
     const hasPost = new Set(thisWeek.map((p) => p.profile_id));
+    // A shop with a post still waiting for its approval is not written another.
+    // Until now a new post was added every Friday regardless, so a shop that
+    // had not approved its first was left with a growing pile.
+    const stillWaiting = await selectAll<{ profile_id: string }>((from, to) => supabaseAdmin
+      .from('scheduled_posts')
+      .select('profile_id')
+      .eq('status', 'awaiting_approval')
+      .order('id', { ascending: true })
+      .range(from, to));
+    for (const p of stillWaiting) hasPost.add(p.profile_id);
     // Rotated each run, so one shop whose post keeps failing its checks is not at the front every time.
     const todo = rotateForRun<any>(users.filter((u: any) => u.auto_post_enabled && u.profiles?.[0] && !hasPost.has(u.profiles[0].id)), runIndex(5), 3);
     let remaining = todo.length;

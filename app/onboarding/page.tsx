@@ -141,6 +141,8 @@ export default function OnboardingPage() {
       const d = await res.json();
       if (!res.ok || !d.ok) throw new Error(d.error || 'Selection failed');
       // Re-pick from settings: repopulate the audit for the new listing, then return.
+      // Free brand, first time: choosing the listing completes the connection.
+      if (d.connectedPage && returnTo !== 'settings') { router.push('/connected'); return; }
       if (returnTo === 'settings') { await fetch('/api/audit', { method: 'POST' }).catch(()=>{}); router.push('/dashboard'); return; }
       // Onboarding: audit the listing they just chose.
       setAuditError(false); setAuditCode(''); setAIdx(0); setDoneSt(new Set());
@@ -156,18 +158,21 @@ export default function OnboardingPage() {
   // After the score: the optional voice questions if they are on offer, then
   // the mobile number, then the changes. The changes come last so that the
   // drafts are written after the shop has said how it wants to sound.
-  function afterScore() { setPhase(voiceAvailable ? 'voice' : 'phone'); }
+  // A free brand is never asked for a mobile number here: texts are off, and it
+  // used to stop a shop with only a landline from finishing at all.
+  const afterVoice: Phase = freeTenant ? 'improve' : 'phone';
+  function afterScore() { setPhase(voiceAvailable ? 'voice' : afterVoice); }
 
   async function submitVoice(skip: boolean) {
     setVoiceErr('');
     // Skipped, or nothing typed: nothing is saved and the default wording stays.
-    if (skip || draftIsEmpty(voiceDraft)) { setPhase('phone'); return; }
+    if (skip || draftIsEmpty(voiceDraft)) { setPhase(afterVoice); return; }
     setVoiceSaving(true);
     try {
       const res = await fetch('/api/voice', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ voice: voiceDraft }) });
       const d = await res.json().catch(() => ({}));
       if (!res.ok) { setVoiceErr(d.error || 'We could not save that. Please try again.'); return; }
-      setPhase('phone');
+      setPhase(afterVoice);
     } catch {
       setVoiceErr('We could not save that. Please try again.');
     } finally {
@@ -546,8 +551,8 @@ export default function OnboardingPage() {
         audit={audit}
         hours={hoursInfo}
         manual={manual}
-        // On a free brand the careful replies follow the shop's "Reply to reviews" choice; on a paid one they are part of the service.
-        offerLowStar={!freeTenant || optReply}
+        // Offering to queue careful replies posts nothing: each waits on the dashboard for the shop to approve.
+        offerLowStar
         wordmark={tenant.wordmark}
         onFinished={() => router.push('/dashboard')}
         onSkip={async () => { await fetch('/api/profile-fix', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ step: 'finish' }) }).catch(() => {}); router.push('/dashboard'); }}

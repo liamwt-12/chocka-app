@@ -183,6 +183,18 @@ export async function GET(request: NextRequest) {
       else pendingReplies = pendingRepliesForDashboard((pendingRows || []) as unknown as PendingReplyRow[], generateReviewHash);
     }
 
+    // Posts the shop can act on from here: ones waiting for its approval, and
+    // ones booked that it can still cancel (app/api/posts/manage).
+    let postsToManage: Array<{ id: string; content: string; scheduled_for: string; waiting: boolean }> = [];
+    if (profile?.id) {
+      const { data: rows, error: postsErr } = await supabaseAdmin.from('scheduled_posts')
+        .select('id, content, scheduled_for, status')
+        .eq('profile_id', profile.id).in('status', ['awaiting_approval', 'pending_approval'])
+        .order('scheduled_for', { ascending: true }).limit(6);
+      if (postsErr) console.error('[dashboard] posts to manage failed:', postsErr.message);
+      else postsToManage = (rows || []).map((p: any) => ({ id: p.id, content: p.content, scheduled_for: p.scheduled_for, waiting: p.status === 'awaiting_approval' }));
+    }
+
     // Lost Google access, said to the shop. Until now the dashboard carried on
     // showing a green "Connected" whatever had happened, and a shop with
     // posting off was never told. `access` was worked out above for the Google
@@ -197,6 +209,7 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({
       lostAccess,
+      postsToManage,
       pendingReplies,
       retailer: retailer ?? null,
       // Plain-English status for invited shops that are not fully connected yet.
