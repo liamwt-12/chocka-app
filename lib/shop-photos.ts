@@ -238,3 +238,110 @@ export async function photoUrlForPost(db: PhotoDb, storage: PhotoStorage, photoI
     return null;
   }
 }
+
+// ── Deleting a shop's photos ────────────────────────────────────────────────
+
+export interface PhotoFileStore {
+  from(bucket: string): {
+    list(path: string, options?: { limit?: number }): Promise<{ data: Array<{ name: string }> | null; error: { message: string } | null }>;
+    remove(paths: string[]): Promise<{ data: unknown; error: { message: string } | null }>;
+  };
+}
+
+export interface PhotoCleanup {
+  /** Shops whose photo files are confirmed gone (including shops that had none). Safe to delete the record. */
+  cleared: string[];
+  /** Shops where something could not be checked or deleted. Their record must be kept, to try again. */
+  failed: Array<{ id: string; reason: string }>;
+  filesRemoved: number;
+}
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const REMOVE_BATCH = 100;
+const LIST_LIMIT = 1000;
+
+/** "The table is not there": photos were never set up on this database, so there is nothing to delete. */
+function isMissingTable(error: any): boolean {
+  return error?.code === '42P01' || error?.code === 'PGRST205' || /does not exist|could not find the table/i.test(String(error?.message || ''));
+}
+/** "The bucket is not there": same meaning, for storage. */
+function isMissingBucket(error: any): boolean {
+  return /bucket not found/i.test(String(error?.message || ''));
+}
+
+/**
+ * Delete every photo FILE belonging to the given shops from storage, and say
+ * which shops are now clear.
+ *
+ * WHY. Deleting a shop's record removes its photo rows (the foreign key
+ * cascades) but the database cannot delete files in storage. Without this, a
+ * deleted shop's photos would sit in the bucket for ever with nothing pointing
+ * at them and no way to find them. So the files go FIRST, and the record is
+ * only deleted for shops this returns as `cleared`.
+ *
+ * This runs whether or not SHOP_PHOTOS is on: files may exist from a time when
+ * it was.
+ *
+ * Safety:
+ *  - A shop id that is not a UUID is refused. An empty id would otherwise mean
+ *    "the whole bucket".
+ *  - Only paths inside the shop's own folder are ever removed, whatever a row says.
+ *  - Files are found two ways: from the photo rows, and by listing the shop's
+ *    folder, so a file whose row was lost is still removed.
+ *  - Anything that cannot be checked counts as a failure for that shop, not as
+ *    "nothing to delete". The one exception is the photos table or bucket not
+ *    existing at all, which means there cannot be any photos.
+ *
+ * With `alsoDeleteRecords`, the shop's photo rows are deleted too once its
+ * files are gone (for when the shop record itself is being kept).
+ */
+export async function deletePhotoFilesForShops(
+  db: PhotoDb,
+  storage: PhotoFileStore,
+  retailerIds: string[],
+  opts: { alsoDeleteRecords?: boolean } = {},
+): Promise<PhotoCleanup> {
+  const out: PhotoCleanup = { cleared: [], failed: [], filesRemoved: 0 };
+
+  for (const id of Array.from(new Set(retailerIds))) {
+    if (typeof id !== 'string' || !UUID_RE.test(id)) { out.failed.push({ id: String(id), reason: 'not a valid shop id' }); continue; }
+    const folder = `${id}/`;
+    try {
+      const paths = new Set<string>();
+      let tableExists = true;
+
+      const { data: rows, error: rowsError } = await db.from('shop_photos').select('storage_path').eq('retailer_id', id);
+      if (rowsError) {
+        if (!isMissingTable(rowsError)) { out.failed.push({ id, reason: `could not read photo records: ${rowsError.message}` }); continue; }
+        tableExists = false;
+      }
+      for (const r of rows || []) if (typeof r.storage_path === 'string' && r.storage_path.startsWith(folder) && !r.storage_path.includes('..')) paths.add(r.storage_path);
+
+      const { data: listed, error: listError } = await storage.from(PHOTO_BUCKET).list(id, { limit: LIST_LIMIT });
+      if (listError && !isMissingBucket(listError)) { out.failed.push({ id, reason: `could not list files: ${listError.message}` }); continue; }
+      for (const f of listed || []) if (f?.name && !f.name.includes('/') && !f.name.includes('..')) paths.add(`${folder}${f.name}`);
+      // A full page means there may be more than we saw. Remove these, but do
+      // not call the shop clear: the next run takes the rest.
+      const mayBeMore = (listed || []).length >= LIST_LIMIT;
+
+      const all = Array.from(paths);
+      let removeFailed = '';
+      for (let i = 0; i < all.length && !removeFailed; i += REMOVE_BATCH) {
+        const batch = all.slice(i, i + REMOVE_BATCH);
+        const { error } = await storage.from(PHOTO_BUCKET).remove(batch);
+        if (error) removeFailed = error.message; else out.filesRemoved += batch.length;
+      }
+      if (removeFailed) { out.failed.push({ id, reason: `could not delete files: ${removeFailed}` }); continue; }
+      if (mayBeMore) { out.failed.push({ id, reason: 'more files than one pass can list; run again' }); continue; }
+
+      if (opts.alsoDeleteRecords && tableExists) {
+        const { error } = await db.from('shop_photos').delete().eq('retailer_id', id);
+        if (error) { out.failed.push({ id, reason: `files deleted, but photo records could not be: ${error.message}` }); continue; }
+      }
+      out.cleared.push(id);
+    } catch (err: any) {
+      out.failed.push({ id, reason: String(err?.message || err).slice(0, 200) });
+    }
+  }
+  return out;
+}
