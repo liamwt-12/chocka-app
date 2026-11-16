@@ -369,17 +369,30 @@ Things worth knowing:
 
 ---
 
-## After this runbook: #38, #39, #40
+## After this runbook: #38, #40, #39
 
-Three newer PRs sit on top of all of the above. Not part of this runbook's scope, but they were rehearsed on top of it too (all three merge cleanly; 512 tests; build passes).
+Three newer PRs sit on top of all of the above, **in this order: voice, review card, photos.** (Reordered on 16 November so the review card does not wait for photos.) Not part of this runbook's scope, but they were rehearsed on top of it too: all three merge cleanly in this order, 512 tests, build passes.
 
 | Order | PR | Migration to apply first | Notes |
 |---|---|---|---|
 | 14 | #38 voice profile | `20261116090000_retailer_voice_profile.sql` (migration 8) | Still warns; lists the photo items |
-| 15 | #39 shop photos | `20261116100000_shop_photos.sql` (migration 9) | **This is the one that ends with `identical across every probe`.** Both photo flags stay off |
-| 16 | #40 review link and card | none | |
+| 15 | #40 review link and card | none | No migration, no flag. Can go live as soon as #38 is in |
+| 16 | #39 shop photos | `20261116100000_shop_photos.sql` (migration 9) | **This is the one that ends with `identical across every probe`.** Both photo flags stay off |
 
-Retarget each to main first (`gh pr edit 38 --base main`, and so on), then `git merge --no-ff --no-edit origin/feat-voice-profile`, `origin/feat-shop-photos`, `origin/feat-review-link-card`.
+Retarget each to main first, then merge, one stage each:
+
+```bash
+gh pr edit 38 --base main
+git merge --no-ff --no-edit origin/feat-voice-profile          # #38  clean
+gh pr edit 40 --base main
+git merge --no-ff --no-edit origin/feat-review-link-card       # #40  clean
+gh pr edit 39 --base main
+git merge --no-ff --no-edit origin/feat-shop-photos            # #39  clean
+```
+
+Run the usual check before each push, and apply that PR's migration before pushing it. You can stop after #40 and leave photos for later: nothing in #38 or #40 needs it.
+
+**Verify:** after #38, `/admin/pilot` has a "Voice" column. After #40, a "Review link" column with "Copy link" and "Card"; open one card and scan it with a phone. After #39, nothing visible changes (the flags are off): `/photos/anything` returns 404 and there is no "Photos" column.
 
 **One migration to leave alone:** `20261116110000_change_log_add_media.sql` (in #39). Do not apply it anywhere, staging included, until all nine above are on production. It changes an existing constraint rather than adding something, and applying it early makes the production script refuse everything after migration 1. It is only needed if listing photos are ever switched on. The file explains this at the top.
 
