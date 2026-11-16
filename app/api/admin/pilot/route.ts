@@ -3,6 +3,7 @@ import { supabaseAdmin } from '@/lib/supabase';
 import { getTenantBySlug } from '@/lib/tenant';
 import { MANAGER_EMBED, resolveAccess } from '@/lib/managed-access';
 import { ADMIN_LABELS, SHOP_MESSAGES, type ConnectionStatus } from '@/lib/ownership';
+import { parseVoiceProfile, readStoredVoice, isEmptyVoice } from '@/lib/voice';
 import {
   verifyAdminAuth, validateNewRetailer, pilotStatus, mintInvites, parseAdStartDate,
   PILOT_TENANT_SLUG, MANUAL_SOURCE, type PilotInvite, type PilotUser,
@@ -16,6 +17,7 @@ import {
  * POST { action: 'invite', retailerIds: string[] }         generate invite links; NOTHING IS SENT
  * POST { action: 'revoke', retailerId }                    revoke a retailer's pending link
  * POST { action: 'set_ad_start', retailerId, date|null }   record when Tarkett's ads for a shop started
+ * POST { action: 'set_voice', retailerId, voice }           save how a shop's posts and replies should sound (lib/voice.ts)
  *
  * There is deliberately no 'send' action. Tarkett makes first contact.
  */
@@ -84,6 +86,26 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ updated: data[0] });
       }
 
+      case 'set_voice': {
+        // Same validation as the shop's own answers at onboarding. A rep cannot
+        // enter anything a shop could not.
+        const parsed = parseVoiceProfile(body.voice);
+        if (!parsed.ok) return NextResponse.json({ error: parsed.error }, { status: 400 });
+        const { data, error } = await supabaseAdmin
+          .from('retailers')
+          .update({
+            voice_profile: isEmptyVoice(parsed.value) ? null : parsed.value,
+            voice_updated_at: new Date().toISOString(),
+            voice_updated_by: 'rep',
+          })
+          .eq('id', body.retailerId)
+          .eq('tenant_id', tenantRow.id)
+          .select('id');
+        if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+        if (!data?.length) return NextResponse.json({ error: 'Retailer not found' }, { status: 404 });
+        return NextResponse.json({ updated: { id: data[0].id, voice: parsed.value } });
+      }
+
       default:
         return NextResponse.json({ error: 'Unknown action' }, { status: 400 });
     }
@@ -96,7 +118,7 @@ export async function POST(request: NextRequest) {
 async function list(tenantId: string) {
   const { data: retailers, error } = await supabaseAdmin
     .from('retailers')
-    .select('id, source, source_ref, name, town, contact_email, user_id, score, band, delisted_at, created_at, ad_start_date, connection_status, connection_detail, connection_checked_at')
+    .select('id, source, source_ref, name, town, contact_email, user_id, score, band, delisted_at, created_at, ad_start_date, connection_status, connection_detail, connection_checked_at, voice_profile, voice_updated_at, voice_updated_by')
     .eq('tenant_id', tenantId)
     .order('name');
   if (error) throw error;
@@ -133,6 +155,9 @@ async function list(tenantId: string) {
       band: r.band,
       delisted: !!r.delisted_at,
       adStartDate: r.ad_start_date ?? null,
+      voice: readStoredVoice(r.voice_profile),
+      voiceUpdatedAt: r.voice_updated_at ?? null,
+      voiceUpdatedBy: r.voice_updated_by ?? null,
       connection: r.connection_status ? { status: r.connection_status, label: ADMIN_LABELS[r.connection_status as ConnectionStatus] ?? r.connection_status, detail: r.connection_detail, checkedAt: r.connection_checked_at, nextStep: SHOP_MESSAGES[r.connection_status as ConnectionStatus]?.nextStep ?? null } : null,
       state: status.state,
       detail: status.detail,

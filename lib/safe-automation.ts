@@ -43,6 +43,18 @@ export function holdingReply(reviewerName: string | null | undefined): string {
     "We'd like to understand more, so please contact us directly and we'll look into it.";
 }
 
+/** Lowest star rating an AI reply may ever be written for. Below it: the holding reply, or nothing. */
+export const AI_REPLY_MIN_RATING = 4;
+
+/**
+ * May an AI reply be written for a review with this rating? Only 4 and 5 stars.
+ * An unknown or unparseable rating (0, NaN) is treated as low: when in doubt,
+ * no AI reply.
+ */
+export function aiReplyAllowed(rating: number): boolean {
+  return Number.isFinite(rating) && rating >= AI_REPLY_MIN_RATING;
+}
+
 /** Does the next post for this shop need explicit approval? */
 export function requiresPostApproval(publishedPostCount: number): boolean {
   return publishedPostCount < APPROVAL_REQUIRED_POSTS;
