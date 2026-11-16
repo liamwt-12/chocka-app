@@ -10,6 +10,7 @@ import { ONBOARDING_REPLY_CAP } from '@/lib/review-intake';
 import { ukTomorrowAt } from '@/lib/post-schedule';
 import { AWAITING_APPROVAL, aiReplyAllowed } from '@/lib/safe-automation';
 import { loadVoiceForUser } from '@/lib/voice';
+import { queueOnboardingHoldingReplies } from '@/lib/onboarding-reviews';
 
 export async function POST(request: NextRequest) {
   try {
@@ -18,6 +19,9 @@ export async function POST(request: NextRequest) {
 
     const body = await request.json();
     const { description, services, categories, hours, replyToReviews, firstPost } = body;
+    // Queue holding replies for recent low-star reviews (lib/onboarding-reviews.ts).
+    // Strictly true only: a missing or odd value means no.
+    const queueLowStar = body.queueLowStar === true;
 
     const { data: userData } = await supaAdmin.from('users').select(`id, google_refresh_token, token_status, managed_by_user_id, ${MANAGER_EMBED}`).eq('id', userId).single();
     // A managed retailer (Route 1) legitimately has no token of their own — the
@@ -80,15 +84,18 @@ export async function POST(request: NextRequest) {
       } catch (e: any) { results.push({ step: 'hours', success: false, detail: e.message }); }
     }
 
-    // 5. Review replies
-    if (replyToReviews) {
+    // 5. Review replies. The reviews are read once, for both halves below.
+    let revData: any = null;
+    if (replyToReviews || queueLowStar) {
+      try { revData = await getReviews(accessToken, locName, acctId); }
+      catch (e: any) { results.push({ step: 'reviews', success: false, detail: e.message }); }
+    }
+    if (replyToReviews && revData) {
       try {
-        const revData = await getReviews(accessToken, locName, acctId);
-        // 4 and 5 stars only. Before this, onboarding wrote and published an AI
-        // reply to every unreplied review, including 1 to 3 stars, which the
-        // low-star rule (lib/safe-automation.ts) forbids everywhere else. A
-        // low-star review is now left alone here: nothing is written and
-        // nothing is published for it.
+        // 4 and 5 stars only get an AI reply. Before this, onboarding wrote and
+        // published an AI reply to every unreplied review, including 1 to 3
+        // stars, which the low-star rule (lib/safe-automation.ts) forbids
+        // everywhere else. Low-star reviews are handled separately below.
         const allUnrep = (revData.reviews || []).filter((r: any) => !r.reviewReply && aiReplyAllowed(parseStarRating(r.starRating)));
         const unrep = allUnrep.slice(0, ONBOARDING_REPLY_CAP);
         const voice = await loadVoiceForUser(supaAdmin, userId);
@@ -105,6 +112,17 @@ export async function POST(request: NextRequest) {
         }
         results.push({ step: 'reviews', success: true, detail: `${count}/${unrep.length} replied${allUnrep.length > unrep.length ? ` (${allUnrep.length} unreplied in total; capped at ${ONBOARDING_REPLY_CAP})` : ''}` });
       } catch (e: any) { results.push({ step: 'reviews', success: false, detail: e.message }); }
+    }
+
+    // 5b. 1 to 3 stars: queue the fixed holding reply for the shop to approve
+    // (lib/onboarding-reviews.ts). Nothing is published and nothing is sent;
+    // recent reviews only; capped. Separate from the step above, so a shop with
+    // only low-star reviews is still covered and neither half can undo the other.
+    if (queueLowStar && revData) {
+      try {
+        const q = await queueOnboardingHoldingReplies(supaAdmin, profile.id, revData.reviews || [], (r: any) => parseStarRating(r.starRating));
+        results.push({ step: 'lowStarHolding', success: q.failed === 0, detail: `${q.queued} holding repl${q.queued === 1 ? 'y' : 'ies'} waiting for approval; ${q.tooOld} older than the 14-day rule left alone; ${q.overCap} over the cap; ${q.alreadyHandled} already handled${q.failed ? `; ${q.failed} failed` : ''}` });
+      } catch (e: any) { results.push({ step: 'lowStarHolding', success: false, detail: e.message }); }
     }
 
     // 6. First post
