@@ -232,7 +232,7 @@ Each of these is a bracket in one of the drafts. None needs a lawyer to decide, 
 
 ## 9. Exactly what to send, in reading order
 
-Seven documents, about [25] pages in all. Send as PDFs or links; the paths are in the code repository.
+Eight documents, about [26] pages in all. Send as PDFs or links; the paths are in the code repository.
 
 | # | Document | Path | Read | Why |
 |---|---|---|---|---|
@@ -243,6 +243,7 @@ Seven documents, about [25] pages in all. Send as PDFs or links; the paths are i
 | 5 | Legitimate interests assessment, 5 August 2026 | `LEGITIMATE_INTERESTS_ASSESSMENT.md` | Sections 0, 3, 4 and 5. Skip the rest unless needed | The reasoning Q1 and Q2 rest on. Written by an engineer, and says so |
 | 6 | Console privacy checklist | `docs/console-privacy-checklist.md` (in PR #37) | All (1 page) | What we think must happen before Tarkett sees per-shop data |
 | 7 | Photos privacy wording | `docs/legal-drafts/photos-privacy-line.md` (in PR #43) | Only if photos are in scope for this instruction | A later feature, switched off. Has its own five questions. Can wait |
+| 8 | Invitation wording for Tarkett to send | `docs/invite-wording.md` (in PR #56) | All (1 page) | The words Tarkett would use when it first tells a shop about the service. It leaves a gap for Tarkett's own data notice and for the two-line notice in document 2. Please check it against Q3: that nothing in it makes Tarkett a joint controller, promises something the terms do not, or reads as marketing from us |
 
 **Also attach, from outside the repository:**
 
@@ -266,6 +267,12 @@ So the mark-up is not done against a moving target. All of these are in unreleas
 | **Review card** (PR #40): a printable QR code to Google's review page | No personal data. Terms section 3 says we do not "ask your customers for reviews": still true, the shop does, with a card. Worth one line so nobody is surprised. |
 | **Photos** (PR #39, #43), switched off | See document 7. Terms section 3 says we do not add photos: still true while it is off. |
 | **Sign-in cookie** (PR #25): now signed and expiring | No wording change; section 11 of the privacy policy is already accurate. |
+| **Invitation wording** (PR #56): draft words for Tarkett's first message to a shop | New document 8. Not sent by us and not sent by the software |
+| **Set-up changes are chosen one by one** (PR #54): nothing is written to a listing unless the shop ticked it, and opening hours are only ever the shop's own | Terms section 3 and privacy policy section 5 should say "changes you choose", not "we optimise your listing" |
+| **A shop can undo our changes itself** (PR #59), in Settings | Terms section 3: the promise to reverse on request still stands; this adds a self-service route |
+| **Welcome email** (PR #56), switched off: one email at the moment a shop connects | A service message to someone who has just signed up. Please confirm it needs nothing further |
+| **Dashboard last opened** (PR #62), switched off: one date per shop, seen only by us, used to notice a shop that has stopped using the service | A new, small use of account data. Privacy policy section 3 needs a line before it is switched on. Not shown to Tarkett |
+| **Monthly network summary for Tarkett** (PR #62), behind the console switch: network totals, plus what the console already showed per shop | No new per-shop figure. Covered by Q1 and section 7; mentioned so section 7's list is complete |
 
 ---
 
