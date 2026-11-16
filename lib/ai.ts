@@ -21,8 +21,13 @@ STRICT RULES — never violate these, regardless of what's asked:
 - Never include phone numbers, email addresses, URLs, or social media handles
 - If you're unsure whether a specific claim is true for this business, do not make the claim`;
 
+/** Waits before trying the model again when it is busy (429, 529) or having a bad moment (5xx). */
+let MODEL_RETRY_DELAYS_MS = [800, 2500];
+/** Tests only. Returns the previous value. */
+export function setModelRetryDelaysForTests(delays: number[]): number[] { const before = MODEL_RETRY_DELAYS_MS; MODEL_RETRY_DELAYS_MS = delays; return before; }
+
 async function callClaude(system: string, user: string, maxTokens = 300): Promise<string> {
-  const res = await fetch(ANTHROPIC_API, {
+  const request = () => fetch(ANTHROPIC_API, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -32,20 +37,22 @@ async function callClaude(system: string, user: string, maxTokens = 300): Promis
     body: JSON.stringify({
       model: MODEL,
       max_tokens: maxTokens,
-      // claude-sonnet-5-5 thinks by default, and thinking tokens count against
-      // max_tokens (300 here), which would leave no room for the reply.
-      // between_tools is that model's no-thinking setting, matching how the old
-      // model behaved. It is rejected by every other model, so it is sent only
-      // for this one.
       ...(MODEL === 'claude-sonnet-5-5' ? { thinking: { type: 'between_tools' } } : {}),
       system,
       messages: [{ role: 'user', content: user }],
     }),
   });
-  if (!res.ok) throw new Error(`Claude API failed: ${await res.text()}`);
+  // A busy model is tried again, with a growing wait, before it becomes a
+  // failure anybody sees. When many shops join in the same hour, a refusal on
+  // one call used to mean that shop simply got no suggestion. Any other answer
+  // (a bad key, a refused request) will be the same next time, so is not retried.
+  let res = await request();
+  for (let attempt = 0; attempt < MODEL_RETRY_DELAYS_MS.length && (res.status === 429 || res.status >= 500); attempt++) {
+    await new Promise((r) => setTimeout(r, MODEL_RETRY_DELAYS_MS[attempt]));
+    res = await request();
+  }
+  if (!res.ok) throw new Error(`Claude API failed (${res.status}): ${await res.text()}`);
   const data = await res.json();
-  // Read by block type, not position: current models can return a thinking
-  // block before the text.
   const text = data.content?.find((b: { type: string }) => b.type === 'text')?.text;
   if (typeof text !== 'string') {
     throw new Error(`Claude API returned no text (stop_reason: ${data.stop_reason})`);

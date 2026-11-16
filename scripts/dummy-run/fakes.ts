@@ -24,7 +24,13 @@ export interface FakeListing {
   upliftFrom: string | null;
 }
 
-export interface Persona { key: string; email: string; name: string; listings: FakeListing[] }
+export interface Persona {
+  key: string; email: string; name: string; listings: FakeListing[];
+  /** The person left the business-listings box unticked on Google's screen. */
+  scopeUnticked?: boolean;
+  /** Google has withdrawn our permission (password change, removed in Google). */
+  tokenRevoked?: boolean;
+}
 
 export const PER_DAY = {
   BUSINESS_IMPRESSIONS_DESKTOP_SEARCH: 10, BUSINESS_IMPRESSIONS_MOBILE_SEARCH: 10,
@@ -115,9 +121,10 @@ function fakeGoogle(world: World, url: string, init?: RequestInit): Response {
     const refresh = form.get('refresh_token');
     const key = code?.startsWith('code-') ? code.slice(5) : refresh?.startsWith('rt-') ? refresh.slice(3) : null;
     if (!key || !world.personas[key]) return json({ error: 'invalid_grant' }, 400);
+    if (refresh && world.personas[key].tokenRevoked) return json({ error: 'invalid_grant', error_description: 'Token has been expired or revoked.' }, 400);
     return json({
       access_token: `at-${key}`, expires_in: 3600, token_type: 'Bearer',
-      scope: 'openid email profile https://www.googleapis.com/auth/business.manage',
+      scope: world.personas[key].scopeUnticked ? 'openid email profile' : 'openid email profile https://www.googleapis.com/auth/business.manage',
       ...(code ? { refresh_token: `rt-${key}` } : {}),
     });
   }
@@ -142,6 +149,13 @@ function fakeGoogle(world: World, url: string, init?: RequestInit): Response {
   if (u.host === 'mybusinessbusinessinformation.googleapis.com') {
     const p = personaFromAuth(world, init);
     if (!p) return googleError(401, 'UNAUTHENTICATED', 'no token');
+    if (path === '/v1/categories') {
+      // Google's own list of categories, looked up by display name.
+      const want = (/displayName=(.+)$/.exec(u.searchParams.get('filter') || '') || [])[1]?.trim() || '';
+      const known: Record<string, string> = { 'carpet store': 'gcid:carpet_store', 'flooring contractor': 'gcid:flooring_contractor', 'flooring shop': 'gcid:flooring_store' };
+      const id = known[want.toLowerCase()];
+      return json({ categories: id ? [{ name: `categories/${id}`, displayName: want }] : [] });
+    }
     const list = /^\/v1\/(accounts\/[^/]+)\/locations$/.exec(path);
     if (list) return json({ locations: p.listings.filter((l) => l.account === list[1]).map((l) => l.location) });
 
@@ -154,6 +168,7 @@ function fakeGoogle(world: World, url: string, init?: RequestInit): Response {
       return json({ attributes: [] });
     }
     if (method === 'GET') return json(l.location);
+    if (method === 'PATCH' && (l as any).refuseWrites) return googleError(403, 'PERMISSION_DENIED', 'The caller does not have permission');
     if (method === 'PATCH') {
       const mask = (u.searchParams.get('updateMask') || '').split(',').map((s) => s.trim().split('.')[0]).filter(Boolean);
       const body = JSON.parse(bodyText(init) || '{}');

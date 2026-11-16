@@ -30,7 +30,7 @@ vi.mock('./google', () => ({
 }));
 
 import {
-  applyDescription, applyServices, applyCategories, applyHours, applyReply, scheduleFirstPost, measureListing, applySpecialHours, applyWebsite, cleanWebsite,
+  applyDescription, applyServices, applyCategories, applyHours, applyReply, scheduleFirstPost, measureListing, applySpecialHours, applyWebsite, cleanWebsite, applyReplies, REPLIES_PER_REQUEST,
   plainProblem, descriptionProblem, reviewsNeedingReply, cleanNames, DESCRIPTION_MAX, type FixContext,
 } from './listing-fixes';
 import { DAYS } from './opening-hours';
@@ -248,6 +248,29 @@ describe('one reply at a time', () => {
     G.refuse = { status: 429, googleStatus: 'RESOURCE_EXHAUSTED' };
     const r = await applyReply(c, 'r1', text);
     expect(r).toMatchObject({ ok: false, retryable: true });
+  });
+
+  it('a batch reads the reviews once, posts each reply on its own, and reports each on its own', async () => {
+    const google = await import('./google');
+    (google.getReviews as any).mockClear();
+    G.reviews = [rev('g1', 'FIVE'), rev('g2', 'FOUR'), rev('low', 'TWO'), rev('mine', 'FIVE', 'the shop already answered')];
+    const out = await applyReplies(c, [{ reviewId: 'g1', text }, { reviewId: 'g2', text }, { reviewId: 'low', text }, { reviewId: 'mine', text }, { reviewId: 'gone', text }]);
+    expect(out.map((r) => [r.reviewId, r.ok])).toEqual([['g1', true], ['g2', true], ['low', false], ['mine', false], ['gone', false]]);
+    expect((google.getReviews as any).mock.calls).toHaveLength(1);
+    expect(G.reviews.find((r) => r.reviewId === 'low').reviewReply).toBeUndefined();
+    expect(G.reviews.find((r) => r.reviewId === 'mine').reviewReply.comment).toBe('the shop already answered');
+    expect(db.tables.change_log).toHaveLength(2);
+  });
+
+  it('a batch is capped, is safe to send twice, and one refusal does not stop the rest', async () => {
+    G.reviews = Array.from({ length: 8 }, (_, i) => rev(`r${i}`, 'FIVE'));
+    const all = G.reviews.map((r) => ({ reviewId: r.reviewId, text }));
+    const first = await applyReplies(c, all);
+    expect(first).toHaveLength(REPLIES_PER_REQUEST);
+    const again = await applyReplies(c, all);
+    expect(again.every((r) => r.ok)).toBe(true);
+    expect(db.tables.change_log).toHaveLength(REPLIES_PER_REQUEST); // nothing posted twice
+    expect(await applyReplies(c, 'nonsense')).toEqual([]);
   });
 
   it('reviewsNeedingReply: good, unanswered, capped, and says how many there were', () => {

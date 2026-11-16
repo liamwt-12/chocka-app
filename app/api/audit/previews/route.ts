@@ -86,14 +86,23 @@ export async function POST(request: NextRequest) {
     const lowStarUnreplied = (reviews.reviews || []).filter((r: any) => !r.reviewReply && !aiReplyAllowed(parseStarRating(r.starRating))).length;
     const reviewPreview = unreplied.length > 0 ? { totalUnreplied: Math.min(unreplied.length, ONBOARDING_REPLY_CAP), totalFound: unreplied.length } : null;
 
+    // Which suggestions were wanted and could not be written. Without this the
+    // screen cannot tell "your listing needs nothing" from "we could not write
+    // anything just now", and used to say the first when it meant the second.
+    const wanted: Array<[string, unknown]> = [['description', description], ['services', servicesList], ['firstPost', firstPost], ['categories', catSuggestions]];
+    const failed = wanted.filter(([key, value]) => audit.fixes.some((f) => f.key === key) && (value === null || (Array.isArray(value) && value.length === 0))).map(([key]) => key);
+
     return NextResponse.json({
       previews: { description, services: servicesList, firstPost, categories: catSuggestions, reviewPreview, lowStarUnreplied },
+      failed,
     });
   } catch (error: any) {
     console.error('Preview generation error:', error);
     // Never 500 — return empty previews so the UI degrades gracefully
     return NextResponse.json({
       previews: { description: null, services: null, firstPost: null, categories: null, reviewPreview: null },
+      failed: ['description', 'services', 'firstPost', 'categories'],
+      problem: 'We could not read your listing just now.',
     });
   }
 }

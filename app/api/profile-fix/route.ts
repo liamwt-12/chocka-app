@@ -5,7 +5,7 @@ import { decryptSecret, userTokenAad } from '@/lib/secrets';
 import { resolveAccess, MANAGER_EMBED } from '@/lib/managed-access';
 import { getSessionUserId } from '@/lib/session';
 import {
-  applyDescription, applyServices, applyCategories, applyHours, applySpecialHours, applyWebsite, applyReply, queueLowStar, scheduleFirstPost,
+  applyDescription, applyServices, applyCategories, applyHours, applySpecialHours, applyWebsite, applyReply, applyReplies, queueLowStar, scheduleFirstPost,
   measureListing, plainProblem, STEPS, type FixContext, type FixStep, type StepResult,
 } from '@/lib/listing-fixes';
 import { manualGaps } from '@/lib/audit';
@@ -21,6 +21,7 @@ import { manualGaps } from '@/lib/audit';
  *   POST { step: 'holidayHours', days: SpecialDay[] }   dates closed or open different hours; [] clears
  *   POST { step: 'website', url }                        the shop's own web address
  *   POST { step: 'reply', reviewId, text }               one reply the shop has read
+ *   POST { step: 'replies', replies: [{ reviewId, text }] }  up to five of them; answers one result per reply
  *   POST { step: 'lowStar' }                              queue holding replies for approval; posts nothing
  *   POST { step: 'firstPost', text }
  *   POST { step: 'finish' }                               re-score from Google; mark setup as done
@@ -34,8 +35,8 @@ export async function POST(request: NextRequest) {
 
   let body: any;
   try { body = await request.json(); } catch { return NextResponse.json({ error: 'Bad request' }, { status: 400 }); }
-  const step = body?.step as FixStep | 'finish';
-  if (step !== 'finish' && !STEPS.includes(step as FixStep)) {
+  const step = body?.step as FixStep | 'finish' | 'replies';
+  if (step !== 'finish' && step !== 'replies' && !STEPS.includes(step as FixStep)) {
     return NextResponse.json({ error: 'Unknown step', code: 'unknown_step' }, { status: 400 });
   }
 
@@ -56,7 +57,7 @@ export async function POST(request: NextRequest) {
       // Google being busy is not a lost connection (lib/google.ts isDeadGrant).
       if (!isDeadGrant(e)) {
         const p = plainProblem({ status: 503, message: String((e as any)?.message) });
-        return NextResponse.json({ result: { step, ok: false, message: p.message, nextStep: p.nextStep, retryable: true } });
+        return NextResponse.json({ result: { step, ok: false, message: p.message, nextStep: p.nextStep, retryable: true }, results: [] });
       }
       await supaAdmin.from('users').update({ token_status: 'invalid', token_invalid_at: new Date().toISOString() }).eq('id', access.aadUserId);
       return NextResponse.json({ error: 'Google not connected', code: 'google_disconnected' }, { status: 400 });
@@ -78,6 +79,13 @@ export async function POST(request: NextRequest) {
         scoreAtActivation: profile.audit_score ?? null,
         measured: measured ? { score: measured.audit.score, band: measured.audit.band, items: measured.audit.items, manual: manualGaps(measured.audit) } : null,
       });
+    }
+
+    if (step === 'replies') {
+      // A few replies in one request; each is still posted and reported on its own.
+      const results = await applyReplies(ctx, body.replies);
+      console.log(`[profile-fix] user ${userId} replies: ${results.filter((r) => r.ok).length} of ${results.length} done and checked`);
+      return NextResponse.json({ results });
     }
 
     let result: StepResult;

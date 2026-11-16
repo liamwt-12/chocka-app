@@ -73,7 +73,15 @@ function plainSkip(reason: string): string {
   return 'There is not enough on record to undo this safely. Check the listing by hand in Google.';
 }
 
-const same = (a: unknown, b: unknown) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
+/**
+ * The same value, whatever order its keys come in. The database stores a
+ * logged value with its keys reordered, and Google returns them in its own
+ * order, so comparing the text of the two would call identical values
+ * different (found by the staging run: an undo was refused as "changed since"
+ * when nothing had changed).
+ */
+const canon = (v: unknown): string => JSON.stringify(v ?? null, (_k, x) => (x && typeof x === 'object' && !Array.isArray(x) ? Object.fromEntries(Object.keys(x).sort().map((k) => [k, (x as any)[k]])) : x));
+export const same = (a: unknown, b: unknown) => canon(a) === canon(b);
 
 /**
  * Undo one logged change. `confirm: false` only says what would happen.

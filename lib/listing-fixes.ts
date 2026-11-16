@@ -280,7 +280,7 @@ export function replyProblem(text: string): string | null {
  * Post one reply the shop has seen, to one review. Safe to repeat: a review
  * that already has a reply is left exactly as it is.
  */
-export async function applyReply(c: FixContext, reviewId: unknown, text: unknown): Promise<StepResult> {
+export async function applyReply(c: FixContext, reviewId: unknown, text: unknown, alreadyRead?: any[]): Promise<StepResult> {
   const g = c.g ?? google;
   const id = typeof reviewId === 'string' ? reviewId : '';
   const t = typeof text === 'string' ? text.trim() : '';
@@ -288,8 +288,8 @@ export async function applyReply(c: FixContext, reviewId: unknown, text: unknown
   const problem = replyProblem(t);
   if (problem) return refused('reply', problem, 'Change the wording, or leave this one for now.');
   try {
-    const data = await g.getReviews(c.accessToken, c.profile.google_location_name, c.profile.google_account_id || undefined);
-    const rev = (data.reviews || []).find((r: any) => (r.reviewId || r.name) === id);
+    const reviews = alreadyRead ?? (await g.getReviews(c.accessToken, c.profile.google_location_name, c.profile.google_account_id || undefined)).reviews ?? [];
+    const rev = reviews.find((r: any) => (r.reviewId || r.name) === id);
     if (!rev) return refused('reply', 'That review is no longer on your listing.', 'Nothing was posted.');
     const rating = g.parseStarRating(rev.starRating);
     // Never an unattended reply to a 1 to 3 star review, whatever was sent here.
@@ -311,6 +311,33 @@ export async function applyReply(c: FixContext, reviewId: unknown, text: unknown
     if (error) console.error(`[listing-fixes] replied to review ${id} but could not record it: ${error.message}`);
     return { step: 'reply', ok: true, message: `Your reply to ${name} is on your listing.` };
   } catch (e) { return failed('reply', e); }
+}
+
+/** How many replies one request may post. Small, so no request runs long. */
+export const REPLIES_PER_REQUEST = 5;
+
+/**
+ * Post a few replies in one request: the reviews are read from Google once and
+ * each reply is then posted and reported on its own. This is what the screen
+ * uses; it makes far fewer requests to Google than one reply per request, which
+ * matters when many shops join at once. Each reply still succeeds or fails by
+ * itself, and the whole thing is safe to send twice.
+ */
+export async function applyReplies(c: FixContext, items: unknown): Promise<Array<StepResult & { reviewId: string }>> {
+  const g = c.g ?? google;
+  const list = (Array.isArray(items) ? items : []).slice(0, REPLIES_PER_REQUEST).map((x: any) => ({ reviewId: typeof x?.reviewId === 'string' ? x.reviewId : '', text: x?.text }));
+  if (!list.length) return [];
+  let reviews: any[];
+  try { reviews = (await g.getReviews(c.accessToken, c.profile.google_location_name, c.profile.google_account_id || undefined)).reviews || []; }
+  catch (e) { return list.map((x) => ({ ...failed('reply', e), reviewId: x.reviewId })); }
+  const out: Array<StepResult & { reviewId: string }> = [];
+  for (const x of list) {
+    const r = await applyReply(c, x.reviewId, x.text, reviews);
+    // Keep the copy in hand in step with what was just posted, so a repeat within the batch is seen as done.
+    if (r.ok) { const rev = reviews.find((y: any) => (y.reviewId || y.name) === x.reviewId); if (rev && !rev.reviewReply) rev.reviewReply = { comment: String(x.text).trim() }; }
+    out.push({ ...r, reviewId: x.reviewId });
+  }
+  return out;
 }
 
 /** The good reviews with no reply yet, newest first, up to the cap. What the shop is shown drafts for. Pure. */

@@ -14,7 +14,7 @@ vi.mock('./google', () => ({
   createLocalPost: vi.fn(), createLocationMedia: vi.fn(),
 }));
 
-import { undoChange, describeChange, summarise } from './revert';
+import { undoChange, describeChange, summarise, same } from './revert';
 
 function fakeDb(rows: any[]) {
   const t: Record<string, any[]> = { change_log: rows, profiles: [{ id: 'p1', user_id: 'u1' }], users: [{ id: 'u1', google_refresh_token: 'v1.x', token_status: 'valid' }], reviews: [] };
@@ -82,6 +82,20 @@ describe('undoing a field', () => {
     expect(r.message).toMatch(/^Would put description back/);
     expect(G.location.profile.description).toBe('new words');
     expect(db.t.change_log).toHaveLength(1);
+  });
+});
+
+describe('comparing what Google holds with what was logged', () => {
+  it('key order does not matter: the database and Google order keys differently', () => {
+    expect(same({ specialHours: { specialHourPeriods: [{ startDate: { year: 2026, month: 12, day: 25 }, closed: true }] } }, { specialHours: { specialHourPeriods: [{ closed: true, startDate: { day: 25, month: 12, year: 2026 } }] } })).toBe(true);
+    expect(same({ a: [1, 2] }, { a: [2, 1] })).toBe(false); // the order of a list does matter
+    expect(same({}, undefined)).toBe(false);
+    expect(same(null, undefined)).toBe(true);
+  });
+  it('an undo is not refused as "changed since" because of key order alone', async () => {
+    G.location = { regularHours: { periods: [{ closeTime: { hours: 17 }, closeDay: 'MONDAY', openTime: { hours: 9 }, openDay: 'MONDAY' }] } };
+    const db = fakeDb([change({ action: 'update_location', target: 'regularHours', before_value: {}, after_value: { regularHours: HOURS } })]);
+    expect((await undoChange(db, 'c1', { confirm: true })).ok).toBe(true);
   });
 });
 

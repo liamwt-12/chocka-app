@@ -99,6 +99,9 @@ export default function ImproveListing({ audit, hours, manual, offerLowStar, wor
   const [moreFound, setMoreFound] = useState(0);
   const draftsRef = useRef<Draft[]>([]);
 
+  // Suggestions that were wanted and could not be written (the model was busy).
+  const [notWritten, setNotWritten] = useState<string[]>([]);
+  const [attempt, setAttempt] = useState(0);
   const [jobs, setJobs] = useState<Job[]>([]);
   const [measured, setMeasured] = useState<{ score: number; band: string; manual: ManualGap[] } | null>(null);
   const [before, setBefore] = useState<number | null>(null);
@@ -109,21 +112,22 @@ export default function ImproveListing({ audit, hours, manual, offerLowStar, wor
     (async () => {
       try {
         const res = await fetch('/api/audit/previews', { method: 'POST' });
-        const d = res.ok ? await res.json() : { previews: {} };
+        const d = res.ok ? await res.json() : { previews: {}, failed: ['description', 'services', 'firstPost', 'categories'] };
         if (dead) return;
+        setNotWritten((d.failed || []).filter((k: string) => has(k)));
         const p = d.previews || {};
         if (p.description && has('description')) { setDesc(p.description); setDescOn(true); }
         if (p.services?.length && has('services')) { setSvcs(p.services); setSvcsOn(true); }
         if (p.categories?.length && has('categories')) { setCats(p.categories); setCatsOn(true); }
         if (p.firstPost && has('firstPost')) { setPost(p.firstPost); setPostOn(true); }
         if (p.lowStarUnreplied && offerLowStar) { setLowStar(p.lowStarUnreplied); setLowOn(true); }
-      } catch { /* nothing drafted: nothing offered */ }
+      } catch { if (!dead) setNotWritten(['description', 'services', 'firstPost', 'categories'].filter(has)); }
       if (!dead) setLoading(false);
-      if (has('reviews')) loadDrafts(() => dead);
+      if (has('reviews') && attempt === 0) loadDrafts(() => dead);
     })();
     return () => { dead = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [attempt]);
 
   // Drafts arrive three at a time, so a shop with twenty reviews is never left
   // waiting on one long request, and can start reading at once.
@@ -187,14 +191,42 @@ export default function ImproveListing({ audit, hours, manual, offerLowStar, wor
     setStage('results');
   }
 
+  /** Replies are sent a few at a time (the server reads the reviews once per batch) and each gets its own result. */
+  async function runReplyBatch(batch: Job[]): Promise<Job[]> {
+    try {
+      const res = await fetch('/api/profile-fix', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ step: 'replies', replies: batch.map((j) => ({ reviewId: j.body.reviewId, text: j.body.text })) }) });
+      const d = await res.json().catch(() => null);
+      const byId = new Map<string, StepResult>((d?.results || []).map((r: any) => [r.reviewId, r]));
+      const lost = d?.code === 'google_disconnected' || d?.code === 'not_authenticated';
+      return batch.map((j) => {
+        const r = byId.get(String(j.body.reviewId));
+        if (r) return { ...j, state: r.ok ? 'done' as const : 'failed' as const, result: r };
+        return { ...j, state: 'failed' as const, result: d?.result ?? { step: j.id, ok: false, message: lost ? 'We have lost the connection to your Google account.' : 'We could not post this reply.', nextStep: lost ? 'Sign in with Google again, then come back to this.' : 'Press "Try again".', retryable: !lost } };
+      });
+    } catch {
+      return batch.map((j) => ({ ...j, state: 'failed' as const, result: { step: j.id, ok: false, message: 'We could not reach our own server.', nextStep: 'Check your signal and press "Try again".', retryable: true } }));
+    }
+  }
+
   async function start() {
     const list = buildJobs();
     setJobs(list); setStage('working');
     window.scrollTo(0, 0);
     const out = [...list];
-    for (let i = 0; i < out.length; i++) {
+    for (let i = 0; i < out.length;) {
+      if (out[i].body.step === 'reply') {
+        // The run of replies starting here, five at a time.
+        let n = 0; while (i + n < out.length && n < 5 && out[i + n].body.step === 'reply') n++;
+        for (let k = 0; k < n; k++) out[i + k] = { ...out[i + k], state: 'working' };
+        setJobs([...out]);
+        const done = await runReplyBatch(out.slice(i, i + n));
+        for (let k = 0; k < n; k++) out[i + k] = done[k];
+        setJobs([...out]); i += n;
+        continue;
+      }
       out[i] = { ...out[i], state: 'working' }; setJobs([...out]);
       out[i] = await runJob(out[i]); setJobs([...out]);
+      i++;
     }
     await finish();
   }
@@ -293,7 +325,8 @@ export default function ImproveListing({ audit, hours, manual, offerLowStar, wor
   }
 
   /* ── CHOOSE ── */
-  const nothingToOffer = !loading && !desc && !svcs.length && !cats.length && !post && !has('hours') && !has('reviews') && !lowStar;
+  const nothingToOffer = !loading && !notWritten.length && !desc && !svcs.length && !cats.length && !post && !has('hours') && !has('reviews') && !lowStar;
+  const NAMES: Record<string, string> = { description: 'a description', services: 'a list of services', firstPost: 'a first post', categories: 'extra categories' };
   return (
     <div style={wrap}><div style={box}>
       {logo}
@@ -375,6 +408,14 @@ export default function ImproveListing({ audit, hours, manual, offerLowStar, wor
         <Section title="Your first post" on={postOn} onChange={setPostOn} note="Goes up tomorrow at about 10am. You can cancel it from your dashboard before then.">
           <textarea value={post} onChange={(e) => setPost(e.target.value)} rows={4} style={area} aria-label="Your first post" />
         </Section>
+      )}
+
+      {!loading && notWritten.length > 0 && (
+        <div style={{ ...card, background: V.amberLight }} role="status">
+          <div style={{ fontSize: 16, fontWeight: 600 }}>We could not write everything just now</div>
+          <p style={{ fontSize: 14, color: V.mid, margin: '4px 0 10px' }}>We wanted to suggest {notWritten.map((k) => NAMES[k] || k).join(', ').replace(/, ([^,]*)$/, ' and $1')}, but the writing service was busy. Nothing is wrong with your listing. You can carry on with what is shown, or try again.</p>
+          <button onClick={() => { setLoading(true); setAttempt((n) => n + 1); }} style={{ ...btn, width: 'auto', padding: '10px 16px', fontSize: 14 }}>Try again</button>
+        </div>
       )}
 
       {nothingToOffer && <div style={card}><p style={{ fontSize: 15, color: V.mid, margin: 0 }}>There is nothing here we would change for you. Your listing already has the things we can fill in.</p></div>}

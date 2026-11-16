@@ -56,6 +56,8 @@ async function main() {
   if (!confirm) { console.log('\nDRY RUN: nothing written. Re-run with --confirm to write these to Google.'); return; }
 
   for (const row of rows) {
+    // Already listed above as SKIP, with the reason: nothing to attempt.
+    if (!describeChange(row as any).canUndo) continue;
     const r = await undoChange(db as any, row.id, { confirm: true, allowLaterEdits });
     console.log(`  ${r.ok ? '✓' : '✗'} ${row.id}: ${r.message}${r.detail ? ` (${r.detail})` : ''}`);
   }
