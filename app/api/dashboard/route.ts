@@ -5,6 +5,8 @@ import { decryptSecret, userTokenAad } from '@/lib/secrets';
 import { resolveAccess, MANAGER_EMBED } from '@/lib/managed-access';
 import { getSessionUserId } from '@/lib/session';
 import { SHOP_MESSAGES } from '@/lib/ownership';
+import { generateReviewHash } from '@/lib/cron';
+import { pendingRepliesForDashboard, type PendingReplyRow } from '@/lib/onboarding-reviews';
 
 export async function GET(request: NextRequest) {
   try {
@@ -165,7 +167,24 @@ export async function GET(request: NextRequest) {
       .eq('user_id', userId)
       .maybeSingle();
 
+    // Review replies waiting for the shop's approval: holding replies for low-star
+    // reviews, from onboarding or from the daily check. Shown on the dashboard so
+    // approving never depends on an email arriving. A failure here just means
+    // the card is not shown.
+    let pendingReplies: ReturnType<typeof pendingRepliesForDashboard> = [];
+    if (profile?.id) {
+      const { data: pendingRows, error: pendingErr } = await supabaseAdmin
+        .from('review_replies')
+        .select('id, reply_content, reviews!inner ( id, profile_id, reviewer_name, rating, comment, review_date )')
+        .eq('status', 'pending')
+        .eq('reviews.profile_id', profile.id)
+        .limit(10);
+      if (pendingErr) console.error('[dashboard] pending replies failed:', pendingErr.message);
+      else pendingReplies = pendingRepliesForDashboard((pendingRows || []) as unknown as PendingReplyRow[], generateReviewHash);
+    }
+
     return NextResponse.json({
+      pendingReplies,
       retailer: retailer ?? null,
       // Plain-English status for invited shops that are not fully connected yet.
       connection: retailer?.connection_status && ['check_listing', 'waiting_google'].includes(retailer.connection_status)
