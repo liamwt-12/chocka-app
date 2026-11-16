@@ -4,6 +4,7 @@ import { getTenantBySlug } from '@/lib/tenant';
 import { MANAGER_EMBED, resolveAccess } from '@/lib/managed-access';
 import { ADMIN_LABELS, SHOP_MESSAGES, type ConnectionStatus } from '@/lib/ownership';
 import { shopPhotosEnabled } from '@/lib/shop-photos';
+import { googleReviewLink, reviewPlaceId, reviewCardPath } from '@/lib/review-link';
 import { parseVoiceProfile, readStoredVoice, isEmptyVoice } from '@/lib/voice';
 import {
   verifyAdminAuth, validateNewRetailer, pilotStatus, mintInvites, parseAdStartDate,
@@ -119,7 +120,7 @@ export async function POST(request: NextRequest) {
 async function list(tenantId: string) {
   const { data: retailers, error } = await supabaseAdmin
     .from('retailers')
-    .select('id, source, source_ref, name, town, contact_email, user_id, score, band, delisted_at, created_at, ad_start_date, connection_status, connection_detail, connection_checked_at, voice_profile, voice_updated_at, voice_updated_by')
+    .select('id, source, source_ref, name, town, contact_email, user_id, place_id, score, band, delisted_at, created_at, ad_start_date, connection_status, connection_detail, connection_checked_at, voice_profile, voice_updated_at, voice_updated_by')
     .eq('tenant_id', tenantId)
     .order('name');
   if (error) throw error;
@@ -136,7 +137,7 @@ async function list(tenantId: string) {
   const { data: users } = userIds.length
     ? await supabaseAdmin
         .from('users')
-        .select(`id, created_at, onboarding_step, google_refresh_token, token_status, managed_by_user_id, ${MANAGER_EMBED}, profiles ( google_location_name )`)
+        .select(`id, created_at, onboarding_step, google_refresh_token, token_status, managed_by_user_id, ${MANAGER_EMBED}, profiles ( google_location_name, google_place_id )`)
         .in('id', userIds)
     : { data: [] as any[] };
   const userById = new Map<string, PilotUser>((users || []).map((u: any) => [u.id, u]));
@@ -158,6 +159,10 @@ async function list(tenantId: string) {
   const out = rows.map((r: any) => {
     const user = r.user_id ? userById.get(r.user_id) ?? null : null;
     const status = pilotStatus(r, user, (invites || []).filter((i: any) => i.retailer_id === r.id) as PilotInvite[], now);
+    // The shop's Google review link (lib/review-link.ts): from the listing it
+    // has connected if there is one, otherwise from Tarkett's store list.
+    const place = reviewPlaceId({ connected: user?.profiles?.[0]?.google_place_id, baseline: r.place_id });
+    const reviewLink = place ? googleReviewLink(place.placeId) : null;
     return {
       id: r.id,
       name: r.name,
@@ -173,6 +178,7 @@ async function list(tenantId: string) {
       voiceUpdatedAt: r.voice_updated_at ?? null,
       voiceUpdatedBy: r.voice_updated_by ?? null,
       photos: photoCounts.get(r.id) ?? null,
+      review: reviewLink && place ? { link: reviewLink, cardPath: reviewCardPath(r.id), source: place.source } : null,
       connection: r.connection_status ? { status: r.connection_status, label: ADMIN_LABELS[r.connection_status as ConnectionStatus] ?? r.connection_status, detail: r.connection_detail, checkedAt: r.connection_checked_at, nextStep: SHOP_MESSAGES[r.connection_status as ConnectionStatus]?.nextStep ?? null } : null,
       state: status.state,
       detail: status.detail,
