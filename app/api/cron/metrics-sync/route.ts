@@ -4,7 +4,7 @@ import { verifyCronSecret, unauthorizedResponse, getActiveUsersWithProfiles } fr
 import { refreshAccessToken, fetchDailyMetrics } from '@/lib/google';
 import { decryptSecret, userTokenAad } from '@/lib/secrets';
 import { resolveAccess } from '@/lib/managed-access';
-import { syncDailyMetrics, pickProfilesToSync } from '@/lib/metrics';
+import { syncDailyMetrics, pickProfilesToSync, markSyncAttemptFailed } from '@/lib/metrics';
 
 /**
  * Hourly: keep daily_metrics current, and pull the ~18-month history for any
@@ -36,6 +36,8 @@ export async function GET(request: NextRequest) {
         synced++;
       } catch (e: any) {
         failed++;
+        // So it takes its turn next time instead of going first for ever.
+        await markSyncAttemptFailed(supabaseAdmin, profile.id);
         console.error(`[cron:metrics-sync] profile ${profile.id} failed: ${String(e?.message).slice(0, 300)}`);
       }
     }

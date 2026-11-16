@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
 import { verifyCronSecret, unauthorizedResponse } from '@/lib/cron';
-import { refreshAccessToken } from '@/lib/google';
+import { refreshAccessToken, isDeadGrant } from '@/lib/google';
 import { loggedCreatePost } from '@/lib/change-log';
 import { sendSMS, logSMS } from '@/lib/twilio';
 import { getTenantForRow } from '@/lib/tenant';
@@ -149,7 +149,9 @@ export async function GET(request: NextRequest) {
         console.error(`Post publish failed for post ${post.id}:`, err);
 
         // Check if it's a token error
-        if (err.message?.includes('Token refresh failed') || err.message?.includes('401')) {
+        // A dead grant, or Google refusing the token outright (401). A 429 or 5xx
+        // on the refresh is NOT this: the connection is fine and the post is retried.
+        if (isDeadGrant(err) || (!err.message?.includes('Token refresh failed') && err.message?.includes('401'))) {
           // Against the row the credential lives on, NOT necessarily this user.
           // For a managed retailer the dead token is the operator's, and marking
           // the retailer invalid would flag every shop in the estate as broken

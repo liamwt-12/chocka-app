@@ -1,12 +1,14 @@
 import { randomUUID } from 'crypto';
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
-import { exchangeCodeForTokens, getManageableListings, getGoogleAuthUrl } from '@/lib/google';
+import { exchangeCodeForTokens, getManageableListings, getGoogleAuthUrl, type Listing } from '@/lib/google';
 import { getTenantBySlug } from '@/lib/tenant';
 import { PRIMARY_TENANT_SLUG } from '@/lib/tenant-registry';
 import { encryptSecret, isEncrypted, userTokenAad } from '@/lib/secrets';
 import { parseInviteRef } from '@/lib/invite-token';
-import { detectOwnership, type ConnectionStatus } from '@/lib/ownership';
+import { detectOwnership, type ConnectionStatus, type OwnershipResult } from '@/lib/ownership';
+import { releaseStaleClaim } from '@/lib/connection-reset';
+import { helpPath, type HelpReason } from '@/lib/connect-help';
 import { setSessionCookie } from '@/lib/session';
 
 export async function GET(request: NextRequest) {
@@ -32,6 +34,21 @@ export async function GET(request: NextRequest) {
   // fallback that local dev relies on when NEXT_PUBLIC_APP_URL is unset.
   const baseUrl =
     tenant.slug === 'stellar' ? tenant.appUrl : process.env.NEXT_PUBLIC_APP_URL || request.url;
+
+  // Step 0: Google sent the shop back WITHOUT a code. That is a refusal (the
+  // shop pressed Cancel) or an error on Google's side. This used to fall into
+  // the branch below and bounce the shop straight back to Google's screen,
+  // with the invite dropped from the state, so that pressing Continue there
+  // ended in "invite-only". Now the shop is told what happened and offered a
+  // way back in that still carries its invite.
+  const googleRefusal = searchParams.get('error');
+  if (!code && googleRefusal) {
+    const invite = inviteFromState(searchParams.get('state'));
+    const why: HelpReason = googleRefusal === 'access_denied' ? 'cancelled' : 'google_error';
+    console.warn(`[auth] Google returned error=${googleRefusal}; tenant=${tenant.slug}; invite=${invite ? 'present' : 'absent'}`);
+    await noteConnectIssue(invite, why === 'cancelled' ? 'pressed Cancel on Google\'s permission screen' : `Google returned an error at sign-in (${googleRefusal.slice(0, 40)})`);
+    return NextResponse.redirect(new URL(helpPath(why, invite), baseUrl));
+  }
 
   // Step 1: No code yet — redirect to Google consent
   if (!code) {
@@ -72,7 +89,12 @@ export async function GET(request: NextRequest) {
           `scope field ${field}; ${granted.length} scope(s) granted: ${JSON.stringify(granted)}; ` +
           `tenant=${tenant.slug}; state=${searchParams.get('state') ? 'present' : 'absent'}`,
       );
-      return NextResponse.redirect(new URL('/login?error=scope_missing', baseUrl));
+      const invite = inviteFromState(searchParams.get('state'));
+      await noteConnectIssue(invite, 'signed in, but left the Business Profile box unticked on Google\'s screen');
+      await revokeQuietly(tokens.refresh_token || tokens.access_token);
+      // An invited shop goes to the help page, which explains the box and sends
+      // it back through its own invite. Anyone else gets the sign-in page as before.
+      return NextResponse.redirect(new URL(invite ? helpPath('unticked', invite) : '/login?error=scope_missing', baseUrl));
     }
 
     // The positive counterpart. Cheap, and it means a live log stream shows the
@@ -184,6 +206,7 @@ export async function GET(request: NextRequest) {
         dest = result === 'onboarding' ? (existingUser.onboarding_step === 'complete' ? '/dashboard' : '/onboarding')
              : result === 'select' ? '/onboarding?select=1'
              : result === 'connect_failed' ? '/onboarding?connect=failed'
+             : parsedState.invite ? helpPath('no_listing', parsedState.invite)
              : '/no-profile';
       }
 
@@ -215,6 +238,15 @@ export async function GET(request: NextRequest) {
     // Chocka is untouched: the condition is tenant-scoped, and Chocka has no
     // invite concept at all.
     if (tenant.slug === 'stellar') {
+      // If this shop is held by an earlier sign-in that never reached a listing
+      // (the wrong Google account), clear that first, so the right account is
+      // not turned away as "already claimed". Only ever removes an account with
+      // no listing bound: lib/connection-reset.ts.
+      const expectedForRelease = await expectedShopForInvite(parsedState.invite);
+      if (expectedForRelease) {
+        try { await releaseStaleClaim(supabaseAdmin, expectedForRelease.retailerId); }
+        catch (err) { console.error('[auth] could not check for a stale claim:', err); }
+      }
       const admitted = await inviteAdmitsSignup(parsedState.invite);
       if (!admitted.ok) {
         console.error(
@@ -286,6 +318,36 @@ export async function GET(request: NextRequest) {
       );
     }
 
+    // LOOK FOR THE LISTING BEFORE CREATING ANYTHING (invited shops).
+    //
+    // The account used to be created first. So a shop that signed in with a
+    // Google account managing no listing, or on a moment when Google would not
+    // answer, was left holding a half-made account that had used up its invite.
+    // Now an invited shop only gets an account once a listing has been found.
+    // Until then nothing is stored, the permission is handed back, and the
+    // shop's link still works with a different Google account.
+    let found: { listings: Listing[]; expected: ExpectedShop | null; outcome: OwnershipResult } | null = null;
+    if (parsedState.invite) {
+      const expected = await expectedShopForInvite(parsedState.invite);
+      let listings: Listing[];
+      try {
+        listings = await getManageableListings(tokens.access_token);
+      } catch (err) {
+        console.error('[auth] enumeration threw for an invited shop before any account was created; sending to help:', err);
+        await noteConnectIssue(parsedState.invite, 'Google did not answer when we looked for the listing');
+        await revokeQuietly(tokens.refresh_token);
+        return NextResponse.redirect(new URL(helpPath('google_error', parsedState.invite), baseUrl));
+      }
+      const outcome = detectOwnership(listings, expected?.placeId ?? null);
+      console.log(`[auth] ownership: ${outcome.status}: ${outcome.detail}`);
+      if (outcome.status === 'no_access') {
+        if (expected) await recordConnectionStatus(expected.retailerId, 'no_access', outcome.detail);
+        await revokeQuietly(tokens.refresh_token);
+        return NextResponse.redirect(new URL(helpPath('no_listing', parsedState.invite), baseUrl));
+      }
+      found = { listings, expected, outcome };
+    }
+
     const { data: newUser, error: insertError } = await supabaseAdmin
       .from('users')
       .insert({
@@ -330,12 +392,9 @@ export async function GET(request: NextRequest) {
       // the profile is tagged with what the database actually stored for its
       // owner. The two cannot disagree today, but only one of them is the
       // column the invariant is about.
-      result = await bindManageableListing(
-        newUser.id,
-        tokens.access_token,
-        newUser.tenant_id ?? null,
-        await expectedShopForInvite(parsedState.invite),
-      );
+      result = found
+        ? await bindOutcome(newUser.id, newUser.tenant_id ?? null, found.expected, found.outcome, found.listings.length)
+        : await bindManageableListing(newUser.id, tokens.access_token, newUser.tenant_id ?? null, null);
     } catch (err) {
       // The account row and the credential are already saved at this point, so
       // this is recoverable: the retailer retries the connect and lands in the
@@ -668,16 +727,23 @@ async function bindManageableListing(
 ): Promise<BindResult> {
   const listings = await getManageableListings(accessToken);
   // Ownership detection (lib/ownership.ts): with an invite, prefer the listing
-  // whose place ID matches the shop the invite was for, and record what we found
-  // so /admin/pilot and the shop's screens can say what to do next.
+  // whose place ID matches the shop the invite was for.
   const outcome = detectOwnership(listings, expected?.placeId ?? null);
-  if (expected) await recordConnectionStatus(expected.retailerId, outcome.status, outcome.detail);
   console.log(`[auth] ownership: ${outcome.status}: ${outcome.detail}`);
-  // Says which of the three outcomes was taken and why. Without it, /no-profile and
-  // /onboarding are indistinguishable in the logs from a failure earlier in the
-  // flow, which is exactly the ambiguity that made the 2026-07-30 scope failure
-  // take three attempts to characterise.
-  console.log(`[auth] manageable listings found: ${listings.length}`);
+  return bindOutcome(userId, tenantId, expected, outcome, listings.length);
+}
+
+/** Act on a decision already made about which listing (if any) to bind. */
+async function bindOutcome(
+  userId: string,
+  tenantId: string | null,
+  expected: ExpectedShop | null,
+  outcome: OwnershipResult,
+  listingCount: number,
+): Promise<BindResult> {
+  // Recorded so /admin/pilot and the shop's own screens can say what to do next.
+  if (expected) await recordConnectionStatus(expected.retailerId, outcome.status, outcome.detail);
+  console.log(`[auth] manageable listings found: ${listingCount}`);
   if (outcome.status === 'no_access') return 'no_profile';
   if (outcome.needsPicker || !outcome.bind) return 'select';
 
@@ -743,4 +809,43 @@ async function recordConnectionStatus(retailerId: string, status: ConnectionStat
     .update({ connection_status: status, connection_detail: detail.slice(0, 500), connection_checked_at: new Date().toISOString() })
     .eq('id', retailerId);
   if (error) console.error(`[auth] could not record connection status for retailer ${retailerId}: ${error.message}`);
+}
+
+// ── Dead-end helpers ────────────────────────────────────────────────────────
+
+/** The signed invite reference carried in the OAuth state, if there is one. */
+function inviteFromState(state: string | null): string | null {
+  try {
+    const parsed = state ? JSON.parse(state) : null;
+    return typeof parsed?.invite === 'string' && parsed.invite ? parsed.invite : null;
+  } catch { return null; }
+}
+
+/**
+ * Note on the shop's record why a sign-in did not complete, so whoever is
+ * helping can see it. The shop stays "invited": it has not connected. Best
+ * effort, never affects what the shop sees.
+ */
+async function noteConnectIssue(inviteRef: string | null, detail: string): Promise<void> {
+  const expected = await expectedShopForInvite(inviteRef);
+  if (!expected) return;
+  // Do not overwrite the record of a shop that is already connected (someone
+  // re-opening an old link and pressing Cancel changes nothing about that).
+  const { data: r } = await supabaseAdmin.from('retailers').select('user_id').eq('id', expected.retailerId).maybeSingle();
+  if (r?.user_id) return;
+  await recordConnectionStatus(expected.retailerId, 'invited', detail);
+}
+
+/** Hand a Google permission back when we are not going to keep it. Best effort. */
+async function revokeQuietly(token: string | null | undefined): Promise<void> {
+  if (!token) return;
+  try {
+    await fetch('https://oauth2.googleapis.com/revoke', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({ token }),
+    });
+  } catch (err) {
+    console.error('[auth] could not hand back an unused Google permission:', err);
+  }
 }

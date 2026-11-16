@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin as supaAdmin } from '@/lib/supabase';
 import { refreshAccessToken, getLocationFull, getGoogleUpdated, getAttributes, getMedia, getReviews, getLocalPosts, parseStarRating } from '@/lib/google';
-import { generateDescription, generateServices, generatePost, generateReviewReply, suggestCategories } from '@/lib/ai';
+import { generateDescription, generateServices, generatePost, suggestCategories } from '@/lib/ai';
 import { scoreProfile } from '@/lib/audit';
 import { decryptSecret, userTokenAad } from '@/lib/secrets';
 import { resolveAccess, MANAGER_EMBED } from '@/lib/managed-access';
@@ -9,6 +9,7 @@ import { getSessionUserId } from '@/lib/session';
 import { ONBOARDING_REPLY_CAP } from '@/lib/review-intake';
 import { aiReplyAllowed } from '@/lib/safe-automation';
 import { loadVoiceForUser } from '@/lib/voice';
+
 
 function getSeason(): string {
   const m = new Date().getMonth();
@@ -78,25 +79,15 @@ export async function POST(request: NextRequest) {
         : null,
     ]);
 
-    // Review reply preview — individually wrapped
-    let reviewPreview = null;
-    // 4 and 5 stars only, matching what /api/profile-fix will actually reply to:
-    // an AI reply is never written for a 1 to 3 star review, not even as a preview.
+    // Review replies are drafted separately, a few at a time, so the shop can
+    // read every one before it is posted (app/api/onboarding/reply-drafts).
+    // This only says how many there are.
     const unreplied = (reviews.reviews || []).filter((r: any) => !r.reviewReply && aiReplyAllowed(parseStarRating(r.starRating)));
-    if (unreplied.length > 0) {
-      try {
-        const sample = unreplied[0];
-        const rating = parseStarRating(sample.starRating);
-        const name = sample.reviewer?.displayName || 'Customer';
-        const reply = await generateReviewReply({ businessName: profile.business_name, category: primaryCat, reviewerName: name, rating, comment: sample.comment || '', voice });
-        reviewPreview = { reviewerName: name, rating, comment: sample.comment || '(no comment)', suggestedReply: reply, totalUnreplied: Math.min(unreplied.length, ONBOARDING_REPLY_CAP) };
-      } catch {
-        reviewPreview = null;
-      }
-    }
+    const lowStarUnreplied = (reviews.reviews || []).filter((r: any) => !r.reviewReply && !aiReplyAllowed(parseStarRating(r.starRating))).length;
+    const reviewPreview = unreplied.length > 0 ? { totalUnreplied: Math.min(unreplied.length, ONBOARDING_REPLY_CAP), totalFound: unreplied.length } : null;
 
     return NextResponse.json({
-      previews: { description, services: servicesList, firstPost, categories: catSuggestions, reviewPreview },
+      previews: { description, services: servicesList, firstPost, categories: catSuggestions, reviewPreview, lowStarUnreplied },
     });
   } catch (error: any) {
     console.error('Preview generation error:', error);

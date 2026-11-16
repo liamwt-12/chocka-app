@@ -55,7 +55,8 @@ async function callClaude(system: string, user: string, maxTokens = 300): Promis
 
 const LENGTH_BOUNDS: Record<string, [number, number]> = {
   post: [30, 800],
-  description: [150, 2000],
+  // Google refuses a description over 750 characters outright.
+  description: [150, 750],
   reply: [30, 600],
   default: [30, 800],
 };
@@ -143,7 +144,7 @@ export async function generateDescription(params: {
   businessName: string; category: string; city: string;
   existingDescription?: string; serviceArea?: string;
 }): Promise<string> {
-  const system = `You write Google Business Profile descriptions for UK tradespeople. British English, first person ("We're..."). Sound like a real tradesperson - friendly, professional, trustworthy. No marketing fluff. Include what they do, where they cover, reliability, soft call to action. 150-250 words. No hashtags, no emojis, no "Contact us today!" rubbish.` + SAFETY_RULES;
+  const system = `You write Google Business Profile descriptions for UK tradespeople. British English, first person ("We're..."). Sound like a real tradesperson - friendly, professional, trustworthy. No marketing fluff. Include what they do, where they cover, reliability, soft call to action. 90 to 110 words, and never more than 700 characters in total: Google cuts off at 750. No hashtags, no emojis, no "Contact us today!" rubbish.` + SAFETY_RULES;
   const user = `Business: ${params.businessName}\nTrade: ${params.category}\nLocation: ${params.city}\n${params.serviceArea ? `Service area: ${params.serviceArea}` : ''}\n${params.existingDescription ? `Current (improve): ${params.existingDescription}` : 'None - write from scratch.'}\n\nWrite a description.`;
   return generateWithValidation(system, user, 'description', 500);
 }

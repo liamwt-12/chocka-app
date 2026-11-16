@@ -123,6 +123,29 @@ describe('pickProfilesToSync', () => {
     ];
     expect(pickProfilesToSync(users, NOW).map((x) => x.profile.id)).toEqual(['new', 'old']);
   });
+
+  it('a listing whose history pull keeps failing takes its turn, and cannot starve the rest', () => {
+    // Thirty listings whose pull failed an hour ago, and sixty due an ordinary resync.
+    const failing = Array.from({ length: 30 }, (_, i) => u(`fail${i}`, { metrics_backfilled_at: null, metrics_synced_at: '2026-11-14T11:00:00Z' }));
+    const due = Array.from({ length: 60 }, (_, i) => u(`due${i}`, { metrics_backfilled_at: '2026-10-01', metrics_synced_at: '2026-11-13T10:00:00Z' }));
+    const picked = pickProfilesToSync([...failing, ...due], NOW).map((x) => x.profile.id);
+    expect(picked).toHaveLength(60);
+    expect(picked.some((id) => id.startsWith('fail'))).toBe(false);
+  });
+
+  it('a failed pull is tried again after six hours, behind anyone who has waited longer', () => {
+    const users = [
+      u('failedLongAgo', { metrics_backfilled_at: null, metrics_synced_at: '2026-11-14T05:00:00Z' }),
+      u('waitingLonger', { metrics_backfilled_at: '2026-10-01', metrics_synced_at: '2026-11-12T00:00:00Z' }),
+      u('brandNew', { metrics_backfilled_at: null }),
+    ];
+    expect(pickProfilesToSync(users, NOW).map((x) => x.profile.id)).toEqual(['brandNew', 'waitingLonger', 'failedLongAgo']);
+  });
+
+  it('the hourly job records a failed attempt', async () => {
+    const { readFileSync } = await import('node:fs');
+    expect(readFileSync(new URL('../app/api/cron/metrics-sync/route.ts', import.meta.url), 'utf8')).toMatch(/markSyncAttemptFailed\(supabaseAdmin, profile\.id\)/);
+  });
 });
 
 describe('fetchDailyMetrics (mocked Google)', () => {

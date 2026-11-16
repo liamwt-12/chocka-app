@@ -6,6 +6,7 @@ import { ADMIN_LABELS, SHOP_MESSAGES, type ConnectionStatus } from '@/lib/owners
 import { shopPhotosEnabled } from '@/lib/shop-photos';
 import { googleReviewLink, reviewPlaceId, reviewCardPath } from '@/lib/review-link';
 import { parseVoiceProfile, readStoredVoice, isEmptyVoice } from '@/lib/voice';
+import { resetConnection } from '@/lib/connection-reset';
 import {
   verifyAdminAuth, validateNewRetailer, pilotStatus, mintInvites, parseAdStartDate,
   PILOT_TENANT_SLUG, MANUAL_SOURCE, type PilotInvite, type PilotUser,
@@ -19,6 +20,7 @@ import {
  * POST { action: 'invite', retailerIds: string[] }         generate invite links; NOTHING IS SENT
  * POST { action: 'revoke', retailerId }                    revoke a retailer's pending link
  * POST { action: 'set_ad_start', retailerId, date|null }   record when Tarkett's ads for a shop started
+ * POST { action: 'reset_connection', retailerId }        remove the linked account and re-open the shop's link
  * POST { action: 'set_voice', retailerId, voice }           save how a shop's posts and replies should sound (lib/voice.ts)
  *
  * There is deliberately no 'send' action. Tarkett makes first contact.
@@ -106,6 +108,18 @@ export async function POST(request: NextRequest) {
         if (error) return NextResponse.json({ error: error.message }, { status: 500 });
         if (!data?.length) return NextResponse.json({ error: 'Retailer not found' }, { status: 404 });
         return NextResponse.json({ updated: { id: data[0].id, voice: parsed.value } });
+      }
+
+      case 'reset_connection': {
+        // Frees a shop that connected with the wrong Google account (or needs
+        // to start again): removes the linked account, hands the Google
+        // permission back, and re-opens the shop's link. lib/connection-reset.ts.
+        const { data: r } = await supabaseAdmin.from('retailers').select('id').eq('id', body.retailerId).eq('tenant_id', tenantRow.id).single();
+        if (!r) return NextResponse.json({ error: 'Retailer not found' }, { status: 404 });
+        const result = await resetConnection(supabaseAdmin, r.id);
+        if (!result.ok) return NextResponse.json({ error: result.detail }, { status: 500 });
+        console.log(`[admin/pilot] connection reset for shop ${r.id}: account removed=${result.removedAccount}, link reusable=${result.linkReusable}`);
+        return NextResponse.json({ reset: result });
       }
 
       default:

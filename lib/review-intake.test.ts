@@ -82,7 +82,7 @@ describe('REVIEWS_CONFLICT_TARGET', () => {
 
   it('no upsert into reviews names anything else', async () => {
     const { readFileSync } = await import('node:fs');
-    for (const f of ['../app/api/profile-fix/route.ts', '../app/api/cron/review-alerts/route.ts']) {
+    for (const f of ['./listing-fixes.ts', '../app/api/cron/review-alerts/route.ts']) {
       const src = readFileSync(new URL(f, import.meta.url), 'utf8');
       expect(src).not.toMatch(/onConflict:\s*'google_review_id'/);
       expect(src).toMatch(/onConflict:\s*REVIEWS_CONFLICT_TARGET/);

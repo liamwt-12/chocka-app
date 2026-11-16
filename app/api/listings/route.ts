@@ -5,6 +5,8 @@ import { decryptSecret, userTokenAad } from '@/lib/secrets';
 import { resolveAccess, MANAGER_EMBED } from '@/lib/managed-access';
 import { getSessionUserId } from '@/lib/session';
 import { SHOP_MESSAGES } from '@/lib/ownership';
+import { signInviteRef } from '@/lib/invite-token';
+import { helpPath } from '@/lib/connect-help';
 
 // Feed for the onboarding / settings listing picker. Re-enumerates live on
 // every call (no stored candidate list) and returns only what the picker
@@ -39,7 +41,7 @@ export async function GET(request: NextRequest) {
     // Ownership detection: if this user is an invited shop, say which listing we
     // expected, put it first, and mark it, so the picker can say "is it this one?".
     const { data: retailer } = await supabaseAdmin
-      .from('retailers').select('name, town, place_id').eq('user_id', userId).maybeSingle();
+      .from('retailers').select('id, name, town, place_id').eq('user_id', userId).maybeSingle();
     const expectedPlaceId = retailer?.place_id ?? null;
 
     const items = listings
@@ -56,9 +58,18 @@ export async function GET(request: NextRequest) {
       .sort((a, b) => Number(b.matchesExpected) - Number(a.matchesExpected) || a.title.localeCompare(b.title));
 
     const anyMatch = items.some((i) => i.matchesExpected);
+
+    // "None of these is my shop": a way back to Google with a different
+    // account that keeps the shop's invite. Only for an invited shop.
+    let wrongAccountPath: string | null = null;
+    if (retailer) {
+      const { data: inv } = await supabaseAdmin.from('retailer_invites').select('id').eq('retailer_id', retailer.id).order('created_at', { ascending: false }).limit(1);
+      if (inv?.[0]?.id) { try { wrongAccountPath = helpPath('wrong_account', signInviteRef(inv[0].id)); } catch { /* secret missing: no shortcut */ } }
+    }
     return NextResponse.json({
       listings: items,
       expected: retailer ? { name: retailer.name, town: retailer.town } : null,
+      wrongAccountPath,
       // Shown above the picker when we expected a shop and cannot see it here.
       help: retailer && expectedPlaceId && !anyMatch ? SHOP_MESSAGES.check_listing : null,
     });
