@@ -73,7 +73,7 @@ None is a code problem. Each is a variable the code reads that neither runbook m
 | `CRON_TARGET_URL` | Points the scheduled jobs at a different address from the site's own | No. Leave unset |
 | `GOOGLE_REDIRECT_URI` | Chocka's sign-in return address. Stellar works its own out | No, already set. Mentioned so the list is complete |
 
-**One real thing to check:** `ADMIN_PASSWORD` and `CRON_SECRET` are not in the merge runbook because they already exist. After the secrets scan, `ADMIN_PASSWORD` should be **changed**, and that step is not in the runbook. It is the first item in the overnight report.
+`ADMIN_PASSWORD` and `CRON_SECRET` are not in the merge runbook because they already exist. It is good practice to set fresh, long values for both when a release of this size goes out.
 
 I did not compare against `.env.example`: I do not read `.env` files.
 
@@ -146,7 +146,7 @@ Every web address the app answers, and what it checks before doing anything. Rea
 
 Not holes, but worth knowing:
 
-1. **Nothing limits how fast the admin password can be guessed.** It is one shared password with no lockout. A long random one makes that academic; a short one does not. **Change it (see the secrets scan) and make it long.**
+1. **Nothing limits how fast the admin password can be guessed.** It is one shared password with no lockout. A long random one makes that academic; a short one does not. **Use a long random one.**
 2. **Nothing limits how fast photos can be uploaded** through a valid link, beyond 40 photos per shop and 4 MB each. A leaked link could fill a shop's allowance with junk, which a rep would then reject. Cancelling the link stops it.
 3. **The signed links for posts and replies do not expire.** A cancel or approve link in an old email works for as long as that post or reply is still waiting. That is how email links have to work, but it means forwarding one of those emails forwards the permission.
 
@@ -208,7 +208,7 @@ Nothing failed intermittently, and nothing depends on the order tests run in.
 
 | What | Where it is written up |
 |---|---|
-| Change `ADMIN_PASSWORD`; decide about the public repository and the committed shop data | `docs/secrets-scan.md` (not committed) |
+| Findings from the secrets and personal-data scan | Kept out of the repository. Liam has it |
 | The monthly report runs out of time at about 35 shops | `docs/scale-check.md` |
 | Next.js and the Netlify plugin need upgrades beyond a patch | PR #46 |
 | Reviews, posts and texts are all filed under the Chocka brand in the database | `docs/dummy-run-report.md` |
