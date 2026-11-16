@@ -21,7 +21,10 @@
  *     Rejecting a photo deletes the file.
  *  5. ADDING A PHOTO TO THE GOOGLE LISTING ITSELF is a separate switch,
  *     SHOP_PHOTOS_TO_LISTING=on, also off by default, and goes through the
- *     change log (lib/change-log.ts) so it can be undone.
+ *     change log (lib/change-log.ts) so it can be undone. It also needs the
+ *     migration 20261116110000_change_log_add_media, which must not be applied
+ *     anywhere until the earlier ones are on production (see that file). Until
+ *     then the attempt fails safely: no log row, so no write.
  *
  * Pure functions plus helpers that take the database client as an argument.
  */

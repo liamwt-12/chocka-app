@@ -5,13 +5,16 @@
 -- removed, and is stored in a PRIVATE bucket; nothing is used until a rep
 -- approves it. Approved photos can be attached to posts.
 --
--- ADDITIVE ONLY, with one widened constraint:
+-- ADDITIVE ONLY:
 --   * new table shop_photos
 --   * retailers: two nullable columns for the upload link (hash and expiry)
 --   * scheduled_posts: one nullable column, the photo attached to a post
---   * change_log.action gains 'add_media' (a photo added to the listing itself,
---     which only happens when SHOP_PHOTOS_TO_LISTING=on)
 --   * a private storage bucket, shop-photos
+--
+-- NOT HERE, ON PURPOSE: letting change_log record a photo added to the Google
+-- listing itself. That changes an existing constraint rather than adding
+-- something, so it is its own migration, 20261116110000_change_log_add_media,
+-- with its own rule about when it may be applied. Read that file first.
 --
 -- RLS is enabled with no policies and the public roles are revoked, matching
 -- 20261115090000: only server code (the service role) can read or write.
@@ -58,11 +61,6 @@ create unique index if not exists retailers_photo_link_hash_idx on public.retail
 
 -- The photo attached to a post. SET NULL: deleting a photo leaves the post as text.
 alter table public.scheduled_posts add column if not exists photo_id uuid references public.shop_photos(id) on delete set null;
-
--- change_log.action: allow 'add_media'.
-alter table public.change_log drop constraint if exists change_log_action_check;
-alter table public.change_log add constraint change_log_action_check
-  check (action in ('update_location', 'create_post', 'reply_review', 'add_media'));
 
 -- The bucket. Private: files are only ever reached through short-lived signed
 -- addresses made by server code. The size and type limits repeat what the
