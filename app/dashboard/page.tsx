@@ -118,6 +118,16 @@ export default function DashboardPage() {
       {/* Posts waiting for the shop, with Approve, Change the wording, Skip. */}
       {d.postsToManage?.length>0&&<PostsToManage posts={d.postsToManage} cardStyle={card} />}
 
+      {/* The one most useful thing to do next. Not shown while a more urgent card is up. */}
+      {d.nextStep && !d.lostAccess && d.nextStep.key !== 'approve_post' && (
+        <div style={{...card,borderLeft:'4px solid var(--brand-strong)'}}>
+          <div style={{fontSize:11,fontWeight:600,letterSpacing:'0.1em',textTransform:'uppercase',color:V.textSoft,marginBottom:4,fontFamily:sans}}>One thing worth doing next</div>
+          <div style={{fontSize:16,fontWeight:700,color:V.text,marginBottom:4,fontFamily:sans}}>{d.nextStep.title}</div>
+          <p style={{fontSize:14,color:V.textMid,margin:'0 0 12px',lineHeight:1.5,fontFamily:sans}}>{d.nextStep.why}</p>
+          <a href={d.nextStep.href} {...(d.nextStep.byUs?{}:{target:'_blank',rel:'noopener noreferrer'})} style={{display:'inline-block',background:d.nextStep.byUs?'var(--brand-strong)':V.card2,color:d.nextStep.byUs?'#fff':V.text,borderRadius:10,padding:'12px 18px',fontSize:15,fontWeight:600,textDecoration:'none',fontFamily:sans}}>{d.nextStep.button}</a>
+        </div>
+      )}
+
       {/* A bank holiday is coming and the listing says nothing about it. */}
       {d.holiday && (
         <div style={{...card,borderLeft:`4px solid ${V.amber}`}}>

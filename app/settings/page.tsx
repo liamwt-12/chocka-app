@@ -1,5 +1,6 @@
 'use client';
 
+import ChangesList from '@/components/ChangesList';
 import ListingSettings from '@/components/ListingSettings';
 import { useState, useEffect, useCallback } from 'react';
 import { useTenant } from '@/lib/tenant-context';
@@ -93,6 +94,9 @@ export default function SettingsPage() {
 
       {/* Opening hours, holiday hours and website: changed here, checked on Google. */}
       <ListingSettings cardStyle={card} labelStyle={lbl} />
+
+      {/* Everything we have changed, with an Undo for each. */}
+      <ChangesList cardStyle={card} labelStyle={lbl} supportEmail={tenant.supportEmail} />
 
       {/* Google connection */}
       <div style={{...card,animation:'fadeUp .5s .1s ease both'}}>

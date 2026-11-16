@@ -96,7 +96,7 @@ export default function ConsoleClient({ view }: { view: 'console' | 'league' }) 
         <tbody>{data.shops.map((s: any) => (
           <tr key={s.retailerId}>
             <td style={td}>{s.name}</td><td style={{ ...td, color: C.mid }}>{s.town || ''}</td>
-            <td style={td}>{STATE[s.pilotState] || s.pilotState}</td><td style={{ ...td, color: C.mid }}>{s.connection || '–'}</td>
+            <td style={td} title={s.statusNote ? `${s.statusNote.why} What helps: ${s.statusNote.action}` : ''}>{STATE[s.pilotState] || s.pilotState}{s.statusNote && <div style={{ fontSize: 12, color: C.mid }}>{s.statusNote.label}</div>}</td><td style={{ ...td, color: C.mid }}>{s.connection || '–'}</td>
             <td style={td}>{s.scoreAtActivation ?? '–'}</td><td style={td}>{s.postsLast30 ?? '–'}</td><td style={td}>{s.repliesLast30 ?? '–'}</td>
             <td style={{ ...td, color: bandColour(s.improvement) }}>{s.improvement ? (s.actionsChange !== null ? `${s.improvement} (${pct(s.actionsChange)} actions)` : s.improvement) : '–'}</td>
             <td style={td}>{s.adStartDate || '–'}</td>

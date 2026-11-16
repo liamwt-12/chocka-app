@@ -6,6 +6,7 @@ import { resolveAccess, MANAGER_EMBED } from '@/lib/managed-access';
 import { getSessionUserId } from '@/lib/session';
 import { SHOP_MESSAGES } from '@/lib/ownership';
 import { holidayPrompt, datesCovered } from '@/lib/bank-holidays';
+import { nextBestStep } from '@/lib/next-step';
 import { generateReviewHash } from '@/lib/cron';
 import { pendingRepliesForDashboard, type PendingReplyRow } from '@/lib/onboarding-reviews';
 
@@ -55,7 +56,7 @@ export async function GET(request: NextRequest) {
 
         let revList = gReviews?.reviews || [];
         let reviewsFull: Array<any> = [];
-        let totalReviews = 0, avgRating = 0, repliedCount = 0, unrepliedCount = 0, userRatingCount = 0;
+        let totalReviews = 0, avgRating = 0, repliedCount = 0, unrepliedCount = 0, userRatingCount = 0, unrepliedGood = 0, unrepliedLow = 0;
 
         if (revList.length === 0) {
           try {
@@ -86,6 +87,8 @@ export async function GET(request: NextRequest) {
           totalReviews = totals?.totalReviewCount || fetched;
           avgRating = totals?.averageRating || (fetched > 0 ? revList.reduce((s: number, r: any) => s + parseStarRating(r.starRating), 0) / fetched : 0);
           repliedCount = revList.filter((r: any) => r.reviewReply).length;
+          unrepliedGood = revList.filter((r: any) => !r.reviewReply && parseStarRating(r.starRating) >= 4).length;
+          unrepliedLow = revList.filter((r: any) => !r.reviewReply && parseStarRating(r.starRating) < 4).length;
           unrepliedCount = fetched - repliedCount;
           reviewsFull = revList.slice(0, 8).map((r: any) => ({
             name: r.reviewer?.displayName || 'Customer', rating: parseStarRating(r.starRating),
@@ -112,7 +115,7 @@ export async function GET(request: NextRequest) {
         const websiteClicks = gMetrics?.websiteClicks || 0;
 
         google = {
-          reviews: { total: totalReviews, avgRating: Math.round(avgRating * 10) / 10, replied: repliedCount, unreplied: unrepliedCount, list: reviewsFull },
+          reviews: { total: totalReviews, avgRating: Math.round(avgRating * 10) / 10, replied: repliedCount, unreplied: unrepliedCount, unrepliedGood, unrepliedLow, list: reviewsFull },
           posts: { total: postList.length, lastPostDate: postList[0]?.createTime || null },
           photos: { total: photoCount },
           profile: {
@@ -213,7 +216,18 @@ export async function GET(request: NextRequest) {
       nextStep: 'Press Reconnect and sign in with the same Google account as before. It takes a minute.',
     } : null;
 
+    // The one most useful thing to do next (lib/next-step.ts), from what was
+    // read from Google above. Nothing when Google could not be read.
+    const nextStep = google ? nextBestStep({
+      hoursSet: google.profile.hoursSet, hasPhone: google.profile.hasPhone, descriptionLength: google.profile.descriptionLength,
+      servicesCount: google.profile.servicesCount, photos: google.photos.total, hasWebsite: google.profile.hasWebsite,
+      unrepliedGood: google.reviews.unrepliedGood ?? 0, unrepliedLow: google.reviews.unrepliedLow ?? 0,
+      waitingPosts: postsToManage.filter((p) => p.waiting).length, postsOn: !!user.auto_post_enabled,
+      lastPostDaysAgo: google.posts.lastPostDate ? Math.floor((Date.now() - Date.parse(google.posts.lastPostDate)) / 86_400_000) : null,
+    }) : null;
+
     return NextResponse.json({
+      nextStep,
       lostAccess,
       holiday,
       postsToManage,

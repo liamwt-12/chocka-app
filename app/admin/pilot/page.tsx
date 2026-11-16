@@ -194,6 +194,19 @@ export default function PilotAdminPage() {
     setBusy(false);
   };
 
+  // Is everything in place to invite shops?
+  const [ready, setReady] = useState<any>(null);
+  const checkReady = async () => { setBusy(true); setMsg(''); try { setReady(await call({ action: 'readiness' })); } catch (e: any) { setMsg(e.message); } setBusy(false); };
+
+  // The needs-help list as a file, to hand to whoever is ringing round. No contact details in it.
+  const downloadHelp = () => {
+    const esc = (v: string) => { const t = String(v ?? ''); const risky = /^[=+\-@]/.test(t); return `"${(risky ? `'${t}` : t).replace(/"/g, '""')}"`; };
+    const lines = ['shop,town,status,waiting since,what happened,what to do,note', ...helpRows.map((r) => [r.name, r.town || '', r.help.label, (r.help.since || '').slice(0, 10), r.help.why, r.help.action, r.note || ''].map(esc).join(','))];
+    const url = URL.createObjectURL(new Blob([lines.join('\n')], { type: 'text/csv' }));
+    const a = document.createElement('a'); a.href = url; a.download = `stellar-needs-help-${new Date().toISOString().slice(0, 10)}.csv`; a.click();
+    URL.revokeObjectURL(url);
+  };
+
   const openVoice = (r: Row) => { setVoiceFor(r); setVoiceDraft(draftFromVoice(r.voice)); setMsg(''); };
 
   const saveVoice = async () => {
@@ -326,11 +339,32 @@ export default function PilotAdminPage() {
           </div>
         )}
 
+        {/* Ready to invite? Settings present, migrations applied, jobs running. */}
+        <div style={card}>
+          <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+            <strong style={{ fontSize: 15 }}>Ready to invite shops?</strong>
+            <button onClick={checkReady} disabled={busy} style={btn}>Check now</button>
+            {ready && <span style={{ fontSize: 14, fontWeight: 700, color: ready.ready ? C.green : C.red }}>{ready.ready ? 'Nothing needs fixing.' : `${ready.toFix} thing${ready.toFix === 1 ? '' : 's'} to fix first.`}</span>}
+          </div>
+          {ready && ([['Settings', ready.checks.settings], ['Database', ready.checks.database], ['Shops and jobs', ready.checks.shops]] as Array<[string, any[]]>).map(([title, list]) => (
+            <div key={title} style={{ marginTop: 10 }}>
+              <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', color: C.soft }}>{title}</div>
+              {list.map((c: any) => (
+                <div key={c.key} style={{ display: 'grid', gridTemplateColumns: '20px 1fr', gap: 6, fontSize: 13, padding: '4px 0', borderTop: '1px solid #eee' }}>
+                  <span style={{ fontWeight: 700, color: c.ok === true ? C.green : c.ok === false ? C.red : C.soft }}>{c.ok === true ? '✓' : c.ok === false ? '✗' : '·'}</span>
+                  <span><strong>{c.label}.</strong> <span style={{ color: c.ok === false ? C.red : C.mid }}>{c.detail}</span></span>
+                </div>
+              ))}
+            </div>
+          ))}
+        </div>
+
         {/* Needs help: every shop a person should look at, most urgent first, with what to do. */}
         <div style={{ ...card, border: helpRows.length ? `2px solid ${C.amber}` : undefined }} id="needs-help">
           <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap', marginBottom: 6 }}>
             <strong style={{ fontSize: 16 }}>Needs help: {helpRows.length}</strong>
             <span style={{ color: C.mid, fontSize: 13 }}>Shops that are stuck, why, and what to do. Shops that are fine are not listed.</span>
+            {helpRows.length > 0 && <button onClick={downloadHelp} style={{ ...btn, background: 'transparent', color: C.text, textDecoration: 'underline', padding: '2px 4px' }}>Download as a list</button>}
           </div>
           {helpRows.length === 0 ? <div style={{ color: C.mid, fontSize: 14 }}>Nobody needs help right now.</div> : (
             <>
