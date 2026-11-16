@@ -493,7 +493,9 @@ export async function createLocalPost(accessToken: string, locationName: string,
       ...(photoUrl ? { media: [{ mediaFormat: 'PHOTO', sourceUrl: photoUrl }] } : {}),
     }),
   });
-  if (!res.ok) throw new Error(`Failed to create post: ${await res.text()}`);
+  // The status is in the message so the publisher can tell "Google refused
+  // this request" (4xx) from "Google is having a bad moment" (429, 5xx).
+  if (!res.ok) throw new Error(`Failed to create post (${res.status}): ${await res.text()}`);
   return res.json();
 }
 
@@ -582,7 +584,10 @@ export async function getPerformanceMetrics(accessToken: string, locationName: s
     const t = totalsFor(await fetchDailyMetrics(accessToken, locationName, from, to), from, to);
     Object.assign(results, { views: t.views, searchViews: t.searchViews, mapsViews: t.mapsViews, calls: t.calls, directions: t.directions, websiteClicks: t.websiteClicks });
   } catch (e) {
+    // Null, not zeros. A failed read used to come back as all zeros, which the
+    // Monday text then reported to the shop as "0 views".
     console.error('[GBP Metrics] failed:', (e as Error).message);
+    return null;
   }
   return results;
 }

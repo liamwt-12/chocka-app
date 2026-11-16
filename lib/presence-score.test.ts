@@ -34,17 +34,32 @@ describe('monthlyReportEmail', () => {
 });
 
 describe('livePresenceScore', () => {
-  it('scores from the same reads as /api/audit and survives best-effort failures', async () => {
+  const listing = JSON.stringify({ name: 'locations/1', profile: { description: 'x'.repeat(300) }, regularHours: { periods: [] } });
+  const isListing = (u: string) => u.includes('mybusinessbusinessinformation') && !u.includes(':getGoogleUpdated') && !u.includes('/attributes');
+
+  it('scores from the same reads as /api/audit when every part can be read', async () => {
     global.fetch = vi.fn(async (url: any) => {
       const u = String(url);
-      if (u.includes('mybusinessbusinessinformation') && !u.includes(':getGoogleUpdated') && !u.includes('/attributes')) {
-        return new Response(JSON.stringify({ name: 'locations/1', profile: { description: 'x'.repeat(300) }, regularHours: { periods: [] } }), { status: 200 });
-      }
-      return new Response('nope', { status: 500 });
+      if (isListing(u)) return new Response(listing, { status: 200 });
+      if (u.includes(':getGoogleUpdated')) return new Response('none', { status: 404 }); // optional: a 404 here is normal
+      return new Response(JSON.stringify({ attributes: [], mediaItems: [], reviews: [], localPosts: [] }), { status: 200 });
     }) as any;
     const r = await livePresenceScore('t', 'locations/1', 'accounts/9');
     expect(r.score).toBeGreaterThan(0);
     expect(r.score).toBeLessThanOrEqual(100);
+  });
+
+  it('gives NO score if reviews, photos, posts or attributes cannot be read, rather than a falsely low one', async () => {
+    for (const broken of ['/reviews', '/media', '/localPosts', '/attributes']) {
+      global.fetch = vi.fn(async (url: any) => {
+        const u = String(url);
+        if (u.includes(broken)) return new Response('unavailable', { status: 503 });
+        if (isListing(u)) return new Response(listing, { status: 200 });
+        if (u.includes(':getGoogleUpdated')) return new Response('none', { status: 404 });
+        return new Response(JSON.stringify({ attributes: [], mediaItems: [], reviews: [], localPosts: [] }), { status: 200 });
+      }) as any;
+      await expect(livePresenceScore('t', 'locations/1', 'accounts/9')).rejects.toThrow();
+    }
   });
 
   it('throws if the listing itself cannot be read', async () => {

@@ -1,4 +1,4 @@
-import { replyBreaksRules } from './safe-automation';
+import { replyBreaksRules, containsPhoneNumber } from './safe-automation';
 import { voicePromptBlock, type VoiceProfile } from './voice';
 const ANTHROPIC_API = 'https://api.anthropic.com/v1/messages';
 
@@ -84,7 +84,7 @@ export function validateContent(
   if (/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/.test(text)) {
     return { valid: false, reason: 'contains email' };
   }
-  if (/\b(07|01|02)\d[\d\s]{7,}/.test(text)) {
+  if (containsPhoneNumber(text)) {
     return { valid: false, reason: 'contains phone' };
   }
   if (/as an AI|I cannot|I'm not able/i.test(text)) {

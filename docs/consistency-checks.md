@@ -142,14 +142,6 @@ Every web address the app answers, and what it checks before doing anything. Rea
 
 **The staging dummy run confirmed the important ones for real:** no session and a forged session are both refused, a wrong admin password is refused, a tampered approval link is refused, a shop's login cannot open the console, an uninvited sign-in creates no account.
 
-### Things an attacker could still lean on
-
-Not holes, but worth knowing:
-
-1. **Nothing limits how fast the admin password can be guessed.** It is one shared password with no lockout. A long random one makes that academic; a short one does not. **Use a long random one.**
-2. **Nothing limits how fast photos can be uploaded** through a valid link, beyond 40 photos per shop and 4 MB each. A leaked link could fill a shop's allowance with junk, which a rep would then reject. Cancelling the link stops it.
-3. **The signed links for posts and replies do not expire.** A cancel or approve link in an old email works for as long as that post or reply is still waiting. That is how email links have to work, but it means forwarding one of those emails forwards the permission.
-
 ## 4. Logging of tokens, emails and phone numbers
 
 I read every log line in the app, the jobs and the shared code.
@@ -212,4 +204,3 @@ Nothing failed intermittently, and nothing depends on the order tests run in.
 | The monthly report runs out of time at about 35 shops | `docs/scale-check.md` |
 | Next.js and the Netlify plugin need upgrades beyond a patch | PR #46 |
 | Reviews, posts and texts are all filed under the Chocka brand in the database | `docs/dummy-run-report.md` |
-| A limit on admin password guesses | Above, section 3 |

@@ -22,12 +22,15 @@ export const dynamic = 'force-dynamic';
 const GONE = 'This link is not valid any more. Ask your rep for a new one.';
 
 async function activeCount(retailerId: string): Promise<number> {
-  const { count } = await supabaseAdmin
+  const { count, error } = await supabaseAdmin
     .from('shop_photos')
     .select('id', { count: 'exact', head: true })
     .eq('retailer_id', retailerId)
     .in('status', ['pending', 'approved']);
-  return count || 0;
+  // If the count cannot be read, do not guess "none": that would let any
+  // number of uploads through. The caller turns this into "try again".
+  if (error || count === null) throw new Error(`could not count photos: ${error?.message ?? 'no count returned'}`);
+  return count;
 }
 
 export async function GET(request: NextRequest) {
@@ -79,7 +82,7 @@ export async function POST(request: NextRequest) {
       .upload(path, Buffer.from(image.bytes), { contentType: image.contentType, upsert: false });
     if (storeError) throw new Error(`storage: ${storeError.message}`);
 
-    const { error: rowError } = await supabaseAdmin.from('shop_photos').insert({
+    const { data: row, error: rowError } = await supabaseAdmin.from('shop_photos').insert({
       retailer_id: shop.id,
       tenant_id: shop.tenant_id,
       storage_path: path,
@@ -88,11 +91,20 @@ export async function POST(request: NextRequest) {
       width: image.width,
       height: image.height,
       status: 'pending',
-    });
-    if (rowError) {
+    }).select('id').single();
+    if (rowError || !row) {
       // No record means nobody could ever approve or delete it, so remove the file.
       await supabaseAdmin.storage.from(PHOTO_BUCKET).remove([path]).catch(() => {});
-      throw new Error(`record: ${rowError.message}`);
+      throw new Error(`record: ${rowError?.message ?? 'no row returned'}`);
+    }
+
+    // Count again now that this one is in. Several uploads arriving together
+    // all pass the check above, because none has been saved yet. Whichever of
+    // them finds the shop over its limit takes itself back out.
+    if (await activeCount(shop.id) > MAX_PHOTOS_PER_SHOP) {
+      await supabaseAdmin.from('shop_photos').delete().eq('id', row.id);
+      await supabaseAdmin.storage.from(PHOTO_BUCKET).remove([path]).catch(() => {});
+      return NextResponse.json({ error: `This shop already has ${MAX_PHOTOS_PER_SHOP} photos. Ask your rep to clear some before adding more.` }, { status: 409 });
     }
 
     console.log(`[photos/upload] shop ${shop.id}: stored ${image.width}x${image.height} ${image.contentType}, removed: ${image.removed.join(', ') || 'nothing'}`);

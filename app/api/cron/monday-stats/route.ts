@@ -24,7 +24,7 @@ export async function GET(request: NextRequest) {
     // read once here and nobody is texted twice.
     const budget = startBudget();
     const doneRows = await selectAll<{ profile_id: string }>((from, to) => supabaseAdmin
-      .from('weekly_stats').select('profile_id').eq('week_start', weekStart).range(from, to));
+      .from('weekly_stats').select('profile_id').eq('week_start', weekStart).order('profile_id', { ascending: true }).range(from, to));
     const done = new Set(doneRows.map((r) => r.profile_id));
     // Rotated each run, so one shop that keeps failing is not at the front every time.
     const todo = rotateForRun<any>(users.filter((u: any) => u.profiles?.[0] && u.sms_enabled && u.phone_number && !done.has(u.profiles[0].id)), runIndex(5), 7);
@@ -53,6 +53,9 @@ export async function GET(request: NextRequest) {
         );
         // getPerformanceMetrics now returns {views, calls, directions, websiteClicks} directly
         const metrics = await getPerformanceMetrics(accessToken, profile.google_location_name);
+        // Google could not be read. Do not write this week's row and do not
+        // text "0 views": leave the shop for the next run.
+        if (!metrics) { console.warn(`[cron:monday-stats] no figures from Google for profile ${profile.id}; will try again on the next run`); continue; }
 
         const views = metrics?.views || 0;
         const calls = metrics?.calls || 0;
@@ -60,7 +63,10 @@ export async function GET(request: NextRequest) {
         const websiteClicks = metrics?.websiteClicks || 0;
 
         // Upsert weekly stats
-        await supabaseAdmin
+        // This row is also the record that the shop has had this week's text.
+        // If it cannot be written, the text is NOT sent: otherwise every run
+        // this morning, five minutes apart, would text the shop again.
+        const { error: markError } = await supabaseAdmin
           .from('weekly_stats')
           .upsert({
             profile_id: profile.id,
@@ -70,6 +76,7 @@ export async function GET(request: NextRequest) {
             direction_requests: directions,
             website_clicks: websiteClicks,
           }, { onConflict: 'profile_id,week_start' });
+        if (markError) { console.error(`[cron:monday-stats] could not record this week for profile ${profile.id}, so no text was sent: ${markError.message}`); continue; }
 
         // Get last week's stats for comparison
         // Each weekly_stats row holds a rolling 28-day total, so last week's row

@@ -17,15 +17,20 @@ import {
   getLocationFull, getGoogleUpdated, getAttributes, getMedia, getReviews, getLocalPosts,
 } from './google';
 
-/** Throws only if the listing itself cannot be read; every other read just lowers the score, as in /api/audit. */
+/** Throws if the listing, or any part of it that the score is built from, cannot be read. */
 export async function livePresenceScore(accessToken: string, locationName: string, accountId?: string): Promise<AuditResult> {
   const location = await getLocationFull(accessToken, locationName);
+  // Google "updates" are optional (a 404 there is normal). The other four feed
+  // the score directly: if one cannot be read, there is no honest score. It
+  // used to be scored as if the shop had no reviews, photos or posts, and the
+  // report then told the shop it was "Down N points". Throwing makes the
+  // report go without a score, which is what the caller already does on error.
   const [googleUpdated, attributes, media, reviews, posts] = await Promise.all([
     getGoogleUpdated(accessToken, locationName).catch(() => null),
-    getAttributes(accessToken, locationName).catch(() => ({ attributes: [] })),
-    getMedia(accessToken, locationName, accountId).catch(() => ({ mediaItems: [] })),
-    getReviews(accessToken, locationName, accountId).catch(() => ({ reviews: [] })),
-    getLocalPosts(accessToken, locationName, accountId).catch(() => ({ localPosts: [] })),
+    getAttributes(accessToken, locationName),
+    getMedia(accessToken, locationName, accountId),
+    getReviews(accessToken, locationName, accountId),
+    getLocalPosts(accessToken, locationName, accountId),
   ]);
   return scoreProfile({ location, attributes, media, reviews, posts, googleUpdated });
 }

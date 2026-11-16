@@ -224,8 +224,13 @@ export function generateReviewHash(reviewId: string): string {
 
 /** Constant-time comparison for the short hex link hashes above. */
 export function linkHashMatches(given: string | null | undefined, expected: string): boolean {
-  if (!given || given.length !== expected.length) return false;
-  return timingSafeEqual(Buffer.from(given), Buffer.from(expected));
+  if (!given) return false;
+  // Compare BYTE lengths. Comparing string lengths let a hash containing a
+  // multi-byte character through to timingSafeEqual, which throws on unequal
+  // buffers: a 500 where "Invalid link" was meant.
+  const a = Buffer.from(given);
+  const b = Buffer.from(expected);
+  return a.length === b.length && timingSafeEqual(a, b);
 }
 
 /** Signed hash for the approve / skip links on a post awaiting approval: 128 bits, namespaced per action. */

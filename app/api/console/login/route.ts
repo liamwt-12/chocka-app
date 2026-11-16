@@ -21,7 +21,11 @@ export async function POST(request: NextRequest) {
   const email = normaliseEmail(body?.email);
   if (!email) return NextResponse.json({ error: 'Enter a valid email address' }, { status: 400 });
 
-  const { data: funder } = await supabaseAdmin.from('funder_users').select('id, email, active').ilike('email', email).maybeSingle();
+  // `ilike` treats %, _ and * as wildcards. An address is matched as written
+  // (case aside), never as a pattern: otherwise "%@…" finds whoever has access
+  // and emails them a link, which also burns their hourly limit.
+  if (/[%*\\]/.test(email)) return NextResponse.json(SAME_ANSWER);
+  const { data: funder } = await supabaseAdmin.from('funder_users').select('id, email, active').ilike('email', email.replace(/_/g, '\\_')).maybeSingle();
   if (!funder?.active) return NextResponse.json(SAME_ANSWER);
 
   const hourAgo = new Date(Date.now() - 3_600_000).toISOString();

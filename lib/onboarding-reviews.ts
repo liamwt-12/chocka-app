@@ -103,11 +103,15 @@ export async function queueOnboardingHoldingReplies<T extends OnboardingReview>(
       // The wording is fixed and passes today. Checked anyway, every time.
       if (replyBreaksRules(text)) { result.failed++; continue; }
 
-      const { data: existing } = await db.from('reviews').select('id').eq('profile_id', profileId).eq('google_review_id', googleReviewId).limit(1);
+      // A read that fails must not be taken for "nothing there": that is how a
+      // second holding reply would be queued for the same review.
+      const { data: existing, error: existingError } = await db.from('reviews').select('id').eq('profile_id', profileId).eq('google_review_id', googleReviewId).limit(1);
+      if (existingError) { result.failed++; continue; }
       let reviewRowId: string | undefined = existing?.[0]?.id;
 
       if (reviewRowId) {
-        const { data: replies } = await db.from('review_replies').select('id').eq('review_id', reviewRowId).limit(1);
+        const { data: replies, error: repliesError } = await db.from('review_replies').select('id').eq('review_id', reviewRowId).limit(1);
+        if (repliesError) { result.failed++; continue; }
         if (replies?.length) { result.alreadyHandled++; continue; }
       } else {
         const { data: inserted, error } = await db

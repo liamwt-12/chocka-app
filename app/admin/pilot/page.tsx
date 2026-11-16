@@ -257,7 +257,7 @@ export default function PilotAdminPage() {
                         {r.review ? (
                           <>
                             <button onClick={() => copyReviewLink(r)} title={r.review.link} style={{ ...btn, background: 'transparent', color: C.text, padding: '2px 6px', textDecoration: 'underline' }}>Copy link</button>
-                            <a href={r.review.cardPath} target="_blank" rel="noreferrer" style={{ color: C.text, fontSize: 13, fontWeight: 600, padding: '2px 6px' }}>Card</a>
+                            {r.review.cardPath && <a href={r.review.cardPath} target="_blank" rel="noreferrer" style={{ color: C.text, fontSize: 13, fontWeight: 600, padding: '2px 6px' }}>Card</a>}
                             {r.review.source === 'baseline' && <span title="This shop has not connected its listing yet, so the link uses the listing matched from Tarkett's store list. Scan the card and check it opens the right shop before printing." style={{ color: C.amber, fontSize: 12 }}> check first</span>}
                           </>
                         ) : <span style={{ color: C.soft }} title="No Google place ID on record for this shop yet. It appears once the shop connects its listing.">No listing yet</span>}

@@ -117,6 +117,11 @@ export async function POST(request: NextRequest) {
   }
 }
 
+/** The card address, or '' if it cannot be signed (the secret is missing). The rest of the list still loads. */
+function safeCardPath(retailerId: string): string {
+  try { return reviewCardPath(retailerId); } catch { return ''; }
+}
+
 async function list(tenantId: string) {
   const { data: retailers, error } = await supabaseAdmin
     .from('retailers')
@@ -178,7 +183,7 @@ async function list(tenantId: string) {
       voiceUpdatedAt: r.voice_updated_at ?? null,
       voiceUpdatedBy: r.voice_updated_by ?? null,
       photos: photoCounts.get(r.id) ?? null,
-      review: reviewLink && place ? { link: reviewLink, cardPath: reviewCardPath(r.id), source: place.source } : null,
+      review: reviewLink && place ? { link: reviewLink, cardPath: safeCardPath(r.id), source: place.source } : null,
       connection: r.connection_status ? { status: r.connection_status, label: ADMIN_LABELS[r.connection_status as ConnectionStatus] ?? r.connection_status, detail: r.connection_detail, checkedAt: r.connection_checked_at, nextStep: SHOP_MESSAGES[r.connection_status as ConnectionStatus]?.nextStep ?? null } : null,
       state: status.state,
       detail: status.detail,

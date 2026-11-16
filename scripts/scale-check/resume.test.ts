@@ -4,7 +4,7 @@
  * (./sim.ts), so it is part of `npm test` and takes about a second.
  */
 import { describe, it, expect, vi, beforeAll } from 'vitest';
-import { drain, world_, sim, world, reviewsReadFor, seedPublishedPosts, seedDuePosts, seedReviews, seedMetrics, callCron, dbProxy } from './harness';
+import { drain, world_, sim, world, reviewsReadFor, seedPublishedPosts, seedDuePosts, seedReviews, seedMetrics, callCron, dbProxy, advanceMinutes, SIM_START, DAY } from './harness';
 
 vi.mock('@/lib/supabase', async () => ({ supabaseAdmin: (await import('./harness')).dbProxy }));
 
@@ -54,6 +54,73 @@ describe('scheduled jobs resume across runs', () => {
     } finally { stop(); }
   }, SLOW);
 
+  it('post-generator: a post the shop cancelled is NOT written again by the next run', async () => {
+    const stop = await world_(2, (c) => seedPublishedPosts(c));
+    try {
+      const first = await callCron('post-generator');
+      expect(first.result.generated).toBe(2);
+      const emails = world.emails.length;
+      // The shop presses the cancel link in its preview email.
+      const mine = sim.tables.scheduled_posts.find((p: any) => p.profile_id === 'profile-1' && p.status === 'pending_approval');
+      mine.status = 'cancelled';
+      advanceMinutes(5);
+      const second = await callCron('post-generator');
+      expect(second.result).toMatchObject({ generated: 0, remaining: 0 });
+      expect(world.emails).toHaveLength(emails); // and no second preview email
+      expect(sim.tables.scheduled_posts.filter((p: any) => p.profile_id === 'profile-1' && p.status !== 'published')).toHaveLength(1);
+    } finally { stop(); }
+  }, SLOW);
+
+  it('post-generator: posts are weekly. A post that went out this Monday does not stop next Monday\'s being written', async () => {
+    const stop = await world_(2, (c) => {
+      seedPublishedPosts(c);
+      // Shop 1's post from last Friday's run, published two days ago (the simulation starts on a Wednesday).
+      c.sim.tables.scheduled_posts.push({ id: 'this-monday', profile_id: 'profile-1', content: 'This week\'s post.', status: 'published', scheduled_for: new Date(SIM_START - 2 * DAY + 3_600_000).toISOString(), published_at: new Date(SIM_START - 2 * DAY + 3_600_000).toISOString(), created_at: new Date(SIM_START - 5 * DAY).toISOString(), photo_id: null });
+    });
+    try {
+      const r = await callCron('post-generator');
+      expect(r.result.generated).toBe(2);
+      const next = sim.tables.scheduled_posts.filter((p: any) => p.profile_id === 'profile-1' && Date.parse(p.scheduled_for) > SIM_START);
+      expect(next).toHaveLength(1);
+      expect(new Date(next[0].scheduled_for).getUTCDay()).toBe(1); // a Monday
+    } finally { stop(); }
+  }, SLOW);
+
+  it('monday-stats: if this week\'s row cannot be written, no text is sent (so it cannot repeat every five minutes)', async () => {
+    const stop = await world_(3);
+    const realFrom = dbProxy.from;
+    (dbProxy as any).from = (t: string) => {
+      const q: any = realFrom(t);
+      if (t === 'weekly_stats') q.upsert = () => ({ then: (res: any) => res({ data: null, error: { message: 'database is read-only' } }) });
+      return q;
+    };
+    try {
+      const r = await callCron('monday-stats');
+      expect(r.result.sent).toBe(0);
+      expect(world.sms).toHaveLength(0);
+    } finally { (dbProxy as any).from = realFrom; stop(); }
+  }, SLOW);
+
+  it('monday-stats: if Google cannot be read, the shop is left for the next run and is not texted "0 views"', async () => {
+    const stop = await world_(2);
+    const inner = globalThis.fetch;
+    let down = true;
+    globalThis.fetch = (async (input: any, init?: RequestInit) => {
+      const url = typeof input === 'string' ? input : input.url;
+      if (down && String(url).includes('businessprofileperformance')) return new Response('{"error":{"status":"UNAVAILABLE"}}', { status: 503 });
+      return inner(input, init);
+    }) as typeof fetch;
+    try {
+      const bad = await callCron('monday-stats');
+      expect(bad.result.sent).toBe(0);
+      expect(world.sms).toHaveLength(0);
+      expect(sim.tables.weekly_stats).toHaveLength(0);
+      down = false;
+      const good = await callCron('monday-stats');
+      expect(good.result.sent).toBe(2);
+    } finally { globalThis.fetch = inner; stop(); }
+  }, SLOW);
+
   it('monday-stats: 40 shops take several runs; each shop is texted exactly once', async () => {
     const stop = await world_(40);
     try {
@@ -68,13 +135,13 @@ describe('scheduled jobs resume across runs', () => {
     } finally { stop(); }
   }, SLOW);
 
-  it('review-alerts: across a day of half-hourly runs every one of 120 shops is checked, and each new review is answered once', async () => {
+  it('review-alerts: across a day of runs every one of 120 shops is checked, and each new review is answered once', async () => {
     const stop = await world_(120, (c) => seedReviews(c, 1 / 5));
     try {
       const first = await callCron('review-alerts');
       expect(first.result.partial).toBe(true);
       expect(first.result.checked).toBeLessThan(120);
-      const d = await drain('review-alerts', 30, 21, () => false);
+      const d = await drain('review-alerts', 15, 43, () => false);
       expect(reviewsReadFor.size).toBe(120);
       const withNew = Object.values(world.personas).filter((p) => p.listings[0].reviews.some((r) => r.reviewId === 'fresh'));
       expect(withNew.every((p) => p.listings[0].reviews.find((r) => r.reviewId === 'fresh')!.reviewReply)).toBe(true);

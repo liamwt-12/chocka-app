@@ -24,7 +24,7 @@
  *
  * Pure functions plus one database helper with the client injected.
  */
-import { FORBIDDEN_REPLY_PATTERNS } from './safe-automation';
+import { FORBIDDEN_REPLY_PATTERNS, containsPhoneNumber } from './safe-automation';
 
 export const TONES = {
   friendly: 'friendly and approachable',
@@ -103,7 +103,7 @@ export function voiceTextProblem(text: string): string | null {
   if (/£\s?\d|\$|\b\d+\s?(p|pence|quid|pounds?)\b|\b\d+\s?%/i.test(text)) return 'leave out prices and percentages';
   if (/https?:\/\/|www\.|\b[a-z0-9-]+\.(co\.uk|com|uk|net|org)\b/i.test(text)) return 'leave out web addresses';
   if (/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/.test(text) || /@\w/.test(text)) return 'leave out email addresses and social media handles';
-  if (/(\+44|\b0)\d[\d\s]{7,}/.test(text)) return 'leave out phone numbers';
+  if (containsPhoneNumber(text)) return 'leave out phone numbers';
   if (/\b(gas\s+safe|niceic|trustmark|oftec|city\s*&\s*guilds|certified|accredited|guarantee[ds]?|best\s+in|cheapest|lowest\s+price)\b/i.test(text)) {
     return 'leave out accreditations, guarantees and "best" or "cheapest" claims';
   }
@@ -111,6 +111,19 @@ export function voiceTextProblem(text: string): string | null {
   if (/\b(ignore|disregard|override|forget)\b.{0,40}\b(rules?|instructions?|above|previous|prompt)\b/i.test(text) || /\bsystem\s+prompt\b/i.test(text)) {
     return 'describe the shop in plain words';
   }
+  return null;
+}
+
+/**
+ * The narrower check for the words-to-avoid list. It does not police the
+ * forbidden words themselves, but a phone number, a price, an address or an
+ * instruction to the model is not a "word to avoid" under any reading.
+ */
+export function avoidListProblem(text: string): string | null {
+  if (containsPhoneNumber(text) || /\d{5,}/.test(text.replace(/\s/g, ''))) return 'use words here, not numbers';
+  if (/£\s?\d|\$/.test(text)) return 'use words here, not prices';
+  if (/https?:\/\/|www\.|\b[a-z0-9-]+\.(co\.uk|com|uk|net|org)\b/i.test(text) || /@/.test(text)) return 'use words here, not web or email addresses';
+  if (/\b(ignore|disregard|override|forget)\b.{0,40}\b(rules?|instructions?|above|previous|prompt)\b/i.test(text) || /\bsystem\s+prompt\b/i.test(text) || /[:;]/.test(text)) return 'use plain words or short phrases';
   return null;
 }
 
@@ -145,14 +158,20 @@ export function parseVoiceProfile(input: unknown): VoiceParse {
   if ([...wordsToUse, ...wordsToAvoid].some((w) => w.length > VOICE_LIMITS.word)) return { ok: false, error: `Keep each word or phrase under ${VOICE_LIMITS.word} characters` };
   if (specialities.some((s) => s.length > VOICE_LIMITS.speciality)) return { ok: false, error: `Keep each speciality under ${VOICE_LIMITS.speciality} characters` };
 
-  // Words to AVOID are not checked: "cheap" or "discount" is exactly what a shop
-  // might reasonably ask us never to say.
+  // Words to AVOID are not checked for the forbidden WORDS: "cheap", "discount"
+  // or "refund" is exactly what a shop might reasonably ask us never to say.
+  // They are still checked for the things that are never a word to avoid
+  // (below): this list goes into the prompt like every other answer.
   const checked: Array<[string, string]> = [
     ['Sign-off', signOff],
     ['Description', about],
     ...wordsToUse.map((w): [string, string] => ['Words to use', w]),
     ...specialities.map((s): [string, string] => ['Specialities', s]),
   ];
+  for (const w of wordsToAvoid) {
+    const problem = avoidListProblem(w);
+    if (problem) return { ok: false, error: `Words to avoid: ${problem}.` };
+  }
   for (const [label, text] of checked) {
     const problem = text ? voiceTextProblem(text) : null;
     if (problem) return { ok: false, error: `${label}: ${problem}. Google shows contact details and prices elsewhere on the listing.` };
