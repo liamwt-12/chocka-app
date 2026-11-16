@@ -153,6 +153,8 @@ export function monthlyReportEmail(params: {
   presenceScoreAtStart?: number | null;
   /** Pre-rendered "Change during your ads" section (lib/ad-comparison.ts), or empty. */
   adComparisonHtml?: string;
+  /** Pre-rendered "What we did / What changed" in words (lib/report-narrative.ts), or empty. */
+  narrativeHtml?: string;
   tenant?: Tenant;
 }): string {
   const t = params.tenant ?? getTenant();
@@ -186,6 +188,7 @@ export function monthlyReportEmail(params: {
   return emailWrapper(`
     <p style="font-size: 15px; line-height: 1.6; margin: 0 0 6px;">Hi ${firstName},</p>
     <p style="font-size: 15px; line-height: 1.6; margin: 0 0 28px; color: #555;">Here's what ${t.brandName} did for ${params.businessName} in ${params.month}.</p>
+${params.narrativeHtml ?? ''}
 ${scoreBlock}
 ${params.adComparisonHtml ?? ''}
 

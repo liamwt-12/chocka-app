@@ -11,6 +11,8 @@ import { livePresenceScore } from '@/lib/presence-score';
 import { loadMetricRows, totalsFor, previousMonth, type MetricRow } from '@/lib/metrics';
 import { compareAdPeriod, comparisonRange, adComparisonEmailSection } from '@/lib/ad-comparison';
 import { startBudget, rotateForRun, runIndex } from '@/lib/cron-budget';
+import { plainSummaryEnabled, whatWeDid, whatChanged, narrativeHtml } from '@/lib/report-narrative';
+import { loadNarrativeFacts } from '@/lib/report-narrative-data';
 import { reportMonthKey, alreadyReported, claimMonthlyReport, releaseMonthlyReport, inChunks } from '@/lib/monthly-report';
 
 /** A month with fewer stored days than this shows no figures rather than a partial one. */
@@ -111,6 +113,23 @@ export async function GET(request: NextRequest) {
         const totalDirections = enoughDays ? monthTotals.directions : null;
         const totalWebsiteClicks = enoughDays ? monthTotals.websiteClicks : null;
 
+        // "What we did" and "what changed", in words. Off unless
+        // MONTHLY_REPORT_PLAIN_SUMMARY=on; a failure just leaves it out.
+        let narrative = '';
+        if (plainSummaryEnabled()) {
+          try {
+            const before = previousMonth(new Date(`${month.from}T12:00:00Z`));
+            const beforeTotals = totalsFor(await loadMetricRows(supabaseAdmin, profile.id, before.from, before.to), before.from, before.to);
+            const facts = await loadNarrativeFacts(supabaseAdmin, profile.id, lastMonth.toISOString(), thisMonthStart.toISOString());
+            const did = whatWeDid({ postsPublished: postsPublished || 0, repliesPosted: reviewsReplied || 0, ...facts, postsOn: !!user.auto_post_enabled, repliesOn: !!user.auto_reply_enabled });
+            const hasBefore = enoughDays && beforeTotals.daysWithData >= MIN_DAYS_FOR_MONTHLY_FIGURES;
+            const changed = whatChanged(enoughDays ? monthTotals : null, hasBefore ? beforeTotals : null);
+            narrative = narrativeHtml(did, changed, hasBefore);
+          } catch (e: any) {
+            console.warn(`[cron:monthly-report] plain summary skipped for user ${user.id}: ${String(e?.message).slice(0, 200)}`);
+          }
+        }
+
         let adComparisonHtml = '';
         const adStart = adStartByUser.get(user.id);
         if (adStart) {
@@ -169,6 +188,7 @@ export async function GET(request: NextRequest) {
             presenceBand,
             presenceScoreAtStart: profile.audit_score ?? null,
             adComparisonHtml,
+            narrativeHtml: narrative,
             tenant: t,
           }),
           tenant: t,

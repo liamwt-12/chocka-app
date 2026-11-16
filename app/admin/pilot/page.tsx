@@ -196,6 +196,13 @@ export default function PilotAdminPage() {
 
   // Is everything in place to invite shops?
   const [ready, setReady] = useState<any>(null);
+  const [retention, setRetention] = useState<any>(null);
+  const loadRetention = async () => { setBusy(true); setMsg(''); try { setRetention(await call({ action: 'retention' })); } catch (e: any) { setMsg(e.message); } setBusy(false); };
+  const downloadRetention = () => {
+    const url = URL.createObjectURL(new Blob([retention.csv], { type: 'text/csv' }));
+    const a = document.createElement('a'); a.href = url; a.download = `stellar-shops-at-risk-${new Date().toISOString().slice(0, 10)}.csv`; a.click();
+    URL.revokeObjectURL(url);
+  };
   const checkReady = async () => { setBusy(true); setMsg(''); try { setReady(await call({ action: 'readiness' })); } catch (e: any) { setMsg(e.message); } setBusy(false); };
 
   // The needs-help list as a file, to hand to whoever is ringing round. No contact details in it.
@@ -338,6 +345,36 @@ export default function PilotAdminPage() {
             </div>
           </div>
         )}
+
+        {/* Which shops are drifting. Off unless RETENTION_VIEW=on. */}
+        <div style={card}>
+          <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+            <strong style={{ fontSize: 15 }}>Which shops are at risk of drifting away?</strong>
+            <button onClick={loadRetention} disabled={busy} style={btn}>Show</button>
+            {retention?.enabled && <span style={{ fontSize: 13, color: C.mid }}><strong style={{ color: C.red }}>{retention.counts.high}</strong> at risk · <strong style={{ color: C.amber }}>{retention.counts.some}</strong> worth a look · {retention.counts.none} fine</span>}
+            {retention?.enabled && retention.rows.length > 0 && <button onClick={downloadRetention} style={{ ...btn, background: 'transparent', color: C.text, textDecoration: 'underline', padding: '2px 4px' }}>Download as a list</button>}
+          </div>
+          {retention && !retention.enabled && <p style={{ color: C.mid, fontSize: 13, margin: '8px 0 0' }}>This view is switched off. Set RETENTION_VIEW=on to use it. While it is on, the app also records when each shop last opened its dashboard (one date per shop, nothing finer).</p>}
+          {retention?.enabled && (
+            <div style={{ overflowX: 'auto', marginTop: 10 }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                <thead><tr style={{ textAlign: 'left', color: C.soft, fontSize: 11, textTransform: 'uppercase' }}><th style={{ padding: 6 }}>Shop</th><th style={{ padding: 6 }}>Status</th><th style={{ padding: 6 }}>Dashboard last opened</th><th style={{ padding: 6 }}>On</th><th style={{ padding: 6 }}>Score</th><th style={{ padding: 6 }}>Why</th></tr></thead>
+                <tbody>{retention.rows.filter((r: any) => r.risk !== 'none').map((r: any, i: number) => (
+                  <tr key={i} style={{ borderTop: '1px solid #eee', verticalAlign: 'top' }}>
+                    <td style={{ padding: 6 }}><span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: 4, background: r.risk === 'high' ? C.red : C.amber, marginRight: 6 }} />{r.name}{r.town ? <span style={{ color: C.soft }}>, {r.town}</span> : null}</td>
+                    <td style={{ padding: 6 }}>{r.status}</td>
+                    <td style={{ padding: 6 }}>{r.lastSeenOn || (r.joinedOn ? 'not recorded' : '–')}</td>
+                    <td style={{ padding: 6 }}>{r.joinedOn ? [r.postsOn && 'posts', r.repliesOn && 'replies'].filter(Boolean).join(', ') || 'nothing' : '–'}</td>
+                    <td style={{ padding: 6 }}>{r.scoreAtStart === null ? '–' : `${r.scoreAtStart} → ${r.scoreNow ?? '?'}`}</td>
+                    <td style={{ padding: 6 }}>{r.signals.map((t: string, j: number) => <div key={j}>{t}</div>)}</td>
+                  </tr>
+                ))}</tbody>
+              </table>
+              {retention.rows.every((r: any) => r.risk === 'none') && <p style={{ color: C.mid, fontSize: 13 }}>No shop shows any sign of drifting.</p>}
+              <p style={{ color: C.soft, fontSize: 12, margin: '8px 0 0' }}>Each line is a fact you can check, not a score. Nothing here is sent to anyone, and the download has no contact details in it.</p>
+            </div>
+          )}
+        </div>
 
         {/* Ready to invite? Settings present, migrations applied, jobs running. */}
         <div style={card}>

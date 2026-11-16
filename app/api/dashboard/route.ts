@@ -1,3 +1,5 @@
+import { retentionEnabled } from '@/lib/retention';
+import { markSeen } from '@/lib/retention-data';
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
 import { refreshAccessToken, getLocationFull, getReviews, getLocalPosts, getMedia, getPerformanceMetrics, parseStarRating, getPlaceReviews, findPlaceId } from '@/lib/google';
@@ -17,6 +19,8 @@ export async function GET(request: NextRequest) {
 
     const { data: user } = await supabaseAdmin.from('users').select(`*, ${MANAGER_EMBED}`).eq('id', userId).single();
     if (!user) return NextResponse.json({ error: 'User not found' }, { status: 404 });
+    // One "opened the dashboard" stamp, at most hourly, only while the retention view is on.
+    if (retentionEnabled()) await markSeen(supabaseAdmin, user);
 
     const { data: profile } = await supabaseAdmin.from('profiles').select('*').eq('user_id', userId).single();
 

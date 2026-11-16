@@ -16,7 +16,8 @@ import { pilotStatus, type PilotInvite, type PilotUser } from './pilot';
 import { shopStatus, type StatusInvite } from './shop-status';
 import { ADMIN_LABELS, type ConnectionStatus } from './ownership';
 import { MANAGER_EMBED } from './managed-access';
-import { loadMetricRows, isoDate, type MetricRow } from './metrics';
+import { loadMetricRows, isoDate, totalsFor, previousMonth, type MetricRow } from './metrics';
+import { buildNetworkSummary, type NetworkSummary, type ShopMonth } from './network-summary';
 import { buildLeague, leagueWindows, type LeagueEntry, type LeagueExcluded } from './league';
 import { compareAdPeriod, comparisonRange } from './ad-comparison';
 import { adVerdict, formatPounds } from './ad-spend';
@@ -49,6 +50,8 @@ export interface ConsoleData {
   counts: Record<string, number>;
   shops: ConsoleShop[];
   league: { ranked: LeagueEntry[]; excluded: LeagueExcluded[] };
+  /** The monthly network summary (lib/network-summary.ts). */
+  summary: NetworkSummary;
 }
 
 interface Db { from(table: string): any }
@@ -143,8 +146,22 @@ export async function loadConsoleData(db: Db, tenantId: string, now: Date = new 
     s.improvement = `Too early: ${e.reason}`;
   }
 
+  // The last complete month and the one before, per shop, for the network
+  // totals. One read per shop covering both months.
+  const month = previousMonth(now);
+  const before = previousMonth(new Date(`${month.from}T12:00:00Z`));
+  const months: ShopMonth[] = [];
+  for (const x of withProfile) {
+    try {
+      const rows = await loadMetricRows(db, x.profileId, before.from, month.to);
+      months.push({ retailerId: x.shop.retailerId, thisMonth: totalsFor(rows, month.from, month.to), lastMonth: totalsFor(rows, before.from, before.to) });
+    } catch (e) { console.error(`[console] month figures failed for ${x.shop.retailerId}: ${String((e as any)?.message).slice(0, 160)}`); }
+  }
+  const monthLabel = new Date(`${month.from}T12:00:00Z`).toLocaleString('en-GB', { month: 'long', year: 'numeric', timeZone: 'UTC' });
+  const summary = buildNetworkSummary(shops, league, months, monthLabel);
+
   const counts = shops.reduce((acc: Record<string, number>, s) => { acc[s.pilotState] = (acc[s.pilotState] || 0) + 1; return acc; }, {});
-  return { generatedAt: now.toISOString(), counts, shops, league };
+  return { generatedAt: now.toISOString(), counts, shops, league, summary };
 }
 
 /** Fields a console response must never contain, checked in tests. */
