@@ -6,7 +6,7 @@ import { refreshAccessToken, getLocationFull, getReviews, getLocalPosts, getMedi
 import { decryptSecret, userTokenAad } from '@/lib/secrets';
 import { resolveAccess, MANAGER_EMBED } from '@/lib/managed-access';
 import { getSessionUserId } from '@/lib/session';
-import { SHOP_MESSAGES } from '@/lib/ownership';
+import { shopConnectionMessage } from '@/lib/ownership';
 import { holidayPrompt, datesCovered } from '@/lib/bank-holidays';
 import { nextBestStep } from '@/lib/next-step';
 import { generateReviewHash } from '@/lib/cron';
@@ -176,7 +176,7 @@ export async function GET(request: NextRequest) {
     // rule in two places.
     const { data: retailer } = await supabaseAdmin
       .from('retailers')
-      .select('name, score, band, scored_at, match_confidence, connection_status, listing_confirmed_at')
+      .select('name, place_id, score, band, scored_at, match_confidence, connection_status, listing_confirmed_at')
       .eq('user_id', userId)
       .maybeSingle();
 
@@ -240,7 +240,7 @@ export async function GET(request: NextRequest) {
       // Plain-English status for invited shops that are not fully connected yet.
       // A "check listing" a person has since confirmed is no longer a question for the shop.
       connection: retailer?.connection_status && ['check_listing', 'waiting_google'].includes(retailer.connection_status) && !(retailer.connection_status === 'check_listing' && retailer.listing_confirmed_at)
-        ? { status: retailer.connection_status, ...SHOP_MESSAGES[retailer.connection_status as 'check_listing' | 'waiting_google'] }
+        ? { status: retailer.connection_status, ...shopConnectionMessage(retailer.connection_status as 'check_listing' | 'waiting_google', !!retailer.place_id) }
         : null,
       user: { name: user.name, email: user.email, phone: user.phone_number, referral_code: user.referral_code, subscription_status: user.subscription_status, auto_post_enabled: user.auto_post_enabled, auto_reply_enabled: user.auto_reply_enabled, sms_enabled: user.sms_enabled },
       profile: profile ? { business_name: profile.business_name, category: profile.category, city: profile.city, streak_weeks: profile.streak_weeks || 0, total_posts: postCountRes.count || 0, total_replies: replyCountRes.count || 0, audit_score: profile.audit_score || null, audit_score_after: profile.audit_score_after || null, latitude: profile.latitude, longitude: profile.longitude } : null,

@@ -71,6 +71,7 @@ export interface ShopStatus {
 
 export interface StatusRetailer {
   user_id: string | null;
+  place_id?: string | null;
   connection_status?: string | null;
   connection_detail?: string | null;
   connection_checked_at?: string | null;
@@ -130,7 +131,9 @@ export function shopStatus(
     }
     if (retailer.connection_status === 'check_listing' && !retailer.listing_confirmed_at && rules.matched) {
       return { ...base, key: 'check_listing', label: 'Check listing', connected: true, severity: 1, since: retailer.connection_checked_at ?? null,
-        why: `Connected, but not to the listing we expected${retailer.connection_detail ? ` (${retailer.connection_detail})` : ''}. Nothing is posted to it until someone confirms it.`,
+        why: !(retailer.place_id === null || /no expected listing on record/.test(retailer.connection_detail || ''))
+          ? `Connected, but not to the listing we expected${retailer.connection_detail ? ` (${retailer.connection_detail})` : ''}. Nothing is posted to it until someone confirms it.`
+          : 'Connected. We had no listing on record for this shop to compare it with, so a person needs to look at it. Nothing is posted to it until someone confirms it.',
         action: 'Compare the name and address with the shop. If it is their shop, press This is right. If not, press Reset connection and ask them to use the Google account for the right shop.',
         buttons: ['confirm_listing', 'reset'] };
     }

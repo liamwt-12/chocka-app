@@ -1,6 +1,6 @@
 /**
- * The retention view: which shops are getting something out of this, and which
- * are drifting, while there is still time to do something about it.
+ * The retention view: which shops are using the service and which are not, so
+ * a person can help the ones that are not.
  *
  * For the person running the service, in /admin/pilot. OFF unless
  * RETENTION_VIEW=on. It reads; the only thing it ever writes is one "last
@@ -27,6 +27,10 @@ export interface RetentionFacts {
   daysSinceJoined: number | null;
   /** Days since the dashboard was last opened; null if never recorded. */
   daysSinceSeen: number | null;
+  /** Days since visits began to be recorded at all; null if they never have been. */
+  daysRecording: number | null;
+  /** Looked after by an operator account: the shop is not expected to sign in, so visits say nothing. */
+  managed: boolean;
   postsOn: boolean;
   repliesOn: boolean;
   scoreAtStart: number | null;
@@ -52,8 +56,12 @@ export function retentionSignals(f: RetentionFacts): { signals: Signal[]; risk: 
   }
   if (!f.live) out.push({ key: 'held', label: `Connected but not live: ${f.statusLabel.toLowerCase()}`, serious: true });
   const joined = f.daysSinceJoined ?? 0;
-  if (f.daysSinceSeen === null) {
-    if (joined >= T.neverOpenedDays) out.push({ key: 'never_opened', label: 'Has not opened its dashboard since this was switched on', serious: false });
+  // Visits only mean something for a shop that signs in itself, and "never"
+  // only once visits have been recorded for long enough to have seen one.
+  const watched = Math.min(joined, f.daysRecording ?? 0);
+  if (f.managed) { /* no dashboard signal */ }
+  else if (f.daysSinceSeen === null) {
+    if (watched >= T.neverOpenedDays) out.push({ key: 'never_opened', label: `Has not opened its dashboard in the ${watched} days visits have been recorded`, serious: false });
   } else if (f.daysSinceSeen >= T.quietDays) {
     out.push({ key: 'gone_quiet', label: `Has not opened its dashboard for ${f.daysSinceSeen} days`, serious: false });
   }
@@ -72,7 +80,7 @@ function finish(signals: Signal[]): { signals: Signal[]; risk: Risk } {
 
 export interface RetentionRow { name: string; town: string | null; status: string; joinedOn: string | null; lastSeenOn: string | null; postsOn: boolean; repliesOn: boolean; scoreAtStart: number | null; scoreNow: number | null; changesMade: number; signals: string[]; risk: Risk }
 
-const cell = (v: unknown) => { const t = String(v ?? ''); const risky = /^[=+\-@]/.test(t) && !/^-?\d+(\.\d+)?$/.test(t); return risky || /[",\n]/.test(t) ? `"${(risky ? `'${t}` : t).replace(/"/g, '""')}"` : t; };
+const cell = (v: unknown) => { const t = String(v ?? ''); const risky = /^[\s]*[=+\-@]/.test(t) && !/^-?\d+(\.\d+)?$/.test(t); return risky || /[",\n\r\t]/.test(t) ? `"${(risky ? `'${t}` : t).replace(/"/g, '""')}"` : t; };
 
 /** The view as a file. Shop name, town and facts only: no email address, no phone number. Pure. */
 export function retentionCsv(rows: RetentionRow[]): string {

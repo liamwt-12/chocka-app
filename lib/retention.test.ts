@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { retentionEnabled, retentionSignals, retentionCsv, retentionOrder, THRESHOLDS, type RetentionFacts } from './retention';
 import { markSeen } from './retention-data';
 
-const F = (o: Partial<RetentionFacts> = {}): RetentionFacts => ({ connected: true, live: true, statusLabel: 'Live', invited: true, daysSinceInvited: 40, daysSinceJoined: 40, daysSinceSeen: 2, postsOn: true, repliesOn: true, scoreAtStart: 40, scoreNow: 61, changesMade: 3, ...o });
+const F = (o: Partial<RetentionFacts> = {}): RetentionFacts => ({ connected: true, live: true, statusLabel: 'Live', invited: true, daysSinceInvited: 40, daysSinceJoined: 40, daysSinceSeen: 2, daysRecording: 60, managed: false, postsOn: true, repliesOn: true, scoreAtStart: 40, scoreNow: 61, changesMade: 3, ...o });
 const keys = (o: Partial<RetentionFacts>) => retentionSignals(F(o)).signals.map((s) => s.key);
 
 describe('the retention view is off by default', () => {
@@ -33,6 +33,12 @@ describe('signals are checkable facts', () => {
   it('dashboard visits: never opened after a week, or quiet for a month', () => {
     expect(keys({ daysSinceSeen: null, daysSinceJoined: 3 })).toEqual([]);
     expect(keys({ daysSinceSeen: null })).toEqual(['never_opened']);
+    // "Never" only counts from when visits began to be recorded, and never for a shop an operator looks after.
+    expect(keys({ daysSinceSeen: null, daysRecording: 2 })).toEqual([]);
+    expect(keys({ daysSinceSeen: null, daysRecording: null })).toEqual([]);
+    expect(retentionSignals(F({ daysSinceSeen: null, daysRecording: 9 })).signals[0].label).toBe('Has not opened its dashboard in the 9 days visits have been recorded');
+    expect(keys({ daysSinceSeen: null, managed: true })).toEqual([]);
+    expect(keys({ daysSinceSeen: 90, managed: true })).toEqual([]);
     expect(keys({ daysSinceSeen: THRESHOLDS.quietDays - 1 })).toEqual([]);
     expect(keys({ daysSinceSeen: 45 })).toEqual(['gone_quiet']);
   });
@@ -61,6 +67,7 @@ describe('the export', () => {
   });
   it('a name cannot be read as a formula', () => {
     expect(retentionCsv([row({ name: '=cmd()', town: 'A, B' })])).toContain('"\'=cmd()","A, B"');
+    expect(retentionCsv([row({ name: ' \t=cmd()' })])).toContain('"\' \t=cmd()"');
   });
   it('most at risk first', () => {
     expect(retentionOrder([row({ name: 'c', risk: 'none', signals: [] }), row({ name: 'b', risk: 'high' }), row({ name: 'a', risk: 'some' })]).map((r) => r.name)).toEqual(['b', 'a', 'c']);
@@ -81,5 +88,13 @@ describe('the dashboard stamp', () => {
   it('never throws, and is only called while the view is on', async () => {
     await expect(markSeen({ from: () => { throw new Error('down'); } }, { id: 'u1' }, now)).resolves.toBeUndefined();
     expect(readFileSync(new URL('../app/api/dashboard/route.ts', import.meta.url), 'utf8')).toMatch(/if \(retentionEnabled\(\)\) await markSeen\(/);
+  });
+});
+
+describe('the loader', () => {
+  it('reads the change log in pages and treats a failed read as an error, not as "no changes"', () => {
+    const src = readFileSync(new URL('./retention-data.ts', import.meta.url), 'utf8');
+    expect(src).toMatch(/\.range\(from, from \+ PAGE - 1\)/);
+    expect(src.match(/must\(await db\.from/g)!.length).toBe(3);
   });
 });

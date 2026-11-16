@@ -24,6 +24,11 @@ describe('LIVE is defined once: connected, matched, verified, access not lost', 
     expect(wrong).toMatchObject({ key: 'check_listing', live: false, needsHelp: true, severity: 1 });
     expect(wrong.buttons).toEqual(['confirm_listing', 'reset']);
     expect(st({ user_id: 'u1', connection_status: 'check_listing', listing_confirmed_at: '2026-11-19T00:00:00Z' }, user()).live).toBe(true);
+    // With no expected listing on record, support is not told we expected a different one.
+    const none = st({ user_id: 'u1', connection_status: 'check_listing', connection_detail: 'Some Floors; we have no expected listing on record for this shop, so a person needs to confirm it' }, user());
+    expect(none.why).toMatch(/had no listing on record/);
+    expect(none.why).not.toMatch(/not to the listing we expected/);
+    expect(wrong.why).toMatch(/not to the listing we expected/);
   });
 
   it('an UNVERIFIED listing is not live', () => {

@@ -18,31 +18,40 @@ export async function loadRetention(db: { from(table: string): any }, tenantId: 
   const ids = shops.map((r: any) => r.id);
   const userIds = shops.map((r: any) => r.user_id).filter(Boolean);
 
-  const { data: invites } = ids.length ? await db.from('retailer_invites').select('id, retailer_id, status, expires_at, created_at, accepted_at, opened_at').in('retailer_id', ids) : { data: [] };
+  // A failed read is an error, not "no shops": a view that silently shows less is worse than none.
+  const must = <T,>(r: { data: T | null; error?: { message: string } | null }, what: string): T => { if (r.error) throw new Error(`could not read ${what}: ${r.error.message}`); return (r.data ?? []) as T; };
+  const invites: any[] = ids.length ? must(await db.from('retailer_invites').select('id, retailer_id, status, expires_at, created_at, accepted_at, opened_at').in('retailer_id', ids), 'invitations') : [];
   // Tokens are read only to decide whether access works, and never leave this function.
-  const { data: users } = userIds.length
-    ? await db.from('users').select(`id, created_at, last_seen_at, onboarding_step, auto_post_enabled, auto_reply_enabled, google_refresh_token, token_status, token_invalid_at, managed_by_user_id, ${MANAGER_EMBED}, profiles ( id, google_location_name, google_place_id, audit_score, audit_score_after )`).in('id', userIds)
-    : { data: [] };
-  const userById = new Map<string, any>((users || []).map((u: any) => [u.id, u]));
+  const users: any[] = userIds.length
+    ? must(await db.from('users').select(`id, created_at, last_seen_at, onboarding_step, auto_post_enabled, auto_reply_enabled, google_refresh_token, token_status, token_invalid_at, managed_by_user_id, ${MANAGER_EMBED}, profiles ( id, google_location_name, google_place_id, audit_score, audit_score_after )`).in('id', userIds), 'accounts')
+    : [];
+  const userById = new Map<string, any>(users.map((u: any) => [u.id, u]));
 
-  const profileIds = (users || []).map((u: any) => u.profiles?.[0]?.id).filter(Boolean);
+  // Read in pages: one query is capped at a thousand rows, and a shop past the
+  // cut would look as if it had taken no suggestion.
+  const profileIds = users.map((u: any) => u.profiles?.[0]?.id).filter(Boolean);
   const changes = new Map<string, number>();
-  if (profileIds.length) {
-    const { data: log } = await db.from('change_log').select('profile_id').in('profile_id', profileIds).eq('action', 'update_location').eq('status', 'applied').neq('source', 'revert').is('reverted_at', null);
-    for (const c of log || []) changes.set(c.profile_id, (changes.get(c.profile_id) || 0) + 1);
+  const PAGE = 1000;
+  for (let from = 0; profileIds.length; from += PAGE) {
+    const log: any[] = must(await db.from('change_log').select('profile_id').in('profile_id', profileIds).eq('action', 'update_location').eq('status', 'applied').neq('source', 'revert').is('reverted_at', null).order('created_at').range(from, from + PAGE - 1), 'the change log');
+    for (const c of log) changes.set(c.profile_id, (changes.get(c.profile_id) || 0) + 1);
+    if (log.length < PAGE) break;
   }
+
+  // When visits began to be recorded: the earliest one we hold for this tenant.
+  const firstSeen = users.map((u: any) => u.last_seen_at).filter(Boolean).sort()[0] ?? null;
 
   const rules = liveRulesFromEnv();
   const rows: RetentionRow[] = shops.map((r: any) => {
     const user = r.user_id ? userById.get(r.user_id) ?? null : null;
-    const mine = (invites || []).filter((i: any) => i.retailer_id === r.id);
+    const mine = invites.filter((i: any) => i.retailer_id === r.id);
     const status = shopStatus(r, user, mine, now, rules);
     const profile = user?.profiles?.[0] ?? null;
     const firstInvite = mine.map((i: any) => i.created_at).sort()[0] ?? null;
     const made = profile ? changes.get(profile.id) || 0 : 0;
     const { signals, risk } = retentionSignals({
       connected: status.connected, live: status.live, statusLabel: status.label,
-      invited: mine.length > 0, daysSinceInvited: daysSince(firstInvite, now), daysSinceJoined: daysSince(user?.created_at, now), daysSinceSeen: daysSince(user?.last_seen_at, now),
+      invited: mine.length > 0, daysSinceInvited: daysSince(firstInvite, now), daysSinceJoined: daysSince(user?.created_at, now), daysSinceSeen: daysSince(user?.last_seen_at, now), daysRecording: daysSince(firstSeen, now), managed: !!user?.managed_by_user_id,
       postsOn: !!user?.auto_post_enabled, repliesOn: !!user?.auto_reply_enabled,
       scoreAtStart: profile?.audit_score ?? null, scoreNow: profile?.audit_score_after ?? null, changesMade: made,
     });

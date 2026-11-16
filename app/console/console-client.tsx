@@ -57,7 +57,7 @@ export default function ConsoleClient({ view }: { view: 'console' | 'league' | '
         <div style={{ fontSize: 12, color: C.soft }}>Updated {new Date(data.generatedAt).toLocaleString('en-GB')}</div>
       </div>
       <div style={{ display: 'flex', gap: 12, fontSize: 13 }}>
-        <a href="/console/summary" style={{ color: view === 'summary' ? C.text : C.mid, fontWeight: view === 'summary' ? 700 : 400 }}>This month</a>
+        <a href="/console/summary" style={{ color: view === 'summary' ? C.text : C.mid, fontWeight: view === 'summary' ? 700 : 400 }}>Monthly summary</a>
         <a href="/console" style={{ color: view === 'console' ? C.text : C.mid, fontWeight: view === 'console' ? 700 : 400 }}>Shops</a>
         <a href="/console/league" style={{ color: view === 'league' ? C.text : C.mid, fontWeight: view === 'league' ? 700 : 400 }}>League</a>
         <button onClick={logout} style={{ background: 'none', border: 'none', color: C.mid, cursor: 'pointer', fontSize: 13 }}>Sign out</button>
@@ -82,11 +82,11 @@ export default function ConsoleClient({ view }: { view: 'console' | 'league' | '
       <div style={card}>
         <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 2 }}>What customers did, across the network</div>
         <p style={{ fontSize: 13, color: C.mid, margin: '0 0 10px' }}>{s.totals.note}</p>
-        {s.totals.shopsCounted > 0 && (
+        {s.totals.lines.length > 0 && (
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-            <thead><tr><th style={th}></th><th style={th}>{s.monthLabel}</th><th style={th}>Same shops, month before</th><th style={th}>Change</th></tr></thead>
+            <thead><tr><th style={th}></th><th style={th}>All shops, {s.monthLabel}</th><th style={th}>Shops with both months: {s.monthLabel}</th><th style={th}>The month before</th><th style={th}>Change per day</th></tr></thead>
             <tbody>{s.totals.lines.map((l: any) => (
-              <tr key={l.label}><td style={td}>{l.label}</td><td style={{ ...td, fontWeight: 700 }}>{num(l.thisMonth)}</td><td style={td}>{l.lastMonth === null ? '–' : num(l.lastMonth)}</td><td style={{ ...td, color: l.change === null ? C.mid : l.change > 0 ? C.green : l.change < 0 ? C.red : C.mid }}>{pct(l.change)}</td></tr>
+              <tr key={l.label}><td style={td}>{l.label}</td><td style={{ ...td, fontWeight: 700 }}>{num(l.thisMonth)}</td><td style={td}>{l.sameShopsThisMonth === null ? '–' : num(l.sameShopsThisMonth)}</td><td style={td}>{l.lastMonth === null ? '–' : num(l.lastMonth)}</td><td style={{ ...td, color: l.change === null ? C.mid : l.change > 0 ? C.green : l.change < 0 ? C.red : C.mid }}>{pct(l.change)}</td></tr>
             ))}</tbody>
           </table>
         )}
@@ -126,10 +126,10 @@ export default function ConsoleClient({ view }: { view: 'console' | 'league' | '
       </div>
 
       <div style={card}>
-        <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 2 }}>Shops that need a hand: {s.needingHelp.total}</div>
-        {s.needingHelp.total === 0 ? <p style={{ fontSize: 13, color: C.mid, margin: '4px 0 0' }}>Every invited shop is live.</p> : (<>
-          <p style={{ fontSize: 13, color: C.mid, margin: '0 0 8px' }}>Not live yet, by reason. The Shops page says which, and what would help.</p>
-          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>{s.needingHelp.byReason.map((r: any) => <span key={r.label} style={{ background: '#EEE', borderRadius: 999, padding: '5px 11px', fontSize: 13, fontWeight: 600 }}>{r.label}: {r.count}</span>)}</div>
+        <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 2 }}>Shops not live yet: {s.notLive.total}</div>
+        {s.notLive.total === 0 ? <p style={{ fontSize: 13, color: C.mid, margin: '4px 0 0' }}>Every invited shop is live.</p> : (<>
+          <p style={{ fontSize: 13, color: C.mid, margin: '0 0 8px' }}>By reason. Some only need time. The Shops page says which shops, and what would help.</p>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>{s.notLive.byReason.map((r: any) => <span key={r.label} style={{ background: '#EEE', borderRadius: 999, padding: '5px 11px', fontSize: 13, fontWeight: 600 }}>{r.label}: {r.count}</span>)}</div>
         </>)}
       </div>
       <p style={{ fontSize: 12, color: C.soft }}>Contact details, review text and anything about shops&apos; customers are not shown anywhere in this console.</p>

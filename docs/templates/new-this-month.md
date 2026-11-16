@@ -1,10 +1,10 @@
 # "New this month": a template for the monthly update to the funder
 
-**This is a template, not a message.** Nothing in the app sends it. A person fills it in, checks every number against the console's "This month" page, and sends it themselves.
+**This is a template, not a message.** Nothing in the app sends it. A person fills it in, checks every number against the console's "Monthly summary" page, and sends it themselves.
 
 Rules for whoever fills it in:
 
-- Every number comes from the console's "This month" page for the month named. Copy it; do not round it up.
+- Every number comes from the console's "Monthly summary" page for the month named. Copy it; do not round it up.
 - Say what changed, never what caused it. "Calls were up 12% for the same shops" is fine. "Our posts drove 12% more calls" is not: we cannot show that.
 - Only list something under "New" if it is switched on in production today.
 - Leave out any section with nothing to say. Do not pad.
@@ -17,7 +17,7 @@ Rules for whoever fills it in:
 
 Hello {NAME},
 
-Here is {MONTH} in brief. The full picture is on your console under **This month**: {CONSOLE_LINK}
+Here is {MONTH} in brief. The full picture is on your console under **Monthly summary**: {CONSOLE_LINK}
 
 ## Your shops
 
@@ -27,14 +27,25 @@ Here is {MONTH} in brief. The full picture is on your console under **This month
 
 ## What customers did
 
-For the {SHOPS_COUNTED} shops with a full month of figures:
+Across the {SHOPS_COUNTED} shops with a full month of figures:
 
-| | {MONTH} | Same shops, month before | Change |
+| | All shops, {MONTH} |
+|---|---|
+| Times seen on Google | {VIEWS} |
+| Calls from listings | {CALLS} |
+| Website clicks | {CLICKS} |
+| Direction requests | {DIRECTIONS} |
+
+For the {SHOPS_COMPARED} shops with two full months, {MONTH} against the month before:
+
+| | {MONTH} | Month before | Change per day |
 |---|---|---|---|
-| Times seen on Google | {VIEWS} | {VIEWS_BEFORE} | {VIEWS_CHANGE} |
-| Calls from listings | {CALLS} | {CALLS_BEFORE} | {CALLS_CHANGE} |
-| Website clicks | {CLICKS} | {CLICKS_BEFORE} | {CLICKS_CHANGE} |
-| Direction requests | {DIRECTIONS} | {DIRECTIONS_BEFORE} | {DIRECTIONS_CHANGE} |
+| Times seen on Google | {SAME_VIEWS} | {VIEWS_BEFORE} | {VIEWS_CHANGE} |
+| Calls from listings | {SAME_CALLS} | {CALLS_BEFORE} | {CALLS_CHANGE} |
+| Website clicks | {SAME_CLICKS} | {CLICKS_BEFORE} | {CLICKS_CHANGE} |
+| Direction requests | {SAME_DIRECTIONS} | {DIRECTIONS_BEFORE} | {DIRECTIONS_CHANGE} |
+
+*(Delete the second table if the console shows no comparison yet. Never compare the first table with last month's update: the shops are not the same.)*
 
 These are Google's own figures, added up. They show what happened, not why.
 
@@ -56,7 +67,7 @@ Most improved this month: {TOP_1}, {TOP_2}, {TOP_3}.
 
 ## Where a hand would help
 
-{NEEDING_HELP} shops are not live yet. The ones where a call from your team would make the difference are listed on the console's Shops page, with the reason beside each.
+{NOT_LIVE} shops are not live yet. The ones where a call from your team would make the difference are listed on the console's Shops page, with the reason beside each.
 
 ## Next month
 

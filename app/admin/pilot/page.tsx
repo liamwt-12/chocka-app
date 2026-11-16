@@ -349,7 +349,7 @@ export default function PilotAdminPage() {
         {/* Which shops are drifting. Off unless RETENTION_VIEW=on. */}
         <div style={card}>
           <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
-            <strong style={{ fontSize: 15 }}>Which shops are at risk of drifting away?</strong>
+            <strong style={{ fontSize: 15 }}>Which shops are not getting much from this?</strong>
             <button onClick={loadRetention} disabled={busy} style={btn}>Show</button>
             {retention?.enabled && <span style={{ fontSize: 13, color: C.mid }}><strong style={{ color: C.red }}>{retention.counts.high}</strong> at risk · <strong style={{ color: C.amber }}>{retention.counts.some}</strong> worth a look · {retention.counts.none} fine</span>}
             {retention?.enabled && retention.rows.length > 0 && <button onClick={downloadRetention} style={{ ...btn, background: 'transparent', color: C.text, textDecoration: 'underline', padding: '2px 4px' }}>Download as a list</button>}
@@ -455,6 +455,7 @@ export default function PilotAdminPage() {
 {statement.provisional && <span style={{ color: C.amber, fontWeight: 600 }}>provisional</span>}
                 {statement.money ? <span>{money(statement.money.grossPence)}{statement.settings.capPence !== null ? <> · cap {money(statement.settings.capPence)}</> : null}{statement.money.creditPence ? <> · credit {money(statement.money.creditPence)} ({statement.shopsAboveCap} above the cap)</> : null} = <strong>{money(statement.money.totalPence)}</strong></span> : <span style={{ color: C.soft }}>No price is set (BILLING_PRICE_PENCE_PER_SHOP), so counts only.</span>}
               </div>
+              {statement.noCountOnLastDay && <div style={{ color: C.red, fontWeight: 700, marginBottom: 6 }}>No count was taken on the last day of {statement.month} (the hourly job did not run that day), so nobody is shown as live. Do not use this statement as it stands: the shops live during the month are listed below as not counted.</div>}
               {statement.lines.length === 0 ? <div style={{ color: C.mid }}>No shop counts for {statement.month}.</div> : (
                 <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                   <thead><tr style={{ textAlign: 'left', color: C.soft, fontSize: 11, textTransform: 'uppercase' }}><th style={{ padding: 4 }}>Shop</th><th style={{ padding: 4 }}>Town</th><th style={{ padding: 4 }}>Days live</th><th style={{ padding: 4 }}>First</th><th style={{ padding: 4 }}>Last</th><th style={{ padding: 4 }}></th></tr></thead>

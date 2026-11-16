@@ -187,8 +187,7 @@ export function monthlyReportEmail(params: {
   const notYet = metricsKnown ? '' : `<p style="font-size: 13px; color: #999; margin: -16px 0 24px;">Google hasn't given us a full month of figures for you yet. They'll appear in next month's report.</p>`;
   return emailWrapper(`
     <p style="font-size: 15px; line-height: 1.6; margin: 0 0 6px;">Hi ${firstName},</p>
-    <p style="font-size: 15px; line-height: 1.6; margin: 0 0 28px; color: #555;">Here's what ${t.brandName} did for ${params.businessName} in ${params.month}.</p>
-${params.narrativeHtml ?? ''}
+    <p style="font-size: 15px; line-height: 1.6; margin: 0 0 28px; color: #555;">Here's what ${t.brandName} did for ${params.businessName} in ${params.month}.</p>${params.narrativeHtml ? `\n${params.narrativeHtml}` : ''}
 ${scoreBlock}
 ${params.adComparisonHtml ?? ''}
 

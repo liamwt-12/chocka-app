@@ -1,7 +1,7 @@
 /**
  * The monthly network summary for the funder's marketing team: one page that
- * answers "how is the network doing, and is it worth it?" without anybody
- * having to add up a table of shops.
+ * says how the network is doing without anybody having to add up a table of
+ * shops.
  *
  * It is built from what the console already loads, plus each shop's figures
  * for the last complete month and the one before. Everything on it is either a
@@ -22,9 +22,26 @@ import type { LeagueEntry } from './league';
 
 /** A month's figures only count for a shop with at least this many days of data in it. */
 export const MIN_DAYS_IN_MONTH = 20;
+/** For the month-on-month comparison a shop needs all but this many days of BOTH months. */
+export const DAYS_SHORT_ALLOWED = 2;
+/**
+ * No total is shown from fewer shops than this: a "network total" of one or two
+ * shops is those shops' own figures. The same margin applies to the shops left
+ * out of a comparison, so one shop's figures cannot be had by subtraction.
+ */
+export const MIN_SHOPS_FOR_TOTALS = 3;
 
 export interface MonthFigures { views: number; calls: number; websiteClicks: number; directions: number }
-export interface NetworkLine { label: string; thisMonth: number; lastMonth: number | null; change: number | null }
+export interface NetworkLine {
+  label: string;
+  /** Every shop with a full month of figures. */
+  thisMonth: number;
+  /** The shops that can be compared: this month, and the month before. Null when there is no comparison. */
+  sameShopsThisMonth: number | null;
+  lastMonth: number | null;
+  /** Per day, so a short month against a long one is not a fall. */
+  change: number | null;
+}
 
 export interface NetworkSummary {
   /** The last complete month, as "November 2026". */
@@ -37,40 +54,52 @@ export interface NetworkSummary {
   /** Shops with ads: spend (as text) and what changed alongside. */
   ads: { shops: Array<{ name: string; town: string | null; from: string; spend: string | null; label: string; detail: string; flag: boolean }>; withSpend: number; clearRise: number; noClearChange: number; tooEarlyOrFew: number; flagged: number };
   topMovers: Array<{ name: string; town: string | null; band: string; actionsChange: number | null }>;
-  /** Shops that are not live, by reason. No contact details. */
-  needingHelp: { total: number; byReason: Array<{ label: string; count: number }> };
+  /** Shops that are invited or connected and not live, by reason. No contact details. */
+  notLive: { total: number; byReason: Array<{ label: string; count: number }> };
 }
 
 export interface ShopMonth { retailerId: string; thisMonth: MetricTotals; lastMonth: MetricTotals }
+/** The two months being compared, and whether Google's figures for the later one are all in yet. */
+export interface MonthSpan { label: string; days: number; daysBefore: number; complete: boolean }
 
-const pct = (before: number, after: number): number | null => (before < MIN_BASE_FOR_PERCENT ? null : Math.round(((after - before) / before) * 100));
 const figures = (t: MetricTotals): MonthFigures => ({ views: t.views, calls: t.calls, websiteClicks: t.websiteClicks, directions: t.directions });
 
 export function buildNetworkSummary(
   shops: ConsoleShop[],
   league: { ranked: LeagueEntry[] },
   months: ShopMonth[],
-  monthLabel: string,
+  span: MonthSpan | string,
 ): NetworkSummary {
+  const m: MonthSpan = typeof span === 'string' ? { label: span, days: 30, daysBefore: 30, complete: true } : span;
+  const monthLabel = m.label;
   const count = (state: string) => shops.filter((s) => s.pilotState === state).length;
 
-  // Totals: every shop with a full month of figures. The comparison with the
-  // month before uses only shops with a full month in BOTH, so a shop that
-  // joined part-way cannot make the network look as if it grew.
-  const counted = months.filter((m) => m.thisMonth.daysWithData >= MIN_DAYS_IN_MONTH);
-  const both = counted.filter((m) => m.lastMonth.daysWithData >= MIN_DAYS_IN_MONTH);
-  const sum = (list: ShopMonth[], pick: (m: ShopMonth) => MetricTotals, key: keyof MonthFigures) => list.reduce((s, m) => s + figures(pick(m))[key], 0);
+  // Totals: every shop with a full month of figures, and never from fewer than
+  // three shops. The comparison with the month before uses only shops with
+  // (nearly) every day of BOTH months, so a shop that joined part-way cannot
+  // make the network look as if it grew; and it is per day, so February
+  // against January is not a fall.
+  const counted = months.filter((x) => x.thisMonth.daysWithData >= MIN_DAYS_IN_MONTH);
+  const showTotals = counted.length >= MIN_SHOPS_FOR_TOTALS;
+  const full = counted.filter((x) => x.thisMonth.daysWithData >= m.days - DAYS_SHORT_ALLOWED && x.lastMonth.daysWithData >= m.daysBefore - DAYS_SHORT_ALLOWED);
+  const leftOut = counted.length - full.length;
+  const comparable = m.complete && full.length >= MIN_SHOPS_FOR_TOTALS && (leftOut === 0 || leftOut >= MIN_SHOPS_FOR_TOTALS);
+  const both = comparable ? full : [];
+  const sum = (list: ShopMonth[], pick: (x: ShopMonth) => MetricTotals, key: keyof MonthFigures) => list.reduce((t, x) => t + figures(pick(x))[key], 0);
   const LINES: Array<[keyof MonthFigures, string]> = [['views', 'Times shops were seen on Google'], ['calls', 'Calls from listings'], ['websiteClicks', 'Website clicks'], ['directions', 'Direction requests']];
-  const lines: NetworkLine[] = LINES.map(([key, label]) => {
-    const now = sum(counted, (m) => m.thisMonth, key);
-    if (!both.length) return { label, thisMonth: now, lastMonth: null, change: null };
-    const sameNow = sum(both, (m) => m.thisMonth, key), before = sum(both, (m) => m.lastMonth, key);
-    return { label, thisMonth: now, lastMonth: before, change: pct(before, sameNow) };
+  const lines: NetworkLine[] = !showTotals ? [] : LINES.map(([key, label]) => {
+    const now = sum(counted, (x) => x.thisMonth, key);
+    if (!both.length) return { label, thisMonth: now, sameShopsThisMonth: null, lastMonth: null, change: null };
+    const sameNow = sum(both, (x) => x.thisMonth, key), before = sum(both, (x) => x.lastMonth, key);
+    const change = before < MIN_BASE_FOR_PERCENT ? null : Math.round(((sameNow / m.days) / (before / m.daysBefore) - 1) * 100);
+    return { label, thisMonth: now, sameShopsThisMonth: sameNow, lastMonth: before, change };
   });
   const note = !counted.length ? 'No shop has a full month of figures yet.'
-    : !both.length ? `From ${counted.length} shop${counted.length === 1 ? '' : 's'} with a full month of figures. No comparison yet: none has two full months.`
-    : both.length === counted.length ? `From ${counted.length} shop${counted.length === 1 ? '' : 's'}. Compared with the month before for the same shops.`
-    : `From ${counted.length} shops. The comparison with the month before uses the ${both.length} that have two full months, so shops that joined part-way do not look like growth.`;
+    : !showTotals ? `Only ${counted.length} shop${counted.length === 1 ? ' has' : 's have'} a full month of figures so far. Totals are shown from ${MIN_SHOPS_FOR_TOTALS} shops, so that a total is never one shop's own figures.`
+    : !m.complete ? `From ${counted.length} shops. Google's figures for the last few days of the month are not all in yet, so there is no comparison with the month before until they are.`
+    : !both.length ? `From ${counted.length} shops with a full month of figures. No comparison with the month before yet: too few shops have two full months.`
+    : both.length === counted.length ? `From ${counted.length} shops. Compared with the month before for the same shops, per day.`
+    : `From ${counted.length} shops. The comparison uses the ${both.length} that have two full months, per day, so shops that joined part-way do not look like growth.`;
 
   const bands = league.ranked.map((e) => e.band as string);
   const changes = league.ranked.map((e) => e.actionsChange).filter((n): n is number => typeof n === 'number').sort((a, b) => a - b);
@@ -102,6 +131,6 @@ export function buildNetworkSummary(
       flagged: adShops.filter((a) => a.flag).length,
     },
     topMovers: league.ranked.slice(0, 5).map((e) => ({ name: e.name, town: e.town, band: e.band, actionsChange: e.actionsChange })),
-    needingHelp: { total: Array.from(reasons.values()).reduce((a, b) => a + b, 0), byReason: Array.from(reasons.entries()).map(([label, n]) => ({ label, count: n })).sort((a, b) => b.count - a.count || a.label.localeCompare(b.label)) },
+    notLive: { total: Array.from(reasons.values()).reduce((a, b) => a + b, 0), byReason: Array.from(reasons.entries()).map(([label, n]) => ({ label, count: n })).sort((a, b) => b.count - a.count || a.label.localeCompare(b.label)) },
   };
 }

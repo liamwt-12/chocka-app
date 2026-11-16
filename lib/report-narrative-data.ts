@@ -7,14 +7,13 @@ import { maskFields } from './change-log';
 import type { Did } from './report-narrative';
 
 const FIELD_WORDS: Record<string, string> = { profile: 'description', serviceItems: 'services', categories: 'categories', regularHours: 'opening hours', specialHours: 'holiday hours', websiteUri: 'website' };
-/** Code paths where the shop itself chose the change (ticked a suggestion, or saved it in Settings). */
-const SHOP_SOURCES = new Set(['onboarding']);
-
 export async function loadNarrativeFacts(db: { from(table: string): any }, profileId: string, fromIso: string, toIso: string): Promise<Pick<Did, 'listingChanges' | 'repliesWaiting' | 'postsWaiting'>> {
-  const { data: log } = await db.from('change_log').select('source, target').eq('profile_id', profileId).eq('action', 'update_location').eq('status', 'applied').neq('source', 'revert').is('reverted_at', null).gte('created_at', fromIso).lt('created_at', toIso);
-  const listingChanges: Did['listingChanges'] = [];
-  for (const row of log || []) for (const f of maskFields(row.target || '')) if (FIELD_WORDS[f]) listingChanges.push({ what: FIELD_WORDS[f], by: SHOP_SOURCES.has(row.source) ? 'shop' : 'us' });
-  const { count: repliesWaiting } = await db.from('review_replies').select('id, reviews!inner(profile_id)', { count: 'exact', head: true }).eq('reviews.profile_id', profileId).eq('status', 'pending');
-  const { count: postsWaiting } = await db.from('scheduled_posts').select('id', { count: 'exact', head: true }).eq('profile_id', profileId).eq('status', 'awaiting_approval');
-  return { listingChanges, repliesWaiting: repliesWaiting || 0, postsWaiting: postsWaiting || 0 };
+  // A failed read throws, and the caller leaves the section out: better no summary than "nothing needed doing".
+  const must = <T,>(r: { data?: T | null; count?: number | null; error?: { message: string } | null }, what: string) => { if (r.error) throw new Error(`could not read ${what}: ${r.error.message}`); return r; };
+  const log = must(await db.from('change_log').select('target').eq('profile_id', profileId).eq('action', 'update_location').eq('status', 'applied').neq('source', 'revert').is('reverted_at', null).gte('created_at', fromIso).lt('created_at', toIso), 'the change log').data as any[] | null;
+  const listingChanges: string[] = [];
+  for (const row of log || []) for (const f of maskFields(row.target || '')) if (FIELD_WORDS[f]) listingChanges.push(FIELD_WORDS[f]);
+  const replies = must(await db.from('review_replies').select('id, reviews!inner(profile_id)', { count: 'exact', head: true }).eq('reviews.profile_id', profileId).eq('status', 'pending'), 'waiting replies');
+  const posts = must(await db.from('scheduled_posts').select('id', { count: 'exact', head: true }).eq('profile_id', profileId).eq('status', 'awaiting_approval'), 'waiting posts');
+  return { listingChanges, repliesWaiting: replies.count || 0, postsWaiting: posts.count || 0 };
 }

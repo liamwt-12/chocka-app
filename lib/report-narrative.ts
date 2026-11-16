@@ -12,11 +12,11 @@
  * RULES
  * - Only things that are on record. "We published 4 posts" comes from the four
  *   published posts; if there were none, it says so.
- * - Changes the shop chose itself are described as the shop's ("You added your
- *   opening hours"), not ours.
- * - "What changed" compares this month with last month and gives both numbers.
- *   A percentage is only given on a base of 20 or more. It never says why
- *   something changed, and never calls a small move a rise or a fall.
+ * - A change to the listing is one the shop approved (it ticked it, or typed
+ *   it), and is described that way: "You approved changes to...".
+ * - "What changed" gives this month's number and last month's. It says "up"
+ *   or "down", with a percentage, only on a base of 20 or more and a move of
+ *   10% or more; anything less is just the two numbers. It never says why.
  * - No money. Nothing about ads beyond the existing section. Nothing about spend.
  *
  * Pure: takes counts, returns sentences.
@@ -30,8 +30,8 @@ export function plainSummaryEnabled(env: Record<string, string | undefined> = pr
 export interface Did {
   postsPublished: number;
   repliesPosted: number;
-  /** Listing fields changed this month and still in place, by who chose it: 'shop' (ticked or saved by the shop) or 'us'. */
-  listingChanges: Array<{ what: string; by: 'shop' | 'us' }>;
+  /** Listing fields changed this month and still in place. Every one was approved by the shop. */
+  listingChanges: string[];
   /** Replies waiting on the dashboard for the shop to approve. */
   repliesWaiting: number;
   postsWaiting: number;
@@ -48,16 +48,17 @@ export function whatWeDid(d: Did): string[] {
   if (d.postsPublished) out.push(`We published ${n(d.postsPublished, 'post', 'posts')} on your Google listing.`);
   else if (d.postsOn) out.push('No post went up this month.');
   if (d.repliesPosted) out.push(`We replied to ${n(d.repliesPosted, 'review', 'reviews')}.`);
-  const mine = Array.from(new Set(d.listingChanges.filter((c) => c.by === 'shop').map((c) => c.what.toLowerCase())));
-  const ours = Array.from(new Set(d.listingChanges.filter((c) => c.by === 'us').map((c) => c.what.toLowerCase())));
-  if (mine.length) out.push(`You updated your ${list(mine)}, and we put ${mine.length === 1 ? 'it' : 'them'} on your listing.`);
-  if (ours.length) out.push(`We updated your ${list(ours)}.`);
+  const fields = Array.from(new Set(d.listingChanges.map((c) => c.toLowerCase())));
+  if (fields.length) out.push(`You approved changes to your ${list(fields)}, and we put ${fields.length === 1 ? 'it' : 'them'} on your listing.`);
   if (d.repliesWaiting) out.push(`${n(d.repliesWaiting, 'reply is', 'replies are')} waiting on your dashboard for you to approve.`);
   if (d.postsWaiting) out.push(`${n(d.postsWaiting, 'post is', 'posts are')} waiting on your dashboard for you to approve.`);
   if (!d.postsOn && !d.repliesOn && !out.length) out.push('Posts and review replies are both switched off, so we did not post or reply for you this month. You can turn either on in Settings.');
   else if (!out.length) out.push('Nothing needed doing on your listing this month.');
   return out;
 }
+
+/** A move smaller than this is not called a rise or a fall. */
+export const MIN_MOVE_PERCENT = 10;
 
 export interface Figures { views: number; calls: number; websiteClicks: number; directions: number }
 
@@ -69,10 +70,9 @@ export function whatChanged(now: Figures | null, before: Figures | null): string
     const a = now[key];
     if (!before) return `${label}: ${a.toLocaleString('en-GB')}.`;
     const b = before[key];
-    if (a === b) return `${label}: ${a.toLocaleString('en-GB')}, the same as last month.`;
-    const dir = a > b ? 'up from' : 'down from';
-    const pct = b >= MIN_BASE_FOR_PERCENT ? ` (${a > b ? '+' : ''}${Math.round(((a - b) / b) * 100)}%)` : '';
-    return `${label}: ${a.toLocaleString('en-GB')}, ${dir} ${b.toLocaleString('en-GB')} last month${pct}.`;
+    const move = b >= MIN_BASE_FOR_PERCENT ? Math.round(((a - b) / b) * 100) : 0;
+    if (Math.abs(move) < MIN_MOVE_PERCENT) return a === b ? `${label}: ${a.toLocaleString('en-GB')}, the same as last month.` : `${label}: ${a.toLocaleString('en-GB')} (${b.toLocaleString('en-GB')} last month).`;
+    return `${label}: ${a.toLocaleString('en-GB')}, ${move > 0 ? 'up from' : 'down from'} ${b.toLocaleString('en-GB')} last month (${move > 0 ? '+' : ''}${move}%).`;
   });
 }
 

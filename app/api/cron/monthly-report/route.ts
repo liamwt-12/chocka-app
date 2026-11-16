@@ -122,7 +122,9 @@ export async function GET(request: NextRequest) {
             const beforeTotals = totalsFor(await loadMetricRows(supabaseAdmin, profile.id, before.from, before.to), before.from, before.to);
             const facts = await loadNarrativeFacts(supabaseAdmin, profile.id, lastMonth.toISOString(), thisMonthStart.toISOString());
             const did = whatWeDid({ postsPublished: postsPublished || 0, repliesPosted: reviewsReplied || 0, ...facts, postsOn: !!user.auto_post_enabled, repliesOn: !!user.auto_reply_enabled });
-            const hasBefore = enoughDays && beforeTotals.daysWithData >= MIN_DAYS_FOR_MONTHLY_FIGURES;
+            // Compare only two months that are (nearly) all there: a part month against a whole one is not a change.
+            const daysIn = (iso: string) => Number(iso.slice(8, 10));
+            const hasBefore = monthTotals.daysWithData >= daysIn(month.to) - 2 && beforeTotals.daysWithData >= daysIn(before.to) - 2;
             const changed = whatChanged(enoughDays ? monthTotals : null, hasBefore ? beforeTotals : null);
             narrative = narrativeHtml(did, changed, hasBefore);
           } catch (e: any) {

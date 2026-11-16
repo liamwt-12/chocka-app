@@ -16,7 +16,8 @@ import { pilotStatus, type PilotInvite, type PilotUser } from './pilot';
 import { shopStatus, type StatusInvite } from './shop-status';
 import { ADMIN_LABELS, type ConnectionStatus } from './ownership';
 import { MANAGER_EMBED } from './managed-access';
-import { loadMetricRows, isoDate, totalsFor, previousMonth, type MetricRow } from './metrics';
+import { loadMetricRows, isoDate, totalsFor, previousMonth, lastReportableDate, type MetricRow } from './metrics';
+import { inChunks } from './monthly-report';
 import { buildNetworkSummary, type NetworkSummary, type ShopMonth } from './network-summary';
 import { buildLeague, leagueWindows, type LeagueEntry, type LeagueExcluded } from './league';
 import { compareAdPeriod, comparisonRange } from './ad-comparison';
@@ -151,14 +152,20 @@ export async function loadConsoleData(db: Db, tenantId: string, now: Date = new 
   const month = previousMonth(now);
   const before = previousMonth(new Date(`${month.from}T12:00:00Z`));
   const months: ShopMonth[] = [];
-  for (const x of withProfile) {
+  // Ten at a time, not one after another: at 180 shops this is 18 short waits.
+  await inChunks(withProfile, 10, async (x) => {
     try {
       const rows = await loadMetricRows(db, x.profileId, before.from, month.to);
       months.push({ retailerId: x.shop.retailerId, thisMonth: totalsFor(rows, month.from, month.to), lastMonth: totalsFor(rows, before.from, before.to) });
     } catch (e) { console.error(`[console] month figures failed for ${x.shop.retailerId}: ${String((e as any)?.message).slice(0, 160)}`); }
-  }
-  const monthLabel = new Date(`${month.from}T12:00:00Z`).toLocaleString('en-GB', { month: 'long', year: 'numeric', timeZone: 'UTC' });
-  const summary = buildNetworkSummary(shops, league, months, monthLabel);
+  });
+  const dayOf = (iso: string) => Number(iso.slice(8, 10));
+  const summary = buildNetworkSummary(shops, league, months, {
+    label: new Date(`${month.from}T12:00:00Z`).toLocaleString('en-GB', { month: 'long', year: 'numeric', timeZone: 'UTC' }),
+    days: dayOf(month.to), daysBefore: dayOf(before.to),
+    // Google's last few days arrive late. Until they are in, last month is understated.
+    complete: lastReportableDate(now) >= month.to,
+  });
 
   const counts = shops.reduce((acc: Record<string, number>, s) => { acc[s.pilotState] = (acc[s.pilotState] || 0) + 1; return acc; }, {});
   return { generatedAt: now.toISOString(), counts, shops, league, summary };
