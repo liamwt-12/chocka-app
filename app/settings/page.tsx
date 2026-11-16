@@ -95,8 +95,8 @@ export default function SettingsPage() {
         <div style={lbl}>Google Connection</div>
         <div style={{display:'flex',alignItems:'center',justifyContent:'space-between'}}>
           <div style={{display:'flex',alignItems:'center',gap:8}}>
-            <span style={{width:8,height:8,borderRadius:'50%',background:V.green}}/>
-            <span style={{fontSize:13,fontFamily:sans,color:V.text}}>Connected</span>
+            <span style={{width:8,height:8,borderRadius:'50%',background:d.lostAccess?'#D93025':V.green}}/>
+            <span style={{fontSize:13,fontFamily:sans,color:V.text}}>{d.lostAccess?'Connection lost: press Reconnect':'Connected'}</span>
           </div>
           <button onClick={()=>window.location.href='/api/auth/callback/google?action=reconnect'} style={{background:V.card2,border:'none',borderRadius:10,padding:'7px 14px',fontSize:12,fontWeight:500,cursor:'pointer',fontFamily:sans,color:V.textMid}}>Reconnect</button>
         </div>

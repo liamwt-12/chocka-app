@@ -1,3 +1,4 @@
+import { automationHeld } from './shop-status';
 import { timingSafeEqual } from 'crypto';
 import { NextRequest, NextResponse } from 'next/server';
 import { getTenantForRow, type TenantEmbeddedRow } from './tenant';
@@ -172,13 +173,20 @@ export function admitEntitled<T extends TenantEmbeddedRow & { subscription_statu
 // it infer here would narrow callers to just the two fields the gate reads,
 // breaking every route that goes on to use `profiles`, `phone_number` and the
 // rest. Typing these rows properly is a separate job to the whole of cron.
-export async function getActiveUsersWithProfiles(supabaseAdmin: any, routeLabel: string): Promise<any[]> {
+//
+// HELD SHOPS. A shop connected to a listing nobody has confirmed, or to one
+// Google has not verified, is left out (lib/shop-status.ts automationHeld), so
+// nothing is posted, replied to or reported for it while nobody is looking.
+// The one caller that must still see them is the daily figures and connection
+// check, which is what notices when the hold can lift: it passes includeHeld.
+export async function getActiveUsersWithProfiles(supabaseAdmin: any, routeLabel: string, opts: { includeHeld?: boolean } = {}): Promise<any[]> {
   const { data, error } = await supabaseAdmin
     .from('users')
     .select(`
       *,
       profiles (*),
       tenants ( slug ),
+      retailers ( connection_status, listing_confirmed_at ),
       ${MANAGER_EMBED}
     `)
     // Two shapes qualify, and the second one is new.
@@ -199,7 +207,15 @@ export async function getActiveUsersWithProfiles(supabaseAdmin: any, routeLabel:
     .or('pause_until.is.null,pause_until.lt.now()');
 
   if (error) throw error;
-  return admitEntitled(data || [], routeLabel);
+  const admitted = admitEntitled(data || [], routeLabel);
+  if (opts.includeHeld) return admitted;
+  const working: any[] = [];
+  let held = 0;
+  for (const u of admitted as any[]) {
+    if (automationHeld(u.retailers)) held++; else working.push(u);
+  }
+  if (held) console.log(`[cron:${routeLabel}] ${held} shop(s) held: listing not confirmed, or not verified by Google yet`);
+  return working;
 }
 
 // Generate a signed cancel URL hash

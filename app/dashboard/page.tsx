@@ -80,7 +80,7 @@ export default function DashboardPage() {
               same connected profile, before and after the onboarding fixes.
               Subtracting them is valid — unlike batch vs live, which is the
               comparison the hard rule forbids. */}
-          {p.audit_score_after&&p.audit_score&&<div style={bdg(V.greenLight,V.green)}>↑ +{p.audit_score_after-p.audit_score} from setup</div>}
+          {p.audit_score_after&&p.audit_score&&p.audit_score_after>p.audit_score?<div style={bdg(V.greenLight,V.green)}>↑ +{p.audit_score_after-p.audit_score} since you joined</div>:null}
           {/* An 8-bar sparkline used to sit here, drawn from a hardcoded
               [20,30,35,45,55,65,72,score]. The first seven values were invented,
               so every retailer saw eight weeks of steady improvement that never
@@ -102,6 +102,16 @@ export default function DashboardPage() {
           <div style={{marginTop:10}}><div style={{fontSize:11,color:V.textSoft}}>Actions taken</div><div style={{fontSize:18,fontWeight:600,fontFamily:mono,marginTop:2}}>{totalActions}</div></div>
         </div>
       </div>)}
+
+      {/* Lost Google access: said plainly, with the one thing to do about it. */}
+      {d.lostAccess && (
+        <div role="alert" style={{...card,borderLeft:`4px solid #D93025`,background:'#FDECEA'}}>
+          <div style={{fontSize:16,fontWeight:700,color:V.text,marginBottom:4,fontFamily:sans}}>{d.lostAccess.title}</div>
+          <p style={{fontSize:14,color:V.textMid,margin:'0 0 6px',lineHeight:1.5,fontFamily:sans}}>{d.lostAccess.message}</p>
+          <p style={{fontSize:14,color:V.textMid,margin:'0 0 12px',lineHeight:1.5,fontFamily:sans}}>{d.lostAccess.nextStep}</p>
+          <a href="/api/auth/callback/google?action=reconnect" style={{display:'inline-block',background:'var(--brand-strong)',color:'#fff',borderRadius:10,padding:'12px 18px',fontSize:15,fontWeight:600,textDecoration:'none',fontFamily:sans}}>Reconnect Google</a>
+        </div>
+      )}
 
       {/* Ownership detection: tell an invited shop what is still needed. */}
       {d.connection && (

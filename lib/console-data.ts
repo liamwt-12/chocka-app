@@ -47,7 +47,7 @@ interface Db { from(table: string): any }
 export async function loadConsoleData(db: Db, tenantId: string, now: Date = new Date()): Promise<ConsoleData> {
   const { data: retailers, error } = await db
     .from('retailers')
-    .select('id, name, town, user_id, connection_status, ad_start_date')
+    .select('id, name, town, user_id, connection_status, connection_detail, connection_checked_at, connect_issue, connect_issue_at, invite_bounced_at, listing_confirmed_at, ad_start_date')
     .eq('tenant_id', tenantId)
     .order('name');
   if (error) throw error;
@@ -56,12 +56,12 @@ export async function loadConsoleData(db: Db, tenantId: string, now: Date = new 
   const userIds = rows.map((r: any) => r.user_id).filter(Boolean);
 
   const { data: invites } = ids.length
-    ? await db.from('retailer_invites').select('id, retailer_id, status, expires_at, created_at, accepted_at').in('retailer_id', ids)
+    ? await db.from('retailer_invites').select('id, retailer_id, status, expires_at, created_at, accepted_at, opened_at').in('retailer_id', ids)
     : { data: [] };
   // Tokens are read only to decide whether access works. They never leave this function.
   const { data: users } = userIds.length
     ? await db.from('users')
-        .select(`id, google_refresh_token, token_status, managed_by_user_id, ${MANAGER_EMBED}, profiles ( id, created_at, audit_score, google_location_name )`)
+        .select(`id, google_refresh_token, token_status, token_invalid_at, managed_by_user_id, ${MANAGER_EMBED}, profiles ( id, created_at, audit_score, google_location_name )`)
         .in('id', userIds)
     : { data: [] };
   const userById = new Map<string, any>((users || []).map((u: any) => [u.id, u]));
@@ -74,7 +74,9 @@ export async function loadConsoleData(db: Db, tenantId: string, now: Date = new 
     const user: PilotUser | null = r.user_id ? userById.get(r.user_id) ?? null : null;
     const state = pilotStatus(r, user, (invites || []).filter((i: any) => i.retailer_id === r.id) as PilotInvite[], now).state;
     const profile = (user as any)?.profiles?.[0] ?? null;
-    const participating = !!(r.user_id && profile);
+    // Taking part = connected with a listing bound. Whether it is LIVE is the
+    // state above, decided in lib/shop-status.ts like everywhere else.
+    const participating = !!(r.user_id && profile?.google_location_name);
     const shop: ConsoleShop = {
       retailerId: r.id, name: r.name, town: r.town, pilotState: state,
       connection: r.connection_status ? ADMIN_LABELS[r.connection_status as ConnectionStatus] ?? r.connection_status : null,

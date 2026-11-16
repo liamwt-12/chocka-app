@@ -22,7 +22,8 @@ const STATE_LABEL: Record<string, [string, string, string]> = {
   not_invited: ['Not invited', C.soft, '#F5F3EF'],
 };
 
-type Row = { id: string; name: string; town: string | null; contactEmail: string | null; source: string; state: string; detail: string; joinedAt: string | null; delisted: boolean; adStartDate: string | null; connection: { status: string; label: string; detail: string | null; checkedAt: string | null; nextStep: string | null } | null; voice: Voice | null; voiceUpdatedAt: string | null; voiceUpdatedBy: string | null; photos: { pending: number; approved: number } | null; review: { link: string; cardPath: string; source: 'connected' | 'baseline' } | null };
+type Help = { key: string; label: string; live: boolean; needsHelp: boolean; severity: number; why: string; action: string; since: string | null; buttons: string[] };
+type Row = { help: Help; note: string | null; id: string; name: string; town: string | null; contactEmail: string | null; source: string; state: string; detail: string; joinedAt: string | null; delisted: boolean; adStartDate: string | null; connection: { status: string; label: string; detail: string | null; checkedAt: string | null; nextStep: string | null } | null; voice: Voice | null; voiceUpdatedAt: string | null; voiceUpdatedBy: string | null; photos: { pending: number; approved: number } | null; review: { link: string; cardPath: string; source: 'connected' | 'baseline' } | null };
 type Voice = { tone: string | null; about: string | null; specialities: string[]; signOff: string | null; wordsToUse: string[]; wordsToAvoid: string[] };
 type Minted = { retailerId: string; name?: string; ok: boolean; link?: string; expiresAt?: string; error?: string };
 
@@ -99,6 +100,38 @@ export default function PilotAdminPage() {
     catch (e: any) { setMsg(e.message); }
     setBusy(false);
   };
+
+  // Needs-help actions. Each asks first where it removes or changes something.
+  const act = async (payload: object, done: string) => {
+    setBusy(true); setMsg('');
+    try { const d = await call(payload); setMsg(done); if ((d as any).results) setMinted((d as any).results); await load(); }
+    catch (e: any) { setMsg(e.message); }
+    setBusy(false);
+  };
+  const resetShop = (r: Row) => {
+    if (!window.confirm(`Reset the connection for ${r.name}?\n\nThis removes the account that connected, hands the Google permission back, and lets the shop use its link again. Its posts and review history with us are removed with the account. The shop's Google listing is not touched.`)) return;
+    act({ action: 'reset_connection', retailerId: r.id }, `Connection reset for ${r.name}. Its link works again, unless it says "Not invited" below: then make a new one.`);
+  };
+  const newLink = async (r: Row) => {
+    setBusy(true); setMsg('');
+    try {
+      // A link that is still valid has to be withdrawn before a new one is made.
+      if (r.state === 'invited') await call({ action: 'revoke', retailerId: r.id });
+      const d = await call({ action: 'invite', retailerIds: [r.id] });
+      setMinted(d.results); await load();
+    } catch (e: any) { setMsg(e.message); }
+    setBusy(false);
+  };
+  const editNote = (r: Row) => {
+    const note = window.prompt(`Note for ${r.name} (who you spoke to, what was agreed). Leave empty to clear.`, r.note || '');
+    if (note === null) return;
+    act({ action: 'set_note', retailerId: r.id, note }, 'Note saved.');
+  };
+  const SEV: Record<number, [string, string]> = { 1: [C.red, C.redL], 2: [C.amber, C.amberL], 3: [C.mid, '#EEE'] };
+  const waiting = (since: string | null) => { if (!since) return ''; const n = Math.floor((Date.now() - Date.parse(since)) / 86_400_000); return n <= 0 ? 'today' : n === 1 ? '1 day' : `${n} days`; };
+  const helpRows = useMemo(() => rows.filter((r) => r.help?.needsHelp).sort((a, b) => a.help.severity - b.help.severity || (a.help.since || '9').localeCompare(b.help.since || '9')), [rows]);
+  const [helpFilter, setHelpFilter] = useState('');
+  const helpKinds = useMemo(() => { const m = new Map<string, number>(); for (const r of helpRows) m.set(r.help.label, (m.get(r.help.label) || 0) + 1); return Array.from(m.entries()); }, [helpRows]);
 
   const openVoice = (r: Row) => { setVoiceFor(r); setVoiceDraft(draftFromVoice(r.voice)); setMsg(''); };
 
@@ -206,6 +239,48 @@ export default function PilotAdminPage() {
           </div>
         )}
 
+        {/* Needs help: every shop a person should look at, most urgent first, with what to do. */}
+        <div style={{ ...card, border: helpRows.length ? `2px solid ${C.amber}` : undefined }} id="needs-help">
+          <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap', marginBottom: 6 }}>
+            <strong style={{ fontSize: 16 }}>Needs help: {helpRows.length}</strong>
+            <span style={{ color: C.mid, fontSize: 13 }}>Shops that are stuck, why, and what to do. Shops that are fine are not listed.</span>
+          </div>
+          {helpRows.length === 0 ? <div style={{ color: C.mid, fontSize: 14 }}>Nobody needs help right now.</div> : (
+            <>
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 8 }}>
+                {helpKinds.map(([label, n]) => (
+                  <button key={label} onClick={() => setHelpFilter(helpFilter === label ? '' : label)} style={{ background: helpFilter === label ? C.text : '#EEE', color: helpFilter === label ? '#fff' : C.text, border: 'none', borderRadius: 999, padding: '5px 11px', fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: sans }}>{label}: {n}</button>
+                ))}
+              </div>
+              {helpRows.filter((r) => !helpFilter || r.help.label === helpFilter).map((r) => {
+                const [fg, bg] = SEV[r.help.severity] || SEV[3];
+                const b = (k: string) => r.help.buttons.includes(k);
+                const small: React.CSSProperties = { ...btn, padding: '6px 10px', fontSize: 13 };
+                return (
+                  <div key={r.id} style={{ borderTop: '1px solid #e5e5e5', padding: '12px 0', display: 'grid', gap: 6 }}>
+                    <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                      <strong style={{ fontSize: 15 }}>{r.name}</strong><span style={{ color: C.mid, fontSize: 13 }}>{r.town || ''}</span>
+                      <span style={{ background: bg, color: fg, borderRadius: 6, padding: '2px 8px', fontWeight: 700, fontSize: 12, whiteSpace: 'nowrap' }}>{r.help.label}</span>
+                      {r.help.since && <span style={{ color: C.soft, fontSize: 12 }}>waiting {waiting(r.help.since)}</span>}
+                    </div>
+                    <div style={{ fontSize: 14 }}>{r.help.why}</div>
+                    <div style={{ fontSize: 14, color: C.mid }}><strong style={{ color: C.text }}>What to do:</strong> {r.help.action}</div>
+                    {r.note && <div style={{ fontSize: 13, color: C.mid, fontStyle: 'italic' }}>Note: {r.note}</div>}
+                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                      {b('confirm_listing') && <button disabled={busy} onClick={() => act({ action: 'confirm_listing', retailerId: r.id }, `${r.name}: listing confirmed as the right one.`)} style={{ ...small, background: C.green }}>This is right</button>}
+                      {b('new_link') && <button disabled={busy} onClick={() => newLink(r)} style={small}>New link</button>}
+                      {b('reset') && <button disabled={busy} onClick={() => resetShop(r)} style={{ ...small, background: C.red }}>Reset connection</button>}
+                      {b('bounced') && <button disabled={busy} onClick={() => act({ action: 'mark_bounced', retailerId: r.id, bounced: true }, `${r.name}: marked as not delivered.`)} style={{ ...small, background: '#777' }}>Email bounced</button>}
+                      {b('not_bounced') && <button disabled={busy} onClick={() => act({ action: 'mark_bounced', retailerId: r.id, bounced: false }, `${r.name}: marked as delivered.`)} style={{ ...small, background: C.green }}>Delivered now</button>}
+                      <button disabled={busy} onClick={() => editNote(r)} style={{ ...small, background: 'transparent', color: C.text, textDecoration: 'underline' }}>{r.note ? 'Edit note' : 'Add note'}</button>
+                    </div>
+                  </div>
+                );
+              })}
+            </>
+          )}
+        </div>
+
         <div style={card}>
           <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 8 }}>Add a shop Tarkett has given you</div>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
@@ -243,7 +318,7 @@ export default function PilotAdminPage() {
                       <td style={{ padding: 6 }}>{r.name}{r.source === 'admin' && <span style={{ color: C.soft }}> (added)</span>}{r.delisted && <span style={{ color: C.red }}> (delisted)</span>}</td>
                       <td style={{ padding: 6, color: C.mid }}>{r.town || ''}</td>
                       <td style={{ padding: 6 }}><span style={{ background: bg, color: fg, borderRadius: 999, padding: '2px 8px', fontWeight: 600, whiteSpace: 'nowrap' }}>{label}</span></td>
-                      <td style={{ padding: 6, color: C.mid }}>{r.detail}{r.joinedAt ? `, joined ${r.joinedAt.slice(0, 10)}` : ''}</td>
+                      <td style={{ padding: 6, color: C.mid }}>{r.help && !r.help.live ? r.help.label : r.detail}{r.joinedAt ? `, joined ${r.joinedAt.slice(0, 10)}` : ''}</td>
                       <td style={{ padding: 6, color: C.mid }} title={r.connection?.nextStep || ''}>
                         {r.connection ? <><strong style={{ color: ['no_access', 'check_listing', 'waiting_google'].includes(r.connection.status) ? C.amber : C.text }}>{r.connection.label}</strong>{r.connection.detail ? <div style={{ fontSize: 12 }}>{r.connection.detail}</div> : null}</> : <span style={{ color: C.soft }}>&ndash;</span>}
                       </td>
@@ -269,7 +344,7 @@ export default function PilotAdminPage() {
                           </button>
                         </td>
                       )}
-                      <td style={{ padding: 6 }}>{r.state === 'invited' && <button onClick={() => revoke(r.id)} disabled={busy} style={{ ...btn, background: 'transparent', color: C.red, padding: '2px 6px' }}>Revoke</button>}</td>
+                      <td style={{ padding: 6, whiteSpace: 'nowrap' }}>{r.state === 'invited' && <button onClick={() => revoke(r.id)} disabled={busy} style={{ ...btn, background: 'transparent', color: C.red, padding: '2px 6px' }}>Revoke</button>}{(r.state === 'live' || r.state === 'connected_not_live') && <button onClick={() => resetShop(r)} disabled={busy} title="Remove the connected account and let the shop start again with its link" style={{ ...btn, background: 'transparent', color: C.red, padding: '2px 6px' }}>Reset</button>}</td>
                     </tr>
                   );
                 })}

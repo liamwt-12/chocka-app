@@ -12,7 +12,8 @@
  */
 import { timingSafeEqual } from 'crypto';
 import { generateInviteToken, hashInviteToken, inviteExpiresAt, isInviteExpired, DEFAULT_TTL_DAYS } from './invite-token';
-import { resolveAccess, type ManagedAccessRow } from './managed-access';
+import { type ManagedAccessRow } from './managed-access';
+import { shopStatus, type StatusRetailer, type StatusInvite, type LiveRules } from './shop-status';
 
 export const PILOT_TENANT_SLUG = 'stellar';
 /** A batch larger than this is refused, so a mis-click cannot mint links for the whole network. */
@@ -51,45 +52,38 @@ export function validateNewRetailer(input: NewRetailerInput): { ok: true; value:
 
 export type PilotState = 'live' | 'connected_not_live' | 'invited' | 'invite_expired' | 'not_invited';
 
-export interface PilotInvite { id: string; status: 'pending' | 'accepted' | 'revoked'; expires_at: string; created_at: string; accepted_at: string | null }
+export interface PilotInvite { id: string; status: 'pending' | 'accepted' | 'revoked'; expires_at: string; created_at: string; accepted_at: string | null; opened_at?: string | null }
 export interface PilotUser extends ManagedAccessRow {
   created_at?: string | null;
   onboarding_step?: string | null;
+  token_invalid_at?: string | null;
   profiles?: Array<{ google_location_name: string | null; google_place_id?: string | null }> | null;
 }
 
 /**
- * Where one retailer is in the pilot.
+ * Where one retailer is in the pilot, in the five coarse states the admin page
+ * and the console count by.
  *
- * LIVE means what the billing definition needs: the retailer is linked to an
- * account, we hold working Google access for it (their own, or manager access),
- * and a listing is bound, so the scheduled jobs will actually act on it.
- * Anything short of that is "connected, not live", with the reason, because a
- * retailer who signed in but whose access failed must not be billed or counted.
+ * The decision itself is made in lib/shop-status.ts, which is the ONE place
+ * "live" is defined. This only maps its finer statuses onto the five. A shop
+ * connected to the wrong listing, to an unverified one, or whose Google access
+ * has stopped is "connected, not live", with the reason.
  */
 export function pilotStatus(
-  retailer: { user_id: string | null },
+  retailer: StatusRetailer,
   user: PilotUser | null,
   invites: PilotInvite[],
   now: Date = new Date(),
+  rules?: LiveRules,
 ): { state: PilotState; detail: string } {
-  if (retailer.user_id) {
-    if (!user) return { state: 'connected_not_live', detail: 'linked account not found' };
-    const access = resolveAccess(user);
-    if (!access.ok) return { state: 'connected_not_live', detail: `no working Google access: ${access.reason}` };
-    const bound = (user.profiles || []).some((p) => !!p.google_location_name);
-    if (!bound) return { state: 'connected_not_live', detail: 'signed in, but no listing chosen yet' };
-    return { state: 'live', detail: access.via === 'manager' ? 'live (manager access)' : 'live' };
-  }
-  const pending = invites
-    .filter((i) => i.status === 'pending')
-    .sort((a, b) => b.created_at.localeCompare(a.created_at))[0];
-  if (pending) {
-    return isInviteExpired(pending.expires_at, now)
-      ? { state: 'invite_expired', detail: `link expired ${pending.expires_at.slice(0, 10)}` }
-      : { state: 'invited', detail: `link valid until ${pending.expires_at.slice(0, 10)}` };
-  }
-  return { state: 'not_invited', detail: 'no link yet' };
+  const s = shopStatus(retailer, user, invites as StatusInvite[], now, rules);
+  if (s.live) return { state: 'live', detail: s.why };
+  if (retailer.user_id) return { state: 'connected_not_live', detail: s.why };
+  if (s.key === 'not_invited') return { state: 'not_invited', detail: 'no link yet' };
+  const pending = invites.filter((i) => i.status === 'pending').sort((a, b) => b.created_at.localeCompare(a.created_at))[0];
+  if (s.key === 'link_expired') return { state: 'invite_expired', detail: `link expired ${pending.expires_at.slice(0, 10)}` };
+  if (pending && isInviteExpired(pending.expires_at, now)) return { state: 'invite_expired', detail: `link expired ${pending.expires_at.slice(0, 10)}` };
+  return { state: 'invited', detail: s.key === 'not_opened' ? `link valid until ${pending.expires_at.slice(0, 10)}` : s.label.toLowerCase() };
 }
 
 // ── Generating invite links ──────────────────────────────────────────────────

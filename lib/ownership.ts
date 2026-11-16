@@ -89,7 +89,7 @@ export const SHOP_MESSAGES: Record<ConnectionStatus, { title: string; message: s
   check_listing: {
     title: 'Is this the right shop?',
     message: "We expected a different listing from the one we can see on this Google account. That's often fine: Google sometimes changes how a listing is recorded.",
-    nextStep: "Check the shop name and address. If it isn't yours, sign out and try the Google account that manages your shop, or tell your Tarkett rep.",
+    nextStep: "Check the shop name and address. If it is yours, there is nothing to do: someone will confirm it shortly, and until then we will not post or reply for you. If it isn't yours, tell us and we will let you start again with the right Google account.",
   },
   no_access: {
     title: "We couldn't find your shop on this Google account",
@@ -99,7 +99,7 @@ export const SHOP_MESSAGES: Record<ConnectionStatus, { title: string; message: s
   waiting_google: {
     title: 'Waiting on Google',
     message: "We've found your shop, but Google hasn't finished verifying the listing, so it can't be managed yet.",
-    nextStep: "Finish Google's verification for the listing (Google will have sent instructions by post, phone or email). Once Google has verified it, tell your Tarkett rep and we'll check it again.",
+    nextStep: "Finish Google's verification for the listing (Google will have sent instructions by post, phone or email). We check every day and carry on by ourselves once Google has verified it. Until then we will not post or reply for you.",
   },
 };
 
