@@ -46,7 +46,7 @@ export async function GET(request: NextRequest) {
     const invite = inviteFromState(searchParams.get('state'));
     const why: HelpReason = googleRefusal === 'access_denied' ? 'cancelled' : 'google_error';
     console.warn(`[auth] Google returned error=${googleRefusal}; tenant=${tenant.slug}; invite=${invite ? 'present' : 'absent'}`);
-    await noteConnectIssue(invite, why === 'cancelled' ? 'pressed Cancel on Google\'s permission screen' : `Google returned an error at sign-in (${googleRefusal.slice(0, 40)})`);
+    await noteConnectIssue(invite, why, why === 'cancelled' ? 'pressed Cancel on Google\'s permission screen' : `Google returned an error at sign-in (${googleRefusal.slice(0, 40)})`);
     return NextResponse.redirect(new URL(helpPath(why, invite), baseUrl));
   }
 
@@ -90,7 +90,7 @@ export async function GET(request: NextRequest) {
           `tenant=${tenant.slug}; state=${searchParams.get('state') ? 'present' : 'absent'}`,
       );
       const invite = inviteFromState(searchParams.get('state'));
-      await noteConnectIssue(invite, 'signed in, but left the Business Profile box unticked on Google\'s screen');
+      await noteConnectIssue(invite, 'unticked', 'signed in, but left the Business Profile box unticked on Google\'s screen');
       await revokeQuietly(tokens.refresh_token || tokens.access_token);
       // An invited shop goes to the help page, which explains the box and sends
       // it back through its own invite. Anyone else gets the sign-in page as before.
@@ -334,14 +334,14 @@ export async function GET(request: NextRequest) {
         listings = await getManageableListings(tokens.access_token);
       } catch (err) {
         console.error('[auth] enumeration threw for an invited shop before any account was created; sending to help:', err);
-        await noteConnectIssue(parsedState.invite, 'Google did not answer when we looked for the listing');
+        await noteConnectIssue(parsedState.invite, 'google_error', 'Google did not answer when we looked for the listing');
         await revokeQuietly(tokens.refresh_token);
         return NextResponse.redirect(new URL(helpPath('google_error', parsedState.invite), baseUrl));
       }
       const outcome = detectOwnership(listings, expected?.placeId ?? null);
       console.log(`[auth] ownership: ${outcome.status}: ${outcome.detail}`);
       if (outcome.status === 'no_access') {
-        if (expected) await recordConnectionStatus(expected.retailerId, 'no_access', outcome.detail);
+        if (expected) { await recordConnectionStatus(expected.retailerId, 'no_access', outcome.detail); await recordConnectIssue(expected.retailerId, 'no_listing'); }
         await revokeQuietly(tokens.refresh_token);
         return NextResponse.redirect(new URL(helpPath('no_listing', parsedState.invite), baseUrl));
       }
@@ -608,6 +608,8 @@ async function linkInviteToUser(
     }
 
     console.log(`Invite link: retailer ${invite.retailer_id} linked to user ${userId} via invite ${inviteId}`);
+    // Connected: whatever stopped an earlier attempt is no longer the story.
+    await recordConnectIssue(invite.retailer_id, null);
     await warnOnProfileMismatch(userId, claimedRetailer[0]);
   } catch (err) {
     console.error('Invite link: unexpected failure, sign-in unaffected:', err);
@@ -826,7 +828,7 @@ function inviteFromState(state: string | null): string | null {
  * helping can see it. The shop stays "invited": it has not connected. Best
  * effort, never affects what the shop sees.
  */
-async function noteConnectIssue(inviteRef: string | null, detail: string): Promise<void> {
+async function noteConnectIssue(inviteRef: string | null, code: HelpReason, detail: string): Promise<void> {
   const expected = await expectedShopForInvite(inviteRef);
   if (!expected) return;
   // Do not overwrite the record of a shop that is already connected (someone
@@ -834,6 +836,20 @@ async function noteConnectIssue(inviteRef: string | null, detail: string): Promi
   const { data: r } = await supabaseAdmin.from('retailers').select('user_id').eq('id', expected.retailerId).maybeSingle();
   if (r?.user_id) return;
   await recordConnectionStatus(expected.retailerId, 'invited', detail);
+  await recordConnectIssue(expected.retailerId, code);
+}
+
+/**
+ * The reason as a code the needs-help list can act on (lib/shop-status.ts).
+ * `null` clears it, which is what happens when the shop connects. Best effort.
+ */
+async function recordConnectIssue(retailerId: string, code: HelpReason | null): Promise<void> {
+  const allowed = code === null || ['cancelled', 'unticked', 'no_listing', 'wrong_account', 'google_error'].includes(code);
+  if (!allowed) return;
+  const { error } = await supabaseAdmin.from('retailers')
+    .update({ connect_issue: code, connect_issue_at: code ? new Date().toISOString() : null })
+    .eq('id', retailerId);
+  if (error) console.error(`[auth] could not record why retailer ${retailerId} did not connect: ${error.message}`);
 }
 
 /** Hand a Google permission back when we are not going to keep it. Best effort. */

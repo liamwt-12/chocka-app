@@ -163,7 +163,7 @@ export async function GET(request: NextRequest) {
     // rule in two places.
     const { data: retailer } = await supabaseAdmin
       .from('retailers')
-      .select('name, score, band, scored_at, match_confidence, connection_status')
+      .select('name, score, band, scored_at, match_confidence, connection_status, listing_confirmed_at')
       .eq('user_id', userId)
       .maybeSingle();
 
@@ -183,11 +183,25 @@ export async function GET(request: NextRequest) {
       else pendingReplies = pendingRepliesForDashboard((pendingRows || []) as unknown as PendingReplyRow[], generateReviewHash);
     }
 
+    // Lost Google access, said to the shop. Until now the dashboard carried on
+    // showing a green "Connected" whatever had happened, and a shop with
+    // posting off was never told. `access` was worked out above for the Google
+    // reads; this only turns it into words.
+    const accessLost = !access.ok && !!profile?.google_location_name;
+    const lostAccess = accessLost ? {
+      since: user.token_invalid_at ?? null,
+      title: 'We have lost the connection to your Google account',
+      message: 'Nothing is wrong with your listing. Google has stopped letting us in, which usually happens after a password change or if we were removed in Google. Until you reconnect, we cannot post, reply or show you up-to-date figures.',
+      nextStep: 'Press Reconnect and sign in with the same Google account as before. It takes a minute.',
+    } : null;
+
     return NextResponse.json({
+      lostAccess,
       pendingReplies,
       retailer: retailer ?? null,
       // Plain-English status for invited shops that are not fully connected yet.
-      connection: retailer?.connection_status && ['check_listing', 'waiting_google'].includes(retailer.connection_status)
+      // A "check listing" a person has since confirmed is no longer a question for the shop.
+      connection: retailer?.connection_status && ['check_listing', 'waiting_google'].includes(retailer.connection_status) && !(retailer.connection_status === 'check_listing' && retailer.listing_confirmed_at)
         ? { status: retailer.connection_status, ...SHOP_MESSAGES[retailer.connection_status as 'check_listing' | 'waiting_google'] }
         : null,
       user: { name: user.name, email: user.email, phone: user.phone_number, referral_code: user.referral_code, subscription_status: user.subscription_status, auto_post_enabled: user.auto_post_enabled, auto_reply_enabled: user.auto_reply_enabled, sms_enabled: user.sms_enabled },

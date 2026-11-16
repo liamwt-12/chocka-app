@@ -1,3 +1,4 @@
+import { automationHeld } from '@/lib/shop-status';
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
 import { verifyCronSecret, unauthorizedResponse } from '@/lib/cron';
@@ -30,7 +31,7 @@ export async function GET(request: NextRequest) {
         *,
         profiles!inner (
           *,
-          users:user_id ( *, tenants ( slug ), ${MANAGER_EMBED} )
+          users:user_id ( *, tenants ( slug ), retailers ( connection_status, listing_confirmed_at ), ${MANAGER_EMBED} )
         )
       `)
       .eq('status', 'pending_approval')
@@ -66,6 +67,11 @@ export async function GET(request: NextRequest) {
       const profile = post.profiles;
       const user = profile?.users;
       if (!user || !profile) continue;
+
+      // Held: the listing is unconfirmed or unverified (lib/shop-status.ts).
+      // The post is left exactly as it is and goes out once the hold lifts.
+      const hold = automationHeld(user.retailers);
+      if (hold) { console.log(`[cron:post-publisher] post ${post.id} held: ${hold}`); continue; }
 
       // Per post, not per run — one pass serves every tenant.
       const t = getTenantForRow(user);

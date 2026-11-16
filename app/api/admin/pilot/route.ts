@@ -7,6 +7,7 @@ import { shopPhotosEnabled } from '@/lib/shop-photos';
 import { googleReviewLink, reviewPlaceId, reviewCardPath } from '@/lib/review-link';
 import { parseVoiceProfile, readStoredVoice, isEmptyVoice } from '@/lib/voice';
 import { resetConnection } from '@/lib/connection-reset';
+import { shopStatus, liveRulesFromEnv } from '@/lib/shop-status';
 import {
   verifyAdminAuth, validateNewRetailer, pilotStatus, mintInvites, parseAdStartDate,
   PILOT_TENANT_SLUG, MANUAL_SOURCE, type PilotInvite, type PilotUser,
@@ -21,6 +22,9 @@ import {
  * POST { action: 'revoke', retailerId }                    revoke a retailer's pending link
  * POST { action: 'set_ad_start', retailerId, date|null }   record when Tarkett's ads for a shop started
  * POST { action: 'reset_connection', retailerId }        remove the linked account and re-open the shop's link
+ * POST { action: 'confirm_listing', retailerId }         a person confirms a "check listing" shop connected the right listing
+ * POST { action: 'mark_bounced', retailerId, bounced }   the invitation bounced or went to the wrong person (we never see this ourselves)
+ * POST { action: 'set_note', retailerId, note }          a short note from whoever is helping
  * POST { action: 'set_voice', retailerId, voice }           save how a shop's posts and replies should sound (lib/voice.ts)
  *
  * There is deliberately no 'send' action. Tarkett makes first contact.
@@ -122,6 +126,38 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ reset: result });
       }
 
+      case 'confirm_listing': {
+        // A person has looked at a "check listing" shop and says the listing
+        // it connected is the right one. From then on it counts as matched.
+        const { data, error } = await supabaseAdmin.from('retailers')
+          .update({ listing_confirmed_at: body.confirmed === false ? null : new Date().toISOString() })
+          .eq('id', body.retailerId).eq('tenant_id', tenantRow.id).select('id');
+        if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+        if (!data?.length) return NextResponse.json({ error: 'Retailer not found' }, { status: 404 });
+        return NextResponse.json({ confirmed: body.confirmed !== false });
+      }
+
+      case 'mark_bounced': {
+        // We never send the invitation, so we never see a bounce. Whoever sent
+        // it does, and records it here.
+        const { data, error } = await supabaseAdmin.from('retailers')
+          .update({ invite_bounced_at: body.bounced === false ? null : new Date().toISOString() })
+          .eq('id', body.retailerId).eq('tenant_id', tenantRow.id).select('id');
+        if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+        if (!data?.length) return NextResponse.json({ error: 'Retailer not found' }, { status: 404 });
+        return NextResponse.json({ bounced: body.bounced !== false });
+      }
+
+      case 'set_note': {
+        const note = typeof body.note === 'string' ? body.note.trim().slice(0, 500) : '';
+        const { data, error } = await supabaseAdmin.from('retailers')
+          .update({ support_note: note || null })
+          .eq('id', body.retailerId).eq('tenant_id', tenantRow.id).select('id');
+        if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+        if (!data?.length) return NextResponse.json({ error: 'Retailer not found' }, { status: 404 });
+        return NextResponse.json({ note: note || null });
+      }
+
       default:
         return NextResponse.json({ error: 'Unknown action' }, { status: 400 });
     }
@@ -139,7 +175,7 @@ function safeCardPath(retailerId: string): string {
 async function list(tenantId: string) {
   const { data: retailers, error } = await supabaseAdmin
     .from('retailers')
-    .select('id, source, source_ref, name, town, contact_email, user_id, place_id, score, band, delisted_at, created_at, ad_start_date, connection_status, connection_detail, connection_checked_at, voice_profile, voice_updated_at, voice_updated_by')
+    .select('id, source, source_ref, name, town, contact_email, user_id, place_id, score, band, delisted_at, created_at, ad_start_date, connection_status, connection_detail, connection_checked_at, connect_issue, connect_issue_at, invite_bounced_at, support_note, listing_confirmed_at, voice_profile, voice_updated_at, voice_updated_by')
     .eq('tenant_id', tenantId)
     .order('name');
   if (error) throw error;
@@ -149,14 +185,14 @@ async function list(tenantId: string) {
   const userIds = rows.map((r: any) => r.user_id).filter(Boolean);
 
   const { data: invites } = ids.length
-    ? await supabaseAdmin.from('retailer_invites').select('id, retailer_id, status, expires_at, created_at, accepted_at').in('retailer_id', ids)
+    ? await supabaseAdmin.from('retailer_invites').select('id, retailer_id, status, expires_at, created_at, accepted_at, opened_at').in('retailer_id', ids)
     : { data: [] as any[] };
 
   // Tokens are read only to decide whether access works, and never leave this function.
   const { data: users } = userIds.length
     ? await supabaseAdmin
         .from('users')
-        .select(`id, created_at, onboarding_step, google_refresh_token, token_status, managed_by_user_id, ${MANAGER_EMBED}, profiles ( google_location_name, google_place_id )`)
+        .select(`id, created_at, onboarding_step, google_refresh_token, token_status, token_invalid_at, managed_by_user_id, ${MANAGER_EMBED}, profiles ( google_location_name, google_place_id )`)
         .in('id', userIds)
     : { data: [] as any[] };
   const userById = new Map<string, PilotUser>((users || []).map((u: any) => [u.id, u]));
@@ -175,9 +211,13 @@ async function list(tenantId: string) {
   }
 
   const now = new Date();
+  const rules = liveRulesFromEnv();
   const out = rows.map((r: any) => {
     const user = r.user_id ? userById.get(r.user_id) ?? null : null;
-    const status = pilotStatus(r, user, (invites || []).filter((i: any) => i.retailer_id === r.id) as PilotInvite[], now);
+    const shopInvites = (invites || []).filter((i: any) => i.retailer_id === r.id) as PilotInvite[];
+    const status = pilotStatus(r, user, shopInvites, now, rules);
+    // The finer status, with what to do about it: lib/shop-status.ts.
+    const help = shopStatus(r, user, shopInvites, now, rules);
     // The shop's Google review link (lib/review-link.ts): from the listing it
     // has connected if there is one, otherwise from Tarkett's store list.
     const place = reviewPlaceId({ connected: user?.profiles?.[0]?.google_place_id, baseline: r.place_id });
@@ -201,11 +241,16 @@ async function list(tenantId: string) {
       connection: r.connection_status ? { status: r.connection_status, label: ADMIN_LABELS[r.connection_status as ConnectionStatus] ?? r.connection_status, detail: r.connection_detail, checkedAt: r.connection_checked_at, nextStep: SHOP_MESSAGES[r.connection_status as ConnectionStatus]?.nextStep ?? null } : null,
       state: status.state,
       detail: status.detail,
+      help: { key: help.key, label: help.label, live: help.live, needsHelp: help.needsHelp, severity: help.severity, why: help.why, action: help.action, since: help.since, buttons: help.buttons },
+      note: r.support_note ?? null,
+      listingConfirmed: !!r.listing_confirmed_at,
+      connectedListing: user?.profiles?.[0]?.google_location_name ? { placeId: user?.profiles?.[0]?.google_place_id ?? null } : null,
       joinedAt: user?.created_at ?? null,
       accessVia: user ? (resolveAccess(user).via ?? null) : null,
     };
   });
 
   const counts = out.reduce((acc: Record<string, number>, r: any) => { acc[r.state] = (acc[r.state] || 0) + 1; return acc; }, {});
-  return { retailers: out, counts, photosEnabled };
+  const needsHelp = out.filter((r: any) => r.help.needsHelp).length;
+  return { retailers: out, counts, needsHelp, liveRules: rules, photosEnabled };
 }

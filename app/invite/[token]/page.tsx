@@ -19,6 +19,7 @@ import { hashInviteToken, checkInviteRedeemable, normaliseInviteToken } from '@/
 import { resolveRetailerScore } from '@/lib/retailer-score';
 import { ScoreBadge } from '@/components/ScoreBadge';
 import Button from '@/components/Button';
+import InviteOpened from '@/components/InviteOpened';
 
 interface InviteRow {
   id: string;
@@ -193,6 +194,8 @@ export default async function InvitePage({ params }: { params: { token: string }
 
   return (
     <Shell>
+      {/* Records "opened" for whoever is helping. Never affects the invite. */}
+      <InviteOpened token={token} />
       <div className="bg-brand-light rounded-2xl p-8 mb-6">
         <p className="text-xs uppercase tracking-wide text-gray-500 mb-2">Invitation for</p>
         <h2 className="text-xl font-bold text-charcoal mb-1">{retailer.name}</h2>
