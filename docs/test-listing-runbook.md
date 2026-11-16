@@ -42,14 +42,15 @@ Nothing here touches `main`.
 ```bash
 cd ~/chocka-app
 git fetch origin
-git checkout -B test/all origin/feat-tarkett-console
-git merge --no-edit origin/feat-photo-deletion
-git merge --no-edit origin/feat-onboarding-low-star
+git checkout -B test/all origin/perf-monthly-report-resume
+npm ci
 rm -rf .next && npx tsc --noEmit && npm test && npm run build
 ```
 
-**Pass:** both merges say nothing about conflicts, and the last line finishes without an error (542 tests when written).
-**Fail:** a merge conflict, or a failing test. Stop: `git merge --abort`, and tell me. A branch has changed since this was written.
+That one branch is the top of the stack: it already contains every code PR (#24 to #52, without the legal ones).
+
+**Pass:** the last line finishes without an error (582 tests when written).
+**Fail:** a failing test or a build error. Stop and tell me.
 
 ### 0.2 A settings file for staging
 
