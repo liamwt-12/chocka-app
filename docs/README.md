@@ -35,7 +35,7 @@ Written 16 November 2026. This repository is **public**, so some documents are d
 | `docs/dummy-run-report.md` | The dummy run on staging: every flow driven through the real code with Google and the model faked. What passed, the two bugs it found, and how to run it again | PR #48 (`test-staging-dummy-run`) |
 | `docs/scale-check.md` | How long each scheduled job takes at 10, 180 and 500 shops against Netlify's limits, what was fixed, and what still needs fixing | PR #49 (`perf-cron-time-budgets`) |
 | `docs/consistency-checks.md` | Model ids, settings against the runbooks, which routes check what, what gets logged, and test stability | PR #50 (`chore-consistency-fixes`) |
-| `docs/secrets-scan.md` | A scan of the whole history for keys, passwords and committed personal data, with what to rotate or remove | **Not committed.** It says where an old password sits in public history |
+| `docs/secrets-scan.md` | A scan of the working tree and history for keys, passwords and committed personal data | **Not committed.** Its findings are for Liam first |
 | `FOLLOWUPS.md` | Deferred work, with the reasoning for each item. Used in place of TODO comments | On main |
 
 ## Legal (all DRAFT, none published, none sent)
@@ -68,7 +68,7 @@ Written 16 November 2026. This repository is **public**, so some documents are d
 
 ## Not committed, on purpose
 
-These stay on Liam's machine. They contain prices, names or commercial terms, or (the scan) point at something sensitive. **Do not commit them while the repository is public.**
+These stay on Liam's machine. They contain prices, names or commercial terms, or findings that are for Liam first. **Do not commit them while the repository is public.**
 
 | Document | What it is |
 |---|---|
