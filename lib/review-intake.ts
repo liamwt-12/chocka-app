@@ -16,7 +16,20 @@
  *                Replying to old reviews is the onboarding step's job, where
  *                the retailer asks for it.
  *   - deferred:  recent but over the cap. Left alone; the next run takes them.
+ *   - answered:  already has a reply on Google when we first see it: the shop
+ *                answered it itself, or we did at onboarding. Recorded, and
+ *                NEVER replied to. Before this, a recent review the owner had
+ *                answered by hand was treated as new, and our reply replaced
+ *                theirs.
  */
+
+/**
+ * The columns the reviews table is unique on. An upsert must name exactly
+ * these: naming google_review_id alone matches no unique index, so the
+ * database refuses the whole statement, and every caller that did not check
+ * the error recorded nothing at all.
+ */
+export const REVIEWS_CONFLICT_TARGET = 'tenant_id,google_review_id';
 export const BACKLOG_DAYS = 14;
 export const MAX_NEW_REVIEWS_PER_RUN = 10;
 
@@ -24,6 +37,8 @@ export interface IntakeReview {
   name: string;
   reviewId?: string;
   createTime?: string;
+  /** Present when the review already has an owner's reply on Google. */
+  reviewReply?: unknown;
   [k: string]: unknown;
 }
 
@@ -36,7 +51,7 @@ export function splitNewReviews<T extends IntakeReview>(
   seen: Set<string>,
   now: number = Date.now(),
   opts: { backlogDays?: number; maxPerRun?: number } = {},
-): { toHandle: T[]; backlog: T[]; deferred: T[] } {
+): { toHandle: T[]; backlog: T[]; deferred: T[]; answered: T[] } {
   const backlogDays = opts.backlogDays ?? BACKLOG_DAYS;
   const maxPerRun = opts.maxPerRun ?? MAX_NEW_REVIEWS_PER_RUN;
   const cutoff = now - backlogDays * 86_400_000;
@@ -44,7 +59,10 @@ export function splitNewReviews<T extends IntakeReview>(
   const unseen = reviews.filter((r) => !seen.has(reviewKey(r)));
   const recent: T[] = [];
   const backlog: T[] = [];
+  const answered: T[] = [];
   for (const r of unseen) {
+    // Someone has already replied. Whatever its age, it is not ours to answer.
+    if (r.reviewReply) { answered.push(r); continue; }
     const t = r.createTime ? Date.parse(r.createTime) : NaN;
     // No usable date: treat as backlog, so an undatable review can never
     // trigger an alert about something that may be years old.
@@ -53,7 +71,7 @@ export function splitNewReviews<T extends IntakeReview>(
   }
   // Oldest recent first, so a deferred review is never starved by newer ones.
   recent.sort((a, b) => Date.parse(a.createTime!) - Date.parse(b.createTime!));
-  return { toHandle: recent.slice(0, maxPerRun), backlog, deferred: recent.slice(maxPerRun) };
+  return { toHandle: recent.slice(0, maxPerRun), backlog, deferred: recent.slice(maxPerRun), answered };
 }
 
 /**

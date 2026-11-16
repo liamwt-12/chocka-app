@@ -10,7 +10,7 @@ import { sendEmail, reviewAlertEmail } from '@/lib/email';
 import { getTenantForRow } from '@/lib/tenant';
 import { decryptSecret, userTokenAad } from '@/lib/secrets';
 import { resolveAccess } from '@/lib/managed-access';
-import { splitNewReviews, reviewKey, BACKLOG_DAYS } from '@/lib/review-intake';
+import { splitNewReviews, reviewKey, BACKLOG_DAYS, REVIEWS_CONFLICT_TARGET } from '@/lib/review-intake';
 import { holdingReply } from '@/lib/safe-automation';
 
 export async function GET(request: NextRequest) {
@@ -54,10 +54,13 @@ export async function GET(request: NextRequest) {
 
         // Recent reviews are handled (capped per run); old ones are recorded
         // without a reply or alert. See lib/review-intake.ts for why.
-        const { toHandle, backlog, deferred } = splitNewReviews(reviewsData.reviews || [], seen);
-        if (backlog.length) {
+        const { toHandle, backlog, deferred, answered } = splitNewReviews(reviewsData.reviews || [], seen);
+        // Old reviews, and reviews somebody has already answered, are recorded
+        // so they are never looked at again, and that is all.
+        const recordOnly = [...backlog, ...answered];
+        if (recordOnly.length) {
           const { error: backlogErr } = await supabaseAdmin.from('reviews').upsert(
-            backlog.map((r: any) => ({
+            recordOnly.map((r: any) => ({
               profile_id: profile.id,
               google_review_id: reviewKey(r),
               reviewer_name: r.reviewer?.displayName || 'A customer',
@@ -65,12 +68,12 @@ export async function GET(request: NextRequest) {
               comment: r.comment || '',
               review_date: r.createTime || new Date().toISOString(),
             })),
-            { onConflict: 'google_review_id', ignoreDuplicates: true },
+            { onConflict: REVIEWS_CONFLICT_TARGET, ignoreDuplicates: true },
           );
           if (backlogErr) console.error(`[cron:review-alerts] backlog record failed for profile ${profile.id}:`, backlogErr.message);
         }
-        if (backlog.length || deferred.length) {
-          console.log(`[cron:review-alerts] profile ${profile.id}: ${toHandle.length} handled, ${backlog.length} older than ${BACKLOG_DAYS} days recorded without reply, ${deferred.length} deferred to next run`);
+        if (backlog.length || deferred.length || answered.length) {
+          console.log(`[cron:review-alerts] profile ${profile.id}: ${toHandle.length} handled, ${backlog.length} older than ${BACKLOG_DAYS} days recorded without reply, ${answered.length} already answered and left alone, ${deferred.length} deferred to next run`);
         }
 
         for (const review of toHandle as any[]) {
