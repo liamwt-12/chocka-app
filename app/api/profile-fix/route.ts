@@ -6,7 +6,7 @@ import { generateReviewReply } from '@/lib/ai';
 import { decryptSecret, userTokenAad } from '@/lib/secrets';
 import { resolveAccess, MANAGER_EMBED } from '@/lib/managed-access';
 import { getSessionUserId } from '@/lib/session';
-import { ONBOARDING_REPLY_CAP } from '@/lib/review-intake';
+import { ONBOARDING_REPLY_CAP, REVIEWS_CONFLICT_TARGET } from '@/lib/review-intake';
 import { ukTomorrowAt } from '@/lib/post-schedule';
 import { AWAITING_APPROVAL, aiReplyAllowed } from '@/lib/safe-automation';
 import { loadVoiceForUser } from '@/lib/voice';
@@ -106,7 +106,11 @@ export async function POST(request: NextRequest) {
             const rName = rev.reviewer?.displayName || 'Customer';
             const reply = await generateReviewReply({ businessName: profile.business_name, category: profile.category || '', reviewerName: rName, rating, comment: rev.comment || '', voice });
             await loggedReplyToReview(log, accessToken, rev.name, reply, rev.reviewReply?.comment ?? null);
-            await supaAdmin.from('reviews').upsert({ profile_id: profile.id, google_review_id: rev.reviewId || rev.name, reviewer_name: rName, rating, comment: rev.comment || '', review_date: rev.createTime }, { onConflict: 'google_review_id' });
+            // Record it, so the daily check knows this review has been dealt with.
+            // The reply is already live, so a failure here must not fail the
+            // step, but it must be heard: unrecorded, the review looks new again.
+            const { error: recordError } = await supaAdmin.from('reviews').upsert({ profile_id: profile.id, google_review_id: rev.reviewId || rev.name, reviewer_name: rName, rating, comment: rev.comment || '', review_date: rev.createTime }, { onConflict: REVIEWS_CONFLICT_TARGET });
+            if (recordError) console.error(`[profile-fix] replied to review ${rev.reviewId || rev.name} but could not record it: ${recordError.message}`);
             count++;
           } catch { /* continue */ }
         }
