@@ -23,7 +23,8 @@ const STATE_LABEL: Record<string, [string, string, string]> = {
 };
 
 type Help = { key: string; label: string; live: boolean; needsHelp: boolean; severity: number; why: string; action: string; since: string | null; buttons: string[] };
-type Row = { help: Help; note: string | null; id: string; name: string; town: string | null; contactEmail: string | null; source: string; state: string; detail: string; joinedAt: string | null; delisted: boolean; adStartDate: string | null; connection: { status: string; label: string; detail: string | null; checkedAt: string | null; nextStep: string | null } | null; voice: Voice | null; voiceUpdatedAt: string | null; voiceUpdatedBy: string | null; photos: { pending: number; approved: number } | null; review: { link: string; cardPath: string; source: 'connected' | 'baseline' } | null };
+type Change = { id: string; when: string; what: string; before: string; after: string; source: string; status: string; undone: boolean; canUndo: boolean; whyNot: string | null };
+type Row = { help: Help; note: string | null; adSpendPence: number | null; adEndDate: string | null; firstLiveOn: string | null; excludedFromCount: boolean; id: string; name: string; town: string | null; contactEmail: string | null; source: string; state: string; detail: string; joinedAt: string | null; delisted: boolean; adStartDate: string | null; connection: { status: string; label: string; detail: string | null; checkedAt: string | null; nextStep: string | null } | null; voice: Voice | null; voiceUpdatedAt: string | null; voiceUpdatedBy: string | null; photos: { pending: number; approved: number } | null; review: { link: string; cardPath: string; source: 'connected' | 'baseline' } | null };
 type Voice = { tone: string | null; about: string | null; specialities: string[]; signOff: string | null; wordsToUse: string[]; wordsToAvoid: string[] };
 type Minted = { retailerId: string; name?: string; ok: boolean; link?: string; expiresAt?: string; error?: string };
 
@@ -149,6 +150,50 @@ export default function PilotAdminPage() {
   const [helpFilter, setHelpFilter] = useState('');
   const helpKinds = useMemo(() => { const m = new Map<string, number>(); for (const r of helpRows) m.set(r.help.label, (m.get(r.help.label) || 0) + 1); return Array.from(m.entries()); }, [helpRows]);
 
+  // Ad spend, beside the ad start date. Admin and Tarkett only: never shown to the shop.
+  const setAdSpend = (r: Row, spend: string) => act({ action: 'set_ad_spend', retailerId: r.id, spend }, spend ? `Ad spend for ${r.name} saved.` : `Ad spend for ${r.name} cleared.`);
+  const setAdEnd = (r: Row, endDate: string) => act({ action: 'set_ad_spend', retailerId: r.id, spend: r.adSpendPence === null ? '' : String(r.adSpendPence / 100), endDate: endDate || null }, endDate ? `Ad end date for ${r.name} set to ${endDate}.` : `Ad end date for ${r.name} cleared.`);
+
+  // Monthly statement: live shops by name, with the cap and credit worked out.
+  const [stMonth, setStMonth] = useState(() => { const d = new Date(); d.setDate(1); d.setMonth(d.getMonth() - 1); return d.toISOString().slice(0, 7); });
+  const [statement, setStatement] = useState<any>(null);
+  const [stCsv, setStCsv] = useState('');
+  const loadStatement = async () => {
+    setBusy(true); setMsg('');
+    try { const d = await call({ action: 'statement', month: stMonth }); setStatement(d.statement); setStCsv(d.csv); }
+    catch (e: any) { setMsg(e.message); }
+    setBusy(false);
+  };
+  const downloadStatement = () => {
+    const url = URL.createObjectURL(new Blob([stCsv], { type: 'text/csv' }));
+    const a = document.createElement('a'); a.href = url; a.download = `stellar-live-shops-${statement.month}.csv`; a.click();
+    URL.revokeObjectURL(url);
+  };
+  const money = (pence: number) => `£${(pence / 100).toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+  // What we have changed on one shop's listing, with an Undo for each.
+  const [changesFor, setChangesFor] = useState<Row | null>(null);
+  const [changes, setChanges] = useState<Change[]>([]);
+  const [changesNote, setChangesNote] = useState('');
+  const openChanges = async (r: Row) => {
+    setBusy(true); setMsg(''); setChangesNote('');
+    try { const d = await call({ action: 'changes', retailerId: r.id }); setChanges(d.changes); setChangesNote(d.note || ''); setChangesFor(r); }
+    catch (e: any) { setMsg(e.message); }
+    setBusy(false);
+  };
+  const undo = async (c: Change, evenIfChangedSince = false) => {
+    if (!changesFor) return;
+    if (!evenIfChangedSince && !window.confirm(`Undo this change for ${changesFor.name}?\n\n${c.what}\nNow: ${c.after}\nWill go back to: ${c.before}\n\nThis writes to the shop's live Google listing.`)) return;
+    setBusy(true); setChangesNote('');
+    try {
+      const d = await call({ action: 'undo_change', retailerId: changesFor.id, changeId: c.id, evenIfChangedSince });
+      setChangesNote(d.undo.message);
+      if (!d.undo.ok && /changed again since/.test(d.undo.message) && window.confirm(`${d.undo.message}\n\nUndo it anyway? The later change will be lost.`)) { setBusy(false); return undo(c, true); }
+      const again = await call({ action: 'changes', retailerId: changesFor.id }); setChanges(again.changes);
+    } catch (e: any) { setChangesNote(e.message); }
+    setBusy(false);
+  };
+
   const openVoice = (r: Row) => { setVoiceFor(r); setVoiceDraft(draftFromVoice(r.voice)); setMsg(''); };
 
   const saveVoice = async () => {
@@ -232,6 +277,32 @@ export default function PilotAdminPage() {
           </div>
         )}
 
+        {changesFor && (
+          <div style={{ ...card, border: `2px solid ${C.text}` }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 6 }}>
+              <strong style={{ fontSize: 15 }}>What we have changed for {changesFor.name}</strong>
+              <button onClick={() => setChangesFor(null)} style={{ ...btn, background: '#888' }}>Close</button>
+            </div>
+            <p style={{ color: C.mid, fontSize: 13, margin: '0 0 8px' }}>Newest first. Undo writes the earlier value back to the shop&apos;s live Google listing, checks Google has it, and is itself recorded. A customer&apos;s review can never be removed.</p>
+            {changesNote && <div role="status" style={{ background: C.amberL, borderRadius: 8, padding: 10, fontSize: 13, marginBottom: 8 }}>{changesNote}</div>}
+            {changes.length === 0 && !changesNote && <div style={{ color: C.mid, fontSize: 13 }}>Nothing has been changed on this listing.</div>}
+            {changes.map((c) => (
+              <div key={c.id} style={{ borderTop: '1px solid #e5e5e5', padding: '10px 0', fontSize: 13, display: 'grid', gap: 3 }}>
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                  <strong style={{ fontSize: 14 }}>{c.what}</strong>
+                  <span style={{ color: C.soft }}>{new Date(c.when).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</span>
+                  <span style={{ color: C.soft }}>{c.source === 'revert' ? 'an undo' : c.source === 'onboarding' ? 'the shop chose this' : c.source}</span>
+                  {c.undone && <span style={{ background: '#EEE', borderRadius: 6, padding: '1px 7px', fontWeight: 700 }}>Undone</span>}
+                  {c.status === 'failed' && <span style={{ background: C.redL, color: C.red, borderRadius: 6, padding: '1px 7px', fontWeight: 700 }}>Did not go through</span>}
+                </div>
+                <div><span style={{ color: C.soft }}>Was:</span> {c.before}</div>
+                <div><span style={{ color: C.soft }}>Became:</span> {c.after}</div>
+                <div>{c.canUndo ? <button disabled={busy} onClick={() => undo(c)} style={{ ...btn, background: C.red, padding: '6px 12px' }}>Undo this</button> : <span style={{ color: C.mid }}>{c.whyNot}</span>}</div>
+              </div>
+            ))}
+          </div>
+        )}
+
         {photosFor && photosEnabled && (
           <div style={{ ...card, border: `2px solid ${C.text}` }}>
             <PhotoPanel shop={{ id: photosFor.id, name: photosFor.name }} password={password} onClose={() => setPhotosFor(null)} onChanged={load} />
@@ -297,6 +368,35 @@ export default function PilotAdminPage() {
           )}
         </div>
 
+        {/* Monthly statement: who was live, by name. A statement to check, not an invoice. */}
+        <div style={card}>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+            <strong style={{ fontSize: 15 }}>Live shops in a month</strong>
+            <input type="month" value={stMonth} onChange={(e) => setStMonth(e.target.value)} style={{ ...input, padding: '6px 8px' }} aria-label="Month" />
+            <button onClick={loadStatement} disabled={busy || !stMonth} style={btn}>Show</button>
+            {statement && <button onClick={downloadStatement} style={{ ...btn, background: C.green }}>Download CSV</button>}
+          </div>
+          <p style={{ color: C.mid, fontSize: 12, margin: '6px 0 0' }}>A shop counts for a month if it was live on at least {statement?.settings?.minLiveDays ?? 1} day{(statement?.settings?.minLiveDays ?? 1) === 1 ? '' : 's'} in it. Live means connected, the right listing, verified by Google, and access not lost. Counting started when this was switched on; earlier months are empty.</p>
+          {statement && (
+            <div style={{ marginTop: 10, fontSize: 13 }}>
+              <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', marginBottom: 8 }}>
+                <span><strong>{statement.liveShops}</strong> live</span>
+                {statement.settings.capShops !== null && <span>cap <strong>{statement.settings.capShops}</strong> · <strong>{statement.shopsAboveCap}</strong> above it · <strong>{statement.billableShops}</strong> charged</span>}
+                {statement.money ? <span>{money(statement.money.grossPence)}{statement.shopsAboveCap ? <> less credit {money(statement.money.creditPence)}</> : null} = <strong>{money(statement.money.totalPence)}</strong></span> : <span style={{ color: C.soft }}>No price is set (BILLING_PRICE_PENCE_PER_SHOP), so counts only.</span>}
+              </div>
+              {statement.lines.length === 0 ? <div style={{ color: C.mid }}>No shop was recorded as live in {statement.month}.</div> : (
+                <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                  <thead><tr style={{ textAlign: 'left', color: C.soft, fontSize: 11, textTransform: 'uppercase' }}><th style={{ padding: 4 }}>Shop</th><th style={{ padding: 4 }}>Town</th><th style={{ padding: 4 }}>Days live</th><th style={{ padding: 4 }}>First</th><th style={{ padding: 4 }}>Last</th><th style={{ padding: 4 }}></th></tr></thead>
+                  <tbody>{statement.lines.map((l: any, i: number) => (
+                    <tr key={i} style={{ borderTop: '1px solid #eee' }}><td style={{ padding: 4 }}>{l.name}</td><td style={{ padding: 4, color: C.mid }}>{l.town || ''}</td><td style={{ padding: 4 }}>{l.liveDays}</td><td style={{ padding: 4 }}>{l.firstLiveOn}</td><td style={{ padding: 4 }}>{l.lastLiveOn}</td><td style={{ padding: 4, color: C.amber, fontWeight: 600 }}>{l.aboveCap ? 'above cap: credited' : ''}</td></tr>
+                  ))}</tbody>
+                </table>
+              )}
+              {statement.notCounted.length > 0 && <div style={{ color: C.mid, marginTop: 6 }}>Not counted (live too few days): {statement.notCounted.map((l: any) => l.name).join(', ')}</div>}
+            </div>
+          )}
+        </div>
+
         <div style={card}>
           <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 8 }}>Add a shop Tarkett has given you</div>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
@@ -318,7 +418,7 @@ export default function PilotAdminPage() {
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
               <thead>
                 <tr style={{ textAlign: 'left', color: C.soft, fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
-                  <th style={{ padding: 6 }}></th><th style={{ padding: 6 }}>Shop</th><th style={{ padding: 6 }}>Town</th><th style={{ padding: 6 }}>Status</th><th style={{ padding: 6 }}>Detail</th><th style={{ padding: 6 }}>Google connection</th><th style={{ padding: 6 }} title="When Tarkett's ads for this shop started. Used for the 'change during your ads' section of the monthly report.">Ads started</th><th style={{ padding: 6 }} title="How this shop's posts and replies should sound. Answered by the shop at onboarding, or set here by a rep.">Voice</th><th style={{ padding: 6 }} title="The shop's Google review link, and a card with a QR code to print for the counter. The same link for every customer: nothing is sent and no customer details are involved.">Review link</th>{photosEnabled && <th style={{ padding: 6 }} title="Photos of the shop's work. Uploaded through a link, used on posts only after you approve them.">Photos</th>}<th style={{ padding: 6 }}></th>
+                  <th style={{ padding: 6 }}></th><th style={{ padding: 6 }}>Shop</th><th style={{ padding: 6 }}>Town</th><th style={{ padding: 6 }}>Status</th><th style={{ padding: 6 }}>Detail</th><th style={{ padding: 6 }}>Google connection</th><th style={{ padding: 6 }} title="When Tarkett's ads for this shop started, when they stopped, and what was spent. The dates feed the shop's 'change during your ads' section. The spend is seen by you and Tarkett only: it is never sent to the shop.">Ads: started, ended, spend</th><th style={{ padding: 6 }} title="How this shop's posts and replies should sound. Answered by the shop at onboarding, or set here by a rep.">Voice</th><th style={{ padding: 6 }} title="The shop's Google review link, and a card with a QR code to print for the counter. The same link for every customer: nothing is sent and no customer details are involved.">Review link</th>{photosEnabled && <th style={{ padding: 6 }} title="Photos of the shop's work. Uploaded through a link, used on posts only after you approve them.">Photos</th>}<th style={{ padding: 6 }}></th>
                 </tr>
               </thead>
               <tbody>
@@ -340,7 +440,9 @@ export default function PilotAdminPage() {
                         {r.connection ? <><strong style={{ color: ['no_access', 'check_listing', 'waiting_google'].includes(r.connection.status) ? C.amber : C.text }}>{r.connection.label}</strong>{r.connection.detail ? <div style={{ fontSize: 12 }}>{r.connection.detail}</div> : null}</> : <span style={{ color: C.soft }}>&ndash;</span>}
                       </td>
                       <td style={{ padding: 6 }}>
-                        <input type="date" defaultValue={r.adStartDate ?? ''} disabled={busy} onBlur={(e) => { if ((e.target.value || null) !== r.adStartDate) setAdStart(r.id, e.target.value); }} style={{ ...input, padding: '4px 6px', fontSize: 12 }} />
+                        <input type="date" aria-label={`Ads started for ${r.name}`} defaultValue={r.adStartDate ?? ''} disabled={busy} onBlur={(e) => { if ((e.target.value || null) !== r.adStartDate) setAdStart(r.id, e.target.value); }} style={{ ...input, padding: '4px 6px', fontSize: 12, display: 'block', marginBottom: 3 }} />
+                        <input type="date" aria-label={`Ads ended for ${r.name}`} title="When the ads stopped (optional)" defaultValue={r.adEndDate ?? ''} disabled={busy || !r.adStartDate} onBlur={(e) => { if ((e.target.value || null) !== r.adEndDate) setAdEnd(r, e.target.value); }} style={{ ...input, padding: '4px 6px', fontSize: 12, display: 'block', marginBottom: 3 }} />
+                        <input type="text" inputMode="decimal" aria-label={`Ad spend in pounds for ${r.name}`} placeholder="Spend £ (optional)" title="Total spent on ads for this shop, in pounds. Seen by you and Tarkett only." defaultValue={r.adSpendPence === null ? '' : String(r.adSpendPence / 100)} disabled={busy} onBlur={(e) => { const was = r.adSpendPence === null ? '' : String(r.adSpendPence / 100); if (e.target.value.trim() !== was) setAdSpend(r, e.target.value.trim()); }} style={{ ...input, padding: '4px 6px', fontSize: 12, width: 130, display: 'block' }} />
                       </td>
                       <td style={{ padding: 6, whiteSpace: 'nowrap' }}>
                         <button onClick={() => openVoice(r)} disabled={busy} style={{ ...btn, background: 'transparent', color: r.voice ? C.green : C.mid, padding: '2px 6px', textDecoration: 'underline' }}>{r.voice ? 'Set, edit' : 'Not set'}</button>
@@ -361,7 +463,7 @@ export default function PilotAdminPage() {
                           </button>
                         </td>
                       )}
-                      <td style={{ padding: 6, whiteSpace: 'nowrap' }}>{r.state === 'invited' && <button onClick={() => revoke(r.id)} disabled={busy} style={{ ...btn, background: 'transparent', color: C.red, padding: '2px 6px' }}>Revoke</button>}{(r.state === 'live' || r.state === 'connected_not_live') && <button onClick={() => resetShop(r)} disabled={busy} title="Remove the connected account and let the shop start again with its link" style={{ ...btn, background: 'transparent', color: C.red, padding: '2px 6px' }}>Reset</button>}</td>
+                      <td style={{ padding: 6, whiteSpace: 'nowrap' }}>{r.state === 'invited' && <button onClick={() => revoke(r.id)} disabled={busy} style={{ ...btn, background: 'transparent', color: C.red, padding: '2px 6px' }}>Revoke</button>}{(r.state === 'live' || r.state === 'connected_not_live') && <button onClick={() => openChanges(r)} disabled={busy} title="What we have changed on this shop's listing, with an Undo for each" style={{ ...btn, background: 'transparent', color: C.text, padding: '2px 6px', textDecoration: 'underline' }}>Changes</button>}<label title="Leave this shop out of the monthly count of live shops (a test or internal shop)" style={{ fontSize: 12, color: C.mid, display: 'block', whiteSpace: 'nowrap' }}><input type="checkbox" checked={r.excludedFromCount} disabled={busy} onChange={(e) => act({ action: 'set_excluded', retailerId: r.id, excluded: e.target.checked }, e.target.checked ? `${r.name} will be left out of the monthly count.` : `${r.name} will be counted.`)} /> not counted</label>{(r.state === 'live' || r.state === 'connected_not_live') && <button onClick={() => resetShop(r)} disabled={busy} title="Remove the connected account and let the shop start again with its link" style={{ ...btn, background: 'transparent', color: C.red, padding: '2px 6px' }}>Reset</button>}</td>
                     </tr>
                   );
                 })}
