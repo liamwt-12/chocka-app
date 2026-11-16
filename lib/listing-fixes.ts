@@ -31,13 +31,13 @@ import * as google from './google';
 import { loggedUpdateLocation, loggedReplyToReview, type WriteContext } from './change-log';
 import { validateContent } from './ai';
 import { containsPhoneNumber, replyBreaksRules, aiReplyAllowed, PUBLISHABLE } from './safe-automation';
-import { validateHoursDraft, toGooglePeriods, samePeriods, describeHours } from './opening-hours';
+import { validateHoursDraft, toGooglePeriods, samePeriods, describeHours, validateSpecialDays, toGoogleSpecialPeriods, fromGoogleSpecialPeriods } from './opening-hours';
 import { ONBOARDING_REPLY_CAP, REVIEWS_CONFLICT_TARGET } from './review-intake';
 import { queueOnboardingHoldingReplies } from './onboarding-reviews';
 import { ukTomorrowAt } from './post-schedule';
 import { scoreProfile, type AuditResult } from './audit';
 
-export const STEPS = ['description', 'services', 'categories', 'hours', 'reply', 'lowStar', 'firstPost'] as const;
+export const STEPS = ['description', 'services', 'categories', 'hours', 'holidayHours', 'website', 'reply', 'lowStar', 'firstPost'] as const;
 export type FixStep = (typeof STEPS)[number];
 
 export interface StepResult {
@@ -209,6 +209,63 @@ export async function applyHours(c: FixContext, draft: unknown): Promise<StepRes
     if (!samePeriods(after?.regularHours?.periods, periods)) return { step: 'hours', ok: false, message: 'We sent your opening hours, but Google is not showing them as you set them.', nextStep: 'Check the hours on your listing in Google. If they are wrong, try again or change them there.', retryable: true };
     return { step: 'hours', ok: true, message: `Your opening hours are on your listing: ${describeHours(v.value).filter((l) => !l.endsWith('closed')).join('; ')}.` };
   } catch (e) { return failed('hours', e); }
+}
+
+// ── Holiday hours ──────────────────────────────────────────────────────────
+
+/**
+ * Set the shop's holiday hours to exactly the dates it has listed: closed, or
+ * open different hours, one date at a time. An empty list clears them.
+ *
+ * Dates already on the listing that this editor cannot show (a range of days,
+ * say) are left exactly as they are: they are sent back to Google unchanged
+ * alongside the shop's list, never dropped.
+ */
+export async function applySpecialHours(c: FixContext, days: unknown, today: string = new Date().toISOString().slice(0, 10)): Promise<StepResult> {
+  const g = c.g ?? google;
+  const v = validateSpecialDays(days, today);
+  if (!v.ok) return refused('holidayHours', v.error, 'Correct the dates and try again.');
+  try {
+    const now = await g.getLocationFields(c.accessToken, c.profile.google_location_name, ['specialHours']);
+    const existing: any[] = Array.isArray(now?.specialHours?.specialHourPeriods) ? now.specialHours.specialHourPeriods : [];
+    const iso = (d: any) => (d?.year ? `${d.year}-${String(d.month).padStart(2, '0')}-${String(d.day).padStart(2, '0')}` : '');
+    // Kept untouched: anything spanning several days that has not finished.
+    const keep = existing.filter((p) => iso(p?.startDate) !== iso(p?.endDate ?? p?.startDate) && iso(p?.endDate ?? p?.startDate) >= today);
+    const specialHourPeriods = [...keep, ...toGoogleSpecialPeriods(v.value)];
+    await loggedUpdateLocation(logCtx(c), c.accessToken, c.profile.google_location_name, 'specialHours', specialHourPeriods.length ? { specialHours: { specialHourPeriods } } : {});
+    const after = await g.getLocationFields(c.accessToken, c.profile.google_location_name, ['specialHours']);
+    const got = fromGoogleSpecialPeriods(after?.specialHours?.specialHourPeriods, today).days;
+    if (JSON.stringify(got) !== JSON.stringify(v.value)) return { step: 'holidayHours', ok: false, message: 'We sent your holiday hours, but Google is not showing them as you set them.', nextStep: 'Check the holiday hours on your listing in Google. If they are wrong, try again or change them there.', retryable: true };
+    const closed = v.value.filter((d) => !d.open).length, open = v.value.length - closed;
+    return { step: 'holidayHours', ok: true, message: v.value.length ? `Your holiday hours are on your listing: ${[closed && `closed on ${closed} day${closed === 1 ? '' : 's'}`, open && `different hours on ${open} day${open === 1 ? '' : 's'}`].filter(Boolean).join(', ')}.` : 'Your holiday hours have been cleared. Your listing shows your normal hours.' };
+  } catch (e) { return failed('holidayHours', e); }
+}
+
+// ── Website ────────────────────────────────────────────────────────────────
+
+/** A web address the shop typed, tidied. Null if it is not one. Pure. */
+export function cleanWebsite(input: unknown): string | null {
+  let t = typeof input === 'string' ? input.trim() : '';
+  if (!t || /\s/.test(t) || t.length > 200) return null;
+  if (!/^https?:\/\//i.test(t)) t = `https://${t}`;
+  try {
+    const u = new URL(t);
+    if (!/^https?:$/.test(u.protocol) || !/^[a-z0-9-]+(\.[a-z0-9-]+)+$/i.test(u.hostname)) return null;
+    return u.toString().replace(/\/$/, '');
+  } catch { return null; }
+}
+
+/** Put the shop's own website on its listing. Only ever an address the shop typed. */
+export async function applyWebsite(c: FixContext, url: unknown): Promise<StepResult> {
+  const g = c.g ?? google;
+  const clean = cleanWebsite(url);
+  if (!clean) return refused('website', 'That does not look like a web address. It should look like www.yourshop.co.uk.', 'Check the address and try again.');
+  try {
+    await loggedUpdateLocation(logCtx(c), c.accessToken, c.profile.google_location_name, 'websiteUri', { websiteUri: clean });
+    const after = await g.getLocationFields(c.accessToken, c.profile.google_location_name, ['websiteUri']);
+    if (String(after?.websiteUri || '').replace(/\/$/, '') !== clean) return { step: 'website', ok: false, message: 'We sent your website address, but Google is not showing it yet.', nextStep: 'Google sometimes holds a change for review. Check your listing in a day or so.', retryable: true };
+    return { step: 'website', ok: true, message: `Your website (${clean.replace(/^https?:\/\//, '')}) is on your listing.` };
+  } catch (e) { return failed('website', e); }
 }
 
 // ── One review reply ───────────────────────────────────────────────────────

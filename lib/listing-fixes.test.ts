@@ -30,7 +30,7 @@ vi.mock('./google', () => ({
 }));
 
 import {
-  applyDescription, applyServices, applyCategories, applyHours, applyReply, scheduleFirstPost, measureListing,
+  applyDescription, applyServices, applyCategories, applyHours, applyReply, scheduleFirstPost, measureListing, applySpecialHours, applyWebsite, cleanWebsite,
   plainProblem, descriptionProblem, reviewsNeedingReply, cleanNames, DESCRIPTION_MAX, type FixContext,
 } from './listing-fixes';
 import { DAYS } from './opening-hours';
@@ -145,6 +145,59 @@ describe('opening hours', () => {
     }
     expect(G.patches).toEqual([]);
     expect(G.location.regularHours).toBeUndefined();
+  });
+});
+
+describe('holiday hours', () => {
+  const today = '2026-12-01';
+  const days = [{ date: '2026-12-25', open: false, from: '', to: '' }, { date: '2026-12-24', open: true, from: '09:00', to: '13:00' }];
+  it('writes exactly the dates the shop listed, and checks them', async () => {
+    const r = await applySpecialHours(c, days, today);
+    expect(r.ok).toBe(true);
+    expect(r.message).toMatch(/closed on 1 day, different hours on 1 day/);
+    expect(G.location.specialHours.specialHourPeriods).toEqual([
+      { startDate: { year: 2026, month: 12, day: 24 }, endDate: { year: 2026, month: 12, day: 24 }, openTime: { hours: 9 }, closeTime: { hours: 13 } },
+      { startDate: { year: 2026, month: 12, day: 25 }, endDate: { year: 2026, month: 12, day: 25 }, closed: true },
+    ]);
+    expect(db.tables.change_log[0]).toMatchObject({ target: 'specialHours', before_value: {} });
+  });
+  it('keeps a range of days the shop set in Google itself', async () => {
+    const range = { startDate: { year: 2026, month: 12, day: 27 }, endDate: { year: 2026, month: 12, day: 31 }, closed: true };
+    G.location.specialHours = { specialHourPeriods: [range, { startDate: { year: 2026, month: 12, day: 25 }, endDate: { year: 2026, month: 12, day: 25 }, closed: true }] };
+    const r = await applySpecialHours(c, [{ date: '2026-12-24', open: false }], today);
+    expect(r.ok).toBe(true);
+    expect(G.location.specialHours.specialHourPeriods[0]).toEqual(range);
+    expect(G.location.specialHours.specialHourPeriods).toHaveLength(2);
+  });
+  it('an empty list clears them, and says so', async () => {
+    G.location.specialHours = { specialHourPeriods: [{ startDate: { year: 2026, month: 12, day: 25 }, endDate: { year: 2026, month: 12, day: 25 }, closed: true }] };
+    const r = await applySpecialHours(c, [], today);
+    expect(r.ok).toBe(true);
+    expect(G.location.specialHours).toBeUndefined();
+    expect(r.message).toMatch(/cleared/);
+  });
+  it('a bad date writes nothing', async () => {
+    expect((await applySpecialHours(c, [{ date: '2026-11-01', open: false }], today)).ok).toBe(false);
+    expect(G.patches).toEqual([]);
+  });
+});
+
+describe('website', () => {
+  it('only ever an address the shop typed, tidied', () => {
+    expect(cleanWebsite('www.bare-carpets.co.uk')).toBe('https://www.bare-carpets.co.uk');
+    expect(cleanWebsite(' http://shop.example/floors ')).toBe('http://shop.example/floors');
+    for (const bad of ['', 'not a site', 'ftp://x.example', 'javascript:alert(1)', 'localhost', 'x'.repeat(250), null, 42]) expect(cleanWebsite(bad)).toBeNull();
+  });
+  it('writes it, checks it, and logs what it replaced', async () => {
+    G.location.websiteUri = 'https://old.example';
+    const r = await applyWebsite(c, 'www.bare-carpets.co.uk');
+    expect(r.ok).toBe(true);
+    expect(G.location.websiteUri).toBe('https://www.bare-carpets.co.uk');
+    expect(db.tables.change_log[0]).toMatchObject({ target: 'websiteUri', before_value: { websiteUri: 'https://old.example' } });
+  });
+  it('refuses nonsense without touching Google', async () => {
+    expect((await applyWebsite(c, 'my shop')).ok).toBe(false);
+    expect(G.patches).toEqual([]);
   });
 });
 

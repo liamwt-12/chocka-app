@@ -5,7 +5,7 @@ import { decryptSecret, userTokenAad } from '@/lib/secrets';
 import { resolveAccess, MANAGER_EMBED } from '@/lib/managed-access';
 import { getSessionUserId } from '@/lib/session';
 import {
-  applyDescription, applyServices, applyCategories, applyHours, applyReply, queueLowStar, scheduleFirstPost,
+  applyDescription, applyServices, applyCategories, applyHours, applySpecialHours, applyWebsite, applyReply, queueLowStar, scheduleFirstPost,
   measureListing, plainProblem, STEPS, type FixContext, type FixStep, type StepResult,
 } from '@/lib/listing-fixes';
 import { manualGaps } from '@/lib/audit';
@@ -18,6 +18,8 @@ import { manualGaps } from '@/lib/audit';
  *   POST { step: 'services', names: string[] }
  *   POST { step: 'categories', names: string[] }
  *   POST { step: 'hours', hours: DayHours[7] }          the shop's own times, confirmed on screen
+ *   POST { step: 'holidayHours', days: SpecialDay[] }   dates closed or open different hours; [] clears
+ *   POST { step: 'website', url }                        the shop's own web address
  *   POST { step: 'reply', reviewId, text }               one reply the shop has read
  *   POST { step: 'lowStar' }                              queue holding replies for approval; posts nothing
  *   POST { step: 'firstPost', text }
@@ -84,6 +86,8 @@ export async function POST(request: NextRequest) {
       case 'services': result = await applyServices(ctx, body.names); break;
       case 'categories': result = await applyCategories(ctx, body.names); break;
       case 'hours': result = await applyHours(ctx, body.hours); break;
+      case 'holidayHours': result = await applySpecialHours(ctx, body.days); break;
+      case 'website': result = await applyWebsite(ctx, body.url); break;
       case 'reply': result = await applyReply(ctx, body.reviewId, body.text); break;
       case 'lowStar': result = await queueLowStar(ctx); break;
       case 'firstPost': result = await scheduleFirstPost(ctx, body.text); break;
