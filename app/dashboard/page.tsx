@@ -245,6 +245,28 @@ export default function DashboardPage() {
         </div>
       )}
 
+      {/* Review replies waiting for approval. Nothing here is on Google yet: each
+          button opens a confirmation page, and only that page's button posts. */}
+      {d.pendingReplies?.length>0&&(
+        <div style={{...card,animation:'fadeUp .5s .35s ease both'}}>
+          <div style={lbl}>Replies waiting for you</div>
+          <p style={{fontSize:12,color:V.textSoft,margin:'0 0 10px',lineHeight:1.4,fontFamily:sans}}>We never reply to a 1 to 3 star review without you. Here is a careful reply we have drafted for each. Nothing is posted until you approve it.</p>
+          <div style={{display:'flex',flexDirection:'column',gap:12}}>
+            {d.pendingReplies.map((p:any,i:number)=>(
+              <div key={i} style={{background:V.card2,borderRadius:12,padding:12}}>
+                <div style={{fontSize:13,fontWeight:600,fontFamily:sans}}>{p.reviewerName} <span style={{color:V.star,fontSize:11}}>{'\u2605'.repeat(Math.max(0,Math.min(5,p.rating)))}</span></div>
+                {p.comment&&<p style={{fontSize:13,color:V.textMid,margin:'4px 0 8px',lineHeight:1.4,fontFamily:sans}}>{p.comment}</p>}
+                <p style={{fontSize:13,margin:'0 0 10px',lineHeight:1.4,fontFamily:sans,borderLeft:`3px solid ${V.orange}`,paddingLeft:10}}>{p.reply}</p>
+                <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
+                  <a href={p.approveUrl} style={{background:V.orange,color:'#fff',borderRadius:8,padding:'8px 14px',fontSize:13,fontWeight:600,textDecoration:'none',fontFamily:sans}}>Approve this reply</a>
+                  <a href={p.rejectUrl} style={{color:V.textMid,borderRadius:8,padding:'8px 14px',fontSize:13,fontWeight:600,textDecoration:'none',fontFamily:sans,border:`1px solid ${V.border}`}}>I&apos;ll handle it myself</a>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Activity feed */}
       {d.activity?.length>0&&(
         <div style={{...card,animation:'fadeUp .5s .4s ease both'}}>

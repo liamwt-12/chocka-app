@@ -276,6 +276,11 @@ export default function OnboardingPage() {
     if (_h) { body.hours = _h; lines.push('Setting your opening hours'); }
     if (_r) { body.replyToReviews = true; lines.push(`Replying to ${_r.totalUnreplied} reviews`); }
     if (_p) { body.firstPost = _p; lines.push('Scheduling your first post'); }
+    // Recent 1 to 3 star reviews get a holding reply DRAFTED for the shop to
+    // approve on its dashboard. Nothing is posted and nothing is sent. On a
+    // free tenant this follows the "Reply to reviews" choice; on a paid one
+    // review handling is part of the service.
+    if (!freeTenant || optReply) body.queueLowStar = true;
     lines.push('Setting up weekly automation');
     for (let i = 0; i < lines.length; i++) { setFixLines(p => [...p, lines[i]]); await new Promise(r => setTimeout(r, 1100)); }
     await fetch('/api/profile-fix', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
