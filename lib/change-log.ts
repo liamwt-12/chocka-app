@@ -20,11 +20,12 @@ import {
   getLocationFields,
   updateLocation,
   createLocalPost,
+  createLocationMedia,
   replyToReview,
 } from './google';
 
-export type ChangeSource = 'onboarding' | 'post-publisher' | 'review-alerts' | 'auto-reply' | 'revert';
-export type ChangeAction = 'update_location' | 'create_post' | 'reply_review';
+export type ChangeSource = 'onboarding' | 'post-publisher' | 'review-alerts' | 'auto-reply' | 'revert' | 'admin-photos';
+export type ChangeAction = 'update_location' | 'create_post' | 'reply_review' | 'add_media';
 
 /** The subset of the Supabase client this module uses. */
 export interface ChangeLogDb {
@@ -136,12 +137,35 @@ export async function loggedCreatePost(
   locationName: string,
   content: string,
   accountId?: string,
+  /** Optional photo (lib/shop-photos.ts). The log records which photo, never its address, which is short-lived. */
+  photo?: { id: string; url: string } | null,
 ) {
   return withLog(
     ctx,
     { action: 'create_post', location_name: locationName, target: null, before_value: null },
-    () => createLocalPost(accessToken, locationName, content, accountId),
-    (res: any) => ({ name: res?.name ?? null, summary: content }),
+    () => createLocalPost(accessToken, locationName, content, accountId, photo?.url),
+    (res: any) => ({ name: res?.name ?? null, summary: content, ...(photo ? { photoId: photo.id } : {}) }),
+  );
+}
+
+/**
+ * Add a photo to the listing's own gallery. There is no "before"; the
+ * after-value carries the media item's resource name, which is what a revert
+ * deletes. Callers must check listingPhotosEnabled() first: this function logs
+ * and writes, it does not decide.
+ */
+export async function loggedAddListingPhoto(
+  ctx: WriteContext,
+  accessToken: string,
+  locationName: string,
+  photo: { id: string; url: string },
+  accountId?: string,
+) {
+  return withLog(
+    ctx,
+    { action: 'add_media', location_name: locationName, target: null, before_value: null },
+    () => createLocationMedia(accessToken, locationName, photo.url, accountId),
+    (res: any) => ({ name: res?.name ?? null, photoId: photo.id }),
   );
 }
 
@@ -185,6 +209,7 @@ export interface ChangeRow {
 export type RevertStep =
   | { kind: 'restore_fields'; changeId: string; locationName: string; updateMask: string; body: Record<string, unknown> }
   | { kind: 'delete_post'; changeId: string; postName: string }
+  | { kind: 'delete_media'; changeId: string; mediaName: string }
   | { kind: 'restore_reply'; changeId: string; reviewName: string; comment: string }
   | { kind: 'delete_reply'; changeId: string; reviewName: string }
   | { kind: 'skip'; changeId: string; reason: string };
@@ -218,6 +243,11 @@ export function planRevert(row: ChangeRow): RevertStep {
       const name = row.after_value?.name;
       if (!name) return { kind: 'skip', changeId: row.id, reason: 'post name not recorded (the write may not have completed)' };
       return { kind: 'delete_post', changeId: row.id, postName: name };
+    }
+    case 'add_media': {
+      const name = row.after_value?.name;
+      if (!name) return { kind: 'skip', changeId: row.id, reason: 'photo name not recorded (the write may not have completed)' };
+      return { kind: 'delete_media', changeId: row.id, mediaName: name };
     }
     case 'reply_review': {
       if (!row.target) return { kind: 'skip', changeId: row.id, reason: 'review name not recorded' };

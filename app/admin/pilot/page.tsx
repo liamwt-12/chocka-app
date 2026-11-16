@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useMemo } from 'react';
+import PhotoPanel from '@/components/admin/PhotoPanel';
 import VoiceFields, { draftFromVoice, EMPTY_DRAFT, type VoiceDraft } from '@/components/VoiceFields';
 
 // Pilot admin: add a retailer, generate invite links (never sends), see who is live.
@@ -21,7 +22,7 @@ const STATE_LABEL: Record<string, [string, string, string]> = {
   not_invited: ['Not invited', C.soft, '#F5F3EF'],
 };
 
-type Row = { id: string; name: string; town: string | null; contactEmail: string | null; source: string; state: string; detail: string; joinedAt: string | null; delisted: boolean; adStartDate: string | null; connection: { status: string; label: string; detail: string | null; checkedAt: string | null; nextStep: string | null } | null; voice: Voice | null; voiceUpdatedAt: string | null; voiceUpdatedBy: string | null; review: { link: string; cardPath: string; source: 'connected' | 'baseline' } | null };
+type Row = { id: string; name: string; town: string | null; contactEmail: string | null; source: string; state: string; detail: string; joinedAt: string | null; delisted: boolean; adStartDate: string | null; connection: { status: string; label: string; detail: string | null; checkedAt: string | null; nextStep: string | null } | null; voice: Voice | null; voiceUpdatedAt: string | null; voiceUpdatedBy: string | null; photos: { pending: number; approved: number } | null; review: { link: string; cardPath: string; source: 'connected' | 'baseline' } | null };
 type Voice = { tone: string | null; about: string | null; specialities: string[]; signOff: string | null; wordsToUse: string[]; wordsToAvoid: string[] };
 type Minted = { retailerId: string; name?: string; ok: boolean; link?: string; expiresAt?: string; error?: string };
 
@@ -40,6 +41,9 @@ export default function PilotAdminPage() {
   // Voice editor: which shop is open, and what has been typed so far.
   const [voiceFor, setVoiceFor] = useState<Row | null>(null);
   const [voiceDraft, setVoiceDraft] = useState<VoiceDraft>(EMPTY_DRAFT);
+  // Photos: only shown when the server says SHOP_PHOTOS is on.
+  const [photosEnabled, setPhotosEnabled] = useState(false);
+  const [photosFor, setPhotosFor] = useState<Row | null>(null);
 
   const call = async (payload: object) => {
     const res = await fetch('/api/admin/pilot', {
@@ -56,7 +60,7 @@ export default function PilotAdminPage() {
     setBusy(true); setMsg('');
     try {
       const d = await call({ action: 'list' });
-      setRows(d.retailers); setCounts(d.counts); setAuthed(true);
+      setRows(d.retailers); setCounts(d.counts); setPhotosEnabled(!!d.photosEnabled); setAuthed(true);
     } catch (e: any) { setMsg(e.message === 'Unauthorized' ? 'Wrong password' : e.message); }
     setBusy(false);
   };
@@ -179,6 +183,12 @@ export default function PilotAdminPage() {
           </div>
         )}
 
+        {photosFor && photosEnabled && (
+          <div style={{ ...card, border: `2px solid ${C.text}` }}>
+            <PhotoPanel shop={{ id: photosFor.id, name: photosFor.name }} password={password} onClose={() => setPhotosFor(null)} onChanged={load} />
+          </div>
+        )}
+
         {voiceFor && (
           <div style={{ ...card, border: `2px solid ${C.text}` }}>
             <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 2 }}>How {voiceFor.name} sounds</div>
@@ -216,7 +226,7 @@ export default function PilotAdminPage() {
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
               <thead>
                 <tr style={{ textAlign: 'left', color: C.soft, fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
-                  <th style={{ padding: 6 }}></th><th style={{ padding: 6 }}>Shop</th><th style={{ padding: 6 }}>Town</th><th style={{ padding: 6 }}>Status</th><th style={{ padding: 6 }}>Detail</th><th style={{ padding: 6 }}>Google connection</th><th style={{ padding: 6 }} title="When Tarkett's ads for this shop started. Used for the 'change during your ads' section of the monthly report.">Ads started</th><th style={{ padding: 6 }} title="How this shop's posts and replies should sound. Answered by the shop at onboarding, or set here by a rep.">Voice</th><th style={{ padding: 6 }} title="The shop's Google review link, and a card with a QR code to print for the counter. The same link for every customer: nothing is sent and no customer details are involved.">Review link</th><th style={{ padding: 6 }}></th>
+                  <th style={{ padding: 6 }}></th><th style={{ padding: 6 }}>Shop</th><th style={{ padding: 6 }}>Town</th><th style={{ padding: 6 }}>Status</th><th style={{ padding: 6 }}>Detail</th><th style={{ padding: 6 }}>Google connection</th><th style={{ padding: 6 }} title="When Tarkett's ads for this shop started. Used for the 'change during your ads' section of the monthly report.">Ads started</th><th style={{ padding: 6 }} title="How this shop's posts and replies should sound. Answered by the shop at onboarding, or set here by a rep.">Voice</th><th style={{ padding: 6 }} title="The shop's Google review link, and a card with a QR code to print for the counter. The same link for every customer: nothing is sent and no customer details are involved.">Review link</th>{photosEnabled && <th style={{ padding: 6 }} title="Photos of the shop's work. Uploaded through a link, used on posts only after you approve them.">Photos</th>}<th style={{ padding: 6 }}></th>
                 </tr>
               </thead>
               <tbody>
@@ -252,6 +262,13 @@ export default function PilotAdminPage() {
                           </>
                         ) : <span style={{ color: C.soft }} title="No Google place ID on record for this shop yet. It appears once the shop connects its listing.">No listing yet</span>}
                       </td>
+                      {photosEnabled && (
+                        <td style={{ padding: 6, whiteSpace: 'nowrap' }}>
+                          <button onClick={() => setPhotosFor(r)} style={{ ...btn, background: 'transparent', color: r.photos?.pending ? C.amber : C.mid, padding: '2px 6px', textDecoration: 'underline' }}>
+                            {r.photos ? `${r.photos.approved} approved${r.photos.pending ? `, ${r.photos.pending} to check` : ''}` : 'None'}
+                          </button>
+                        </td>
+                      )}
                       <td style={{ padding: 6 }}>{r.state === 'invited' && <button onClick={() => revoke(r.id)} disabled={busy} style={{ ...btn, background: 'transparent', color: C.red, padding: '2px 6px' }}>Revoke</button>}</td>
                     </tr>
                   );
