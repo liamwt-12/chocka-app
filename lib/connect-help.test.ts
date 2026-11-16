@@ -36,9 +36,11 @@ describe('the sign-in return handler has no dead ends', () => {
     expect(cb).toMatch(/helpPath\(why, invite\)/);
   });
 
-  it('an unticked box goes to the help page with the invite, and the permission is handed back', () => {
+  it('an unticked box goes to the help page with the invite, and NOTHING is revoked', () => {
     expect(cb).toMatch(/helpPath\('unticked', invite\)/);
-    expect(cb).toMatch(/revokeQuietly\(tokens\.refresh_token \|\| tokens\.access_token\)/);
+    // Handing that permission back would cancel a working grant the same person gave earlier.
+    const block = cb.slice(cb.indexOf("if (!tokens.scope || !tokens.scope.includes('business.manage'))"), cb.indexOf("console.log(`[auth] business.manage granted"));
+    expect(block).not.toMatch(/revokeQuietly\(/);
   });
 
   it('an invited shop gets no account until a listing is found', () => {
@@ -50,8 +52,33 @@ describe('the sign-in return handler has no dead ends', () => {
     expect(cb).toMatch(/helpPath\('google_error', parsedState\.invite\)/);
   });
 
-  it('a stale claim is cleared before the invite gate decides', () => {
-    expect(cb.indexOf('releaseStaleClaim(')).toBeLessThan(cb.indexOf('const admitted = await inviteAdmitsSignup'));
+  it('a stale claim is only cleared once the newcomer is known to manage a listing, and before the invite gate decides', () => {
+    const listed = cb.indexOf('listings = await getManageableListings(tokens.access_token)');
+    const noListing = cb.indexOf("return NextResponse.redirect(new URL(helpPath('no_listing', parsedState.invite), baseUrl));");
+    const release = cb.indexOf('releaseStaleClaim(');
+    const gate = cb.indexOf('const admitted = await inviteAdmitsSignup');
+    expect(listed).toBeGreaterThan(0);
+    expect(listed).toBeLessThan(noListing);
+    expect(noListing).toBeLessThan(release);
+    expect(release).toBeLessThan(gate);
+    expect(cb).toMatch(/evenIfRecent: outcome\.status === 'connected'/);
+  });
+
+  it('an expired or withdrawn link cannot be restarted from the help page', () => {
+    expect(cb).toMatch(/if \(inviteRef && !\(await inviteStillUsable\(inviteRef\)\)\)/);
+  });
+
+  it('an account that turned out to manage no listing is not linked to the shop it was told is not connected', () => {
+    expect(cb).toMatch(/if \(!dest\.startsWith\('\/connect-help'\)\) await linkInviteToUser/);
+  });
+
+  it('"This is not my shop" is a button the signed-in shop presses, not a link that leads nowhere', () => {
+    const reset = src('../app/api/connection/reset/route.ts');
+    expect(reset).toMatch(/export async function POST/);
+    expect(reset).toMatch(/\.eq\('user_id', userId\)/); // only ever the signed-in shop's own connection
+    expect(reset).toMatch(/clearSessionCookies\(response\)/);
+    expect(src('../app/connected/page.tsx')).toMatch(/action="\/api\/connection\/reset" method="post"/);
+    expect(src('../app/api/connected/route.ts')).not.toMatch(/helpPath/);
   });
 
   it('the help page only links back to Google with a reference that verifies', () => {

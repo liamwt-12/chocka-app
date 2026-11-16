@@ -21,7 +21,8 @@ vi.mock('./google', () => ({
     if (G.refuse) throw new FakeGbpError('Failed to reply: refused', G.refuse.status, G.refuse.googleStatus ?? null);
     const r = G.reviews.find((x) => x.name === name); r.reviewReply = { comment }; return r.reviewReply;
   }),
-  getReviews: vi.fn(async () => ({ reviews: G.reviews })),
+  // A fresh copy each time, as Google gives: the code under test must not be able to change "Google" by editing what it was handed.
+  getReviews: vi.fn(async () => ({ reviews: JSON.parse(JSON.stringify(G.reviews)) })),
   parseStarRating: (s: string) => ({ ONE: 1, TWO: 2, THREE: 3, FOUR: 4, FIVE: 5 } as any)[s] ?? 0,
   findCategoryByName: vi.fn(async (_t: string, n: string) => (G.categoriesKnown[n.toLowerCase()] ? { name: G.categoriesKnown[n.toLowerCase()], displayName: n } : null)),
   getLocationFull: vi.fn(async () => G.location),
@@ -30,7 +31,7 @@ vi.mock('./google', () => ({
 }));
 
 import {
-  applyDescription, applyServices, applyCategories, applyHours, applyReply, scheduleFirstPost, measureListing, applySpecialHours, applyWebsite, cleanWebsite,
+  applyDescription, applyServices, applyCategories, applyHours, applyReply, scheduleFirstPost, measureListing, applySpecialHours, applyWebsite, cleanWebsite, applyReplies, REPLIES_PER_REQUEST,
   plainProblem, descriptionProblem, reviewsNeedingReply, cleanNames, DESCRIPTION_MAX, type FixContext,
 } from './listing-fixes';
 import { DAYS } from './opening-hours';
@@ -169,6 +170,19 @@ describe('holiday hours', () => {
     expect(G.location.specialHours.specialHourPeriods[0]).toEqual(range);
     expect(G.location.specialHours.specialHourPeriods).toHaveLength(2);
   });
+  it('keeps EVERY entry the editor could not show: open all day, a shape we do not know, as well as a range', async () => {
+    const allDay = { startDate: { year: 2026, month: 12, day: 23 }, endDate: { year: 2026, month: 12, day: 23 }, openTime: { hours: 0 }, closeTime: { hours: 24 } };
+    const odd = { startDate: { year: 2026, month: 12, day: 22 }, endDate: { year: 2026, month: 12, day: 22 }, openTime: { hours: 18 }, closeTime: { hours: 2 } };
+    const past = { startDate: { year: 2026, month: 11, day: 1 }, endDate: { year: 2026, month: 11, day: 1 }, closed: true };
+    G.location.specialHours = { specialHourPeriods: [allDay, odd, past] };
+    const r = await applySpecialHours(c, [{ date: '2026-12-25', open: false }], today);
+    expect(r.ok).toBe(true);
+    const now = G.location.specialHours.specialHourPeriods;
+    expect(now).toContainEqual(allDay);
+    expect(now).toContainEqual(odd);
+    expect(now).not.toContainEqual(past);
+    expect(now).toHaveLength(3);
+  });
   it('an empty list clears them, and says so', async () => {
     G.location.specialHours = { specialHourPeriods: [{ startDate: { year: 2026, month: 12, day: 25 }, endDate: { year: 2026, month: 12, day: 25 }, closed: true }] };
     const r = await applySpecialHours(c, [], today);
@@ -186,6 +200,7 @@ describe('website', () => {
   it('only ever an address the shop typed, tidied', () => {
     expect(cleanWebsite('www.bare-carpets.co.uk')).toBe('https://www.bare-carpets.co.uk');
     expect(cleanWebsite(' http://shop.example/floors ')).toBe('http://shop.example/floors');
+    expect(cleanWebsite('shop.example/floors/')).toBe('https://shop.example/floors/'); // a path the shop typed is kept exactly
     for (const bad of ['', 'not a site', 'ftp://x.example', 'javascript:alert(1)', 'localhost', 'x'.repeat(250), null, 42]) expect(cleanWebsite(bad)).toBeNull();
   });
   it('writes it, checks it, and logs what it replaced', async () => {
@@ -250,6 +265,43 @@ describe('one reply at a time', () => {
     expect(r).toMatchObject({ ok: false, retryable: true });
   });
 
+  it('a batch reads the reviews once, posts each reply on its own, and reports each on its own', async () => {
+    const google = await import('./google');
+    (google.getReviews as any).mockClear();
+    G.reviews = [rev('g1', 'FIVE'), rev('g2', 'FOUR'), rev('low', 'TWO'), rev('mine', 'FIVE', 'the shop already answered')];
+    const out = await applyReplies(c, [{ reviewId: 'g1', text }, { reviewId: 'g2', text }, { reviewId: 'low', text }, { reviewId: 'mine', text }, { reviewId: 'gone', text }]);
+    expect(out.map((r) => [r.reviewId, r.ok])).toEqual([['g1', true], ['g2', true], ['low', false], ['mine', false], ['gone', false]]);
+    expect((google.getReviews as any).mock.calls).toHaveLength(2); // once to read, once to check what was posted
+    expect(G.reviews.find((r) => r.reviewId === 'low').reviewReply).toBeUndefined();
+    expect(G.reviews.find((r) => r.reviewId === 'mine').reviewReply.comment).toBe('the shop already answered');
+    expect(db.tables.change_log).toHaveLength(2);
+  });
+
+  it('a reply Google accepted but is not showing is reported as NOT done', async () => {
+    const google = await import('./google');
+    const real = (google.replyToReview as any).getMockImplementation();
+    (google.replyToReview as any).mockImplementation(async () => ({})); // accepted, and silently not applied
+    try {
+      G.reviews = [rev('g1', 'FIVE')];
+      const one = await applyReply(c, 'g1', text);
+      expect(one.ok).toBe(false);
+      expect(one.message).toMatch(/not showing it yet/);
+      const batch = await applyReplies(c, [{ reviewId: 'g1', text }]);
+      expect(batch[0].ok).toBe(false);
+    } finally { (google.replyToReview as any).mockImplementation(real); }
+  });
+
+  it('a batch is capped, is safe to send twice, and one refusal does not stop the rest', async () => {
+    G.reviews = Array.from({ length: 8 }, (_, i) => rev(`r${i}`, 'FIVE'));
+    const all = G.reviews.map((r) => ({ reviewId: r.reviewId, text }));
+    const first = await applyReplies(c, all);
+    expect(first).toHaveLength(REPLIES_PER_REQUEST);
+    const again = await applyReplies(c, all);
+    expect(again.every((r) => r.ok)).toBe(true);
+    expect(db.tables.change_log).toHaveLength(REPLIES_PER_REQUEST); // nothing posted twice
+    expect(await applyReplies(c, 'nonsense')).toEqual([]);
+  });
+
   it('reviewsNeedingReply: good, unanswered, capped, and says how many there were', () => {
     const many = Array.from({ length: 30 }, (_, i) => rev(`g${i}`, 'FIVE'));
     const out = reviewsNeedingReply([...many, rev('low', 'TWO'), rev('done', 'FIVE', 'ta')], (s) => ({ TWO: 2, FIVE: 5 } as any)[s], 20);
@@ -267,6 +319,11 @@ describe('first post and measuring', () => {
     expect(db.tables.scheduled_posts).toHaveLength(1);
     expect(db.tables.scheduled_posts[0]).toMatchObject({ status: 'pending_approval', content: post });
     expect(db.tables.scheduled_posts[0].approved_at).toBeTruthy();
+  });
+  it('a post the shop skipped does not count as booked: the same words can be booked again', async () => {
+    db.tables.scheduled_posts.push({ id: 'old', profile_id: 'p1', content: post, status: 'cancelled' });
+    expect((await scheduleFirstPost(c, post)).ok).toBe(true);
+    expect(db.tables.scheduled_posts.filter((p: any) => p.status === 'pending_approval')).toHaveLength(1);
   });
   it('refuses a post with a price in it', async () => {
     expect((await scheduleFirstPost(c, 'Carpets fitted from £9 a metre this week only, pop in and see us soon.')).ok).toBe(false);

@@ -103,7 +103,7 @@ export async function dataChecks(db: ReadinessDb, tenantId: string, now: Date = 
     const active = (shops || []).filter((s: any) => !s.delisted_at);
     const noPlace = active.filter((s: any) => !s.place_id).length;
     out.push({ key: 'shops', label: 'Shops on record', ok: null, detail: `${active.length} shop${active.length === 1 ? '' : 's'}, ${active.filter((s: any) => s.user_id).length} connected.` });
-    out.push({ key: 'place_ids', label: 'Each shop has the Google listing we expect', ok: noPlace ? null : true, detail: noPlace ? `${noPlace} shop${noPlace === 1 ? ' has' : 's have'} no expected listing on record. They can still connect, but will show as "Check listing" for a person to confirm.` : 'All have one.' });
+    out.push({ key: 'place_ids', label: 'Each shop has the Google listing we expect', ok: noPlace ? null : true, detail: noPlace ? `${noPlace} shop${noPlace === 1 ? ' has' : 's have'} no expected listing on record. Whatever listing ${noPlace === 1 ? 'it connects' : 'they connect'} will be accepted without being compared with anything, and will count as live. Add the expected listing first, or look at ${noPlace === 1 ? 'it' : 'each one'} by hand after it connects.` : 'All have one.' });
     const { data: last } = await db.from('profiles').select('metrics_synced_at').not('metrics_synced_at', 'is', null).order('metrics_synced_at', { ascending: false }).limit(1);
     const when = last?.[0]?.metrics_synced_at;
     const hours = when ? (now.getTime() - Date.parse(when)) / 3_600_000 : null;

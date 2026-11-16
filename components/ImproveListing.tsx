@@ -98,7 +98,16 @@ export default function ImproveListing({ audit, hours, manual, offerLowStar, wor
   const [draftsNote, setDraftsNote] = useState('');
   const [moreFound, setMoreFound] = useState(0);
   const draftsRef = useRef<Draft[]>([]);
+  // Which suggestions have been put in front of the shop. A box stays on screen
+  // once shown, even if the shop empties it, so it can type its own words.
+  const offered = useRef<Record<string, boolean>>({});
+  const [shown, setShown] = useState<Record<string, boolean>>({});
+  // One retry at a time: two in flight would each work from a stale copy of the list.
+  const [retrying, setRetrying] = useState(false);
 
+  // Suggestions that were wanted and could not be written (the model was busy).
+  const [notWritten, setNotWritten] = useState<string[]>([]);
+  const [attempt, setAttempt] = useState(0);
   const [jobs, setJobs] = useState<Job[]>([]);
   const [measured, setMeasured] = useState<{ score: number; band: string; manual: ManualGap[] } | null>(null);
   const [before, setBefore] = useState<number | null>(null);
@@ -109,21 +118,27 @@ export default function ImproveListing({ audit, hours, manual, offerLowStar, wor
     (async () => {
       try {
         const res = await fetch('/api/audit/previews', { method: 'POST' });
-        const d = res.ok ? await res.json() : { previews: {} };
+        const d = res.ok ? await res.json() : { previews: {}, failed: ['description', 'services', 'firstPost', 'categories'] };
         if (dead) return;
+        setNotWritten((d.failed || []).filter((k: string) => has(k)));
         const p = d.previews || {};
-        if (p.description && has('description')) { setDesc(p.description); setDescOn(true); }
-        if (p.services?.length && has('services')) { setSvcs(p.services); setSvcsOn(true); }
-        if (p.categories?.length && has('categories')) { setCats(p.categories); setCatsOn(true); }
-        if (p.firstPost && has('firstPost')) { setPost(p.firstPost); setPostOn(true); }
-        if (p.lowStarUnreplied && offerLowStar) { setLowStar(p.lowStarUnreplied); setLowOn(true); }
-      } catch { /* nothing drafted: nothing offered */ }
+        // On "Try again", only what could not be written the first time is
+        // filled in. Anything the shop has already read, edited or unticked is
+        // left exactly as it is.
+        const fill = (key: string) => attempt === 0 || offered.current[key] !== true;
+        if (p.description && has('description') && fill('description')) { setDesc(p.description); setDescOn(true); offered.current.description = true; }
+        if (p.services?.length && has('services') && fill('services')) { setSvcs(p.services); setSvcsOn(true); offered.current.services = true; }
+        if (p.categories?.length && has('categories') && fill('categories')) { setCats(p.categories); setCatsOn(true); offered.current.categories = true; }
+        if (p.firstPost && has('firstPost') && fill('firstPost')) { setPost(p.firstPost); setPostOn(true); offered.current.firstPost = true; }
+        if (p.lowStarUnreplied && offerLowStar && attempt === 0) { setLowStar(p.lowStarUnreplied); setLowOn(true); }
+        setShown({ ...offered.current });
+      } catch { if (!dead) setNotWritten(['description', 'services', 'firstPost', 'categories'].filter(has)); }
       if (!dead) setLoading(false);
-      if (has('reviews')) loadDrafts(() => dead);
+      if (has('reviews') && attempt === 0) loadDrafts(() => dead);
     })();
     return () => { dead = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [attempt]);
 
   // Drafts arrive three at a time, so a shop with twenty reviews is never left
   // waiting on one long request, and can start reading at once.
@@ -187,24 +202,56 @@ export default function ImproveListing({ audit, hours, manual, offerLowStar, wor
     setStage('results');
   }
 
+  /** Replies are sent a few at a time (the server reads the reviews once per batch) and each gets its own result. */
+  async function runReplyBatch(batch: Job[]): Promise<Job[]> {
+    try {
+      const res = await fetch('/api/profile-fix', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ step: 'replies', replies: batch.map((j) => ({ reviewId: j.body.reviewId, text: j.body.text })) }) });
+      const d = await res.json().catch(() => null);
+      const byId = new Map<string, StepResult>((d?.results || []).map((r: any) => [r.reviewId, r]));
+      const lost = d?.code === 'google_disconnected' || d?.code === 'not_authenticated';
+      return batch.map((j) => {
+        const r = byId.get(String(j.body.reviewId));
+        if (r) return { ...j, state: r.ok ? 'done' as const : 'failed' as const, result: r };
+        return { ...j, state: 'failed' as const, result: d?.result ?? { step: j.id, ok: false, message: lost ? 'We have lost the connection to your Google account.' : 'We could not post this reply.', nextStep: lost ? 'Sign in with Google again, then come back to this.' : 'Press "Try again".', retryable: !lost } };
+      });
+    } catch {
+      return batch.map((j) => ({ ...j, state: 'failed' as const, result: { step: j.id, ok: false, message: 'We could not reach our own server.', nextStep: 'Check your signal and press "Try again".', retryable: true } }));
+    }
+  }
+
   async function start() {
     const list = buildJobs();
     setJobs(list); setStage('working');
     window.scrollTo(0, 0);
     const out = [...list];
-    for (let i = 0; i < out.length; i++) {
+    for (let i = 0; i < out.length;) {
+      if (out[i].body.step === 'reply') {
+        // The run of replies starting here, five at a time.
+        let n = 0; while (i + n < out.length && n < 5 && out[i + n].body.step === 'reply') n++;
+        for (let k = 0; k < n; k++) out[i + k] = { ...out[i + k], state: 'working' };
+        setJobs([...out]);
+        const done = await runReplyBatch(out.slice(i, i + n));
+        for (let k = 0; k < n; k++) out[i + k] = done[k];
+        setJobs([...out]); i += n;
+        continue;
+      }
       out[i] = { ...out[i], state: 'working' }; setJobs([...out]);
       out[i] = await runJob(out[i]); setJobs([...out]);
+      i++;
     }
     await finish();
   }
 
   async function retry(id: string) {
-    const i = jobs.findIndex((j) => j.id === id); if (i < 0) return;
-    const out = [...jobs];
-    out[i] = { ...out[i], state: 'working' }; setJobs([...out]);
-    out[i] = await runJob(out[i]); setJobs([...out]);
-    await finish();
+    if (retrying) return;
+    const job = jobs.find((j) => j.id === id); if (!job) return;
+    setRetrying(true);
+    try {
+      setJobs((list) => list.map((j) => (j.id === id ? { ...j, state: 'working' } : j)));
+      const done = job.body.step === 'reply' ? (await runReplyBatch([job]))[0] : await runJob(job);
+      setJobs((list) => list.map((j) => (j.id === id ? done : j)));
+      await finish();
+    } finally { setRetrying(false); }
   }
 
   const wrap: CSSProperties = { minHeight: '100vh', fontFamily: sans, display: 'flex', justifyContent: 'center', background: '#F0EDE8', color: V.text };
@@ -236,7 +283,7 @@ export default function ImproveListing({ audit, hours, manual, offerLowStar, wor
   /* ── RESULTS ── */
   if (stage === 'results') {
     const done = jobs.filter((j) => j.state === 'done');
-    const bad = jobs.filter((j) => j.state === 'failed');
+    const bad = jobs.filter((j) => j.state === 'failed' || (retrying && j.state === 'working'));
     return (
       <div style={wrap}><div style={box}>
         {logo}
@@ -267,7 +314,7 @@ export default function ImproveListing({ audit, hours, manual, offerLowStar, wor
                 <div style={{ fontSize: 15, fontWeight: 600 }}>{j.label}</div>
                 <div style={{ fontSize: 14, color: V.text, marginTop: 2 }}>{j.result?.message}</div>
                 {j.result?.nextStep && <div style={{ fontSize: 14, color: V.mid, marginTop: 2 }}>{j.result.nextStep}</div>}
-                {j.result?.retryable && <button onClick={() => retry(j.id)} style={{ ...btn, width: 'auto', padding: '9px 16px', fontSize: 14, marginTop: 8 }}>Try again</button>}
+                {j.result?.retryable && <button disabled={retrying} onClick={() => retry(j.id)} style={{ ...btn, width: 'auto', padding: '9px 16px', fontSize: 14, marginTop: 8, opacity: retrying ? 0.5 : 1 }}>{j.state === 'working' ? 'Trying…' : 'Try again'}</button>}
               </div>
             ))}
           </div>
@@ -293,7 +340,8 @@ export default function ImproveListing({ audit, hours, manual, offerLowStar, wor
   }
 
   /* ── CHOOSE ── */
-  const nothingToOffer = !loading && !desc && !svcs.length && !cats.length && !post && !has('hours') && !has('reviews') && !lowStar;
+  const nothingToOffer = !loading && !notWritten.length && !shown.description && !svcs.length && !cats.length && !shown.firstPost && !has('hours') && !has('reviews') && !lowStar;
+  const NAMES: Record<string, string> = { description: 'a description', services: 'a list of services', firstPost: 'a first post', categories: 'extra categories' };
   return (
     <div style={wrap}><div style={box}>
       {logo}
@@ -316,7 +364,7 @@ export default function ImproveListing({ audit, hours, manual, offerLowStar, wor
         </Section>
       ))}
 
-      {desc && (
+      {shown.description && (
         <Section title="Business description" on={descOn} onChange={setDescOn} note="Shown under “From the business” on Google. Edit it so it is true for you.">
           <textarea value={desc} onChange={(e) => setDesc(e.target.value)} rows={7} maxLength={750} style={area} aria-label="Business description" />
           <div style={{ fontSize: 12, color: desc.length > 730 ? V.red : V.soft, textAlign: 'right' }}>{desc.length} of 750</div>
@@ -371,10 +419,18 @@ export default function ImproveListing({ audit, hours, manual, offerLowStar, wor
         </Section>
       )}
 
-      {post && (
+      {shown.firstPost && (
         <Section title="Your first post" on={postOn} onChange={setPostOn} note="Goes up tomorrow at about 10am. You can cancel it from your dashboard before then.">
           <textarea value={post} onChange={(e) => setPost(e.target.value)} rows={4} style={area} aria-label="Your first post" />
         </Section>
+      )}
+
+      {!loading && notWritten.length > 0 && (
+        <div style={{ ...card, background: V.amberLight }} role="status">
+          <div style={{ fontSize: 16, fontWeight: 600 }}>We could not write everything just now</div>
+          <p style={{ fontSize: 14, color: V.mid, margin: '4px 0 10px' }}>We wanted to suggest {notWritten.map((k) => NAMES[k] || k).join(', ').replace(/, ([^,]*)$/, ' and $1')}, but the writing service was busy. Nothing is wrong with your listing. You can carry on with what is shown, or try again.</p>
+          <button onClick={() => { setLoading(true); setAttempt((n) => n + 1); }} style={{ ...btn, width: 'auto', padding: '10px 16px', fontSize: 14 }}>Try again</button>
+        </div>
       )}
 
       {nothingToOffer && <div style={card}><p style={{ fontSize: 15, color: V.mid, margin: 0 }}>There is nothing here we would change for you. Your listing already has the things we can fill in.</p></div>}

@@ -90,7 +90,7 @@ function need(cond: any, message: string): asserts cond { if (!cond) throw new E
 const canon = (v: any): string => JSON.stringify(v, (_k, x) => (x && typeof x === 'object' && !Array.isArray(x) ? Object.fromEntries(Object.keys(x).sort().map((k) => [k, x[k]])) : x));
 
 // ── The cast ───────────────────────────────────────────────────────────────
-interface Shop { key: string; name: string; retailerId?: string; inviteToken?: string; cookie?: string; userId?: string; profileId?: string; dest?: string }
+interface Shop { key: string; name: string; retailerId?: string; inviteToken?: string; cookie?: string; userId?: string; profileId?: string; dest?: string; state?: string }
 const shops: Record<string, Shop> = {};
 for (const k of ['a', 'b', 'c', 'd', 'e', 'f', 'g']) shops[k] = { key: k, name: `${TEST_PREFIX}Shop ${k.toUpperCase()} (dummy run)` };
 
@@ -108,11 +108,13 @@ function cast() {
   persona('c', [makeListing(3, shops.c.name, PID('c'), false)]);                                        // right listing, Google has not verified it
   persona('d', [makeListing(4, shops.d.name, PID('d'))]);
   persona('e', [makeListing(5, shops.e.name, PID('e'))]);
-  persona('f', []);                                                                                       // manages nothing
+  persona('f', []);                                                                                       // a personal Google account that manages nothing
+  persona('f2', [makeListing(6, shops.f.name, PID('f'))]);                                              // the right account for shop F
+  persona('g', [makeListing(7, shops.g.name, PID('g'))]);                                               // shop G never completes: it is used for the refusals
 }
 const listingOf = (k: string) => world.personas[k].listings[0];
 
-async function signIn(k: string): Promise<{ dest: string; cookie: string }> {
+async function signIn(k: string, as: string = k): Promise<{ dest: string; cookie: string }> {
   const s = shops[k];
   need(s.inviteToken, `no invite link for shop ${k}`);
   const accepted = await call('invite/accept', 'POST', '/api/invite/accept', { form: { token: s.inviteToken } });
@@ -122,21 +124,33 @@ async function signIn(k: string): Promise<{ dest: string; cookie: string }> {
   const g = new URL(toGoogle.location!);
   need(g.searchParams.get('redirect_uri') === `${ORIGIN}/api/auth/callback/google`, `redirect_uri was ${g.searchParams.get('redirect_uri')}`);
   const state = g.searchParams.get('state') || '';
+  s.state = state;
   // "Google" sends the person back with a code.
-  const back = await call('auth/callback/google', 'GET', `/api/auth/callback/google?code=code-${k}&state=${encodeURIComponent(state)}`);
+  const back = await call('auth/callback/google', 'GET', `/api/auth/callback/google?code=code-${as}&state=${encodeURIComponent(state)}`);
   const dest = back.location ? new URL(back.location).pathname + new URL(back.location).search : '';
   const cookieValue = (back.res as any).cookies?.get?.('chocka_session')?.value;
+  s.dest = dest;
+  // Not connected: the shop is on a help page, and no account exists for it.
+  if (dest.startsWith('/connect-help')) { s.cookie = undefined; s.userId = undefined; s.profileId = undefined; return { dest, cookie: '' }; }
   need(cookieValue, `no session cookie after sign-in (went to ${dest})`);
   s.cookie = `chocka_session=${cookieValue}`;
-  s.dest = dest;
-  const { data: u } = await db.from('users').select('id, tenant_id, google_refresh_token').eq('email', EMAIL(k)).single();
+  const { data: u } = await db.from('users').select('id, tenant_id, google_refresh_token').eq('email', EMAIL(as)).single();
   need(u?.id, 'no user row after sign-in');
-  need(!String(u.google_refresh_token).includes(`rt-${k}`), 'the Google credential was stored unencrypted');
+  need(!String(u.google_refresh_token).includes(`rt-${as}`), 'the Google credential was stored unencrypted');
   s.userId = u.id;
   const { data: p } = await db.from('profiles').select('id').eq('user_id', u.id).maybeSingle();
   s.profileId = p?.id;
   return { dest, cookie: s.cookie };
 }
+
+/** One step of applying changes to a listing: what the screen sends, one at a time. */
+const fix = async (k: string, body: any) => {
+  const r = await call('profile-fix', 'POST', '/api/profile-fix', { cookie: shops[k].cookie, body });
+  need(r.status === 200, `profile-fix ${body.step} gave ${r.status} ${r.text.slice(0, 200)}`);
+  return r.data;
+};
+const week = (open: Record<string, [string, string]>) => ['MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY', 'SATURDAY', 'SUNDAY'].map((day) => (open[day] ? { day, open: true, from: open[day][0], to: open[day][1] } : { day, open: false, from: '', to: '' }));
+const adminList = async () => (await admin('admin/pilot', { action: 'list' })).data.retailers as any[];
 
 const retailerRow = async (k: string) => (await db.from('retailers').select('*').eq('id', shops[k].retailerId).maybeSingle()).data;
 const postsOf = async (k: string) => (await db.from('scheduled_posts').select('*').eq('profile_id', shops[k].profileId).order('created_at', { ascending: true })).data || [];
@@ -188,6 +202,7 @@ describe('dummy run on staging', () => {
     await tryDo('users', () => db.from('users').delete().like('email', 'dummy-run+%@invalid.example'));
     await tryDo('retailers', () => db.from('retailers').delete().like('name', `${TEST_PREFIX}%`));
     await tryDo('funder_users', () => db.from('funder_users').delete().eq('email', FUNDER_EMAIL));
+    await tryDo('live_months', () => db.from('live_months').delete().like('name', `${TEST_PREFIX}%`));
     notes.push(problems.length ? `CLEAN-UP PROBLEMS: ${problems.join('; ')}` : 'Clean-up ran with no errors.');
 
     const summary = {
@@ -259,6 +274,16 @@ describe('dummy run on staging', () => {
       return '7 links, 0 messages; a second link for the same shop is refused';
     });
 
+    await step('readiness', 'the launch check finds every database change in place, and never shows a secret', async () => {
+      const r = await admin('admin/pilot', { action: 'readiness' });
+      need(r.status === 200, `readiness gave ${r.status}`);
+      const missing = r.data.checks.database.filter((c: any) => c.ok !== true);
+      need(missing.length === 0, `not in the staging database: ${missing.map((c: any) => c.detail).join(' | ')}`);
+      for (const secret of [process.env.ADMIN_PASSWORD!, process.env.CRON_SECRET!, process.env.SESSION_SECRET!, process.env.SUPABASE_SERVICE_ROLE_KEY!, process.env.SECRET_ENCRYPTION_KEY!]) need(!r.text.includes(secret), 'THE READINESS CHECK PRINTED A SECRET');
+      need(r.data.checks.settings.find((c: any) => c.key === 'WELCOME_EMAIL').detail.startsWith('Off'), 'the welcome email is not reported as off');
+      return `${r.data.checks.database.length} database checks in place; ${r.data.toFix} setting(s) flagged for this throwaway setup; no secret in the answer`;
+    });
+
     // ════════ 2. Sign-in and ownership statuses ════════
     await step('ownership', 'a shop with a link it has not used reads "invited"', async () => {
       const r = await retailerRow('g');
@@ -270,14 +295,110 @@ describe('dummy run on staging', () => {
       const r = await retailerRow(k);
       need(r.connection_status === status, `expected ${status}, got ${r.connection_status} (${r.connection_detail}); sent to ${dest}`);
       need(r.user_id === shops[k].userId, 'the shop was not linked to the account that signed in');
-      return `${status}: "${r.connection_detail}"; sent to ${dest}; listing bound: ${shops[k].profileId ? 'yes' : 'no'}`;
+      need(dest === '/connected', `a connected shop should land on "You're connected", went to ${dest}`);
+      const { data: u } = await db.from('users').select('onboarding_step, auto_post_enabled, auto_reply_enabled, phone_number').eq('id', shops[k].userId).single();
+      need(u.onboarding_step === 'complete' && u.auto_post_enabled === false && u.auto_reply_enabled === false && !u.phone_number, 'connecting should finish setup with everything off and no mobile number asked for');
+      return `${status}: "${r.connection_detail}"; sent to ${dest}; nothing switched on; no mobile number needed`;
     });
     await expectStatus('a', 'connected', 'manages the expected listing, so "connected"');
-    await expectStatus('b', 'check_listing', 'manages a different listing, so "check listing" (flagged, not blocked)');
+    await expectStatus('b', 'check_listing', 'manages a different listing, so "check listing" (flagged, and held until a person confirms)');
     await expectStatus('c', 'waiting_google', 'right listing but Google has not verified it, so "waiting on Google"');
-    await expectStatus('d', 'connected', 'second connected shop');
     await expectStatus('e', 'connected', 'third connected shop');
-    await expectStatus('f', 'no_access', 'manages no listing at all, so "no access found"');
+
+    await step('welcome', 'no welcome email while it is switched off; with it on, one email, once', async () => {
+      need(world.emails.length === 0, `${world.emails.length} email(s) were captured with the welcome email off`);
+      process.env.WELCOME_EMAIL = 'on';
+      try {
+        await signIn('d');
+        const mail = world.emails.filter((e) => e.to === EMAIL('d'));
+        need(mail.length === 1 && /is connected to Stellar Local/.test(mail[0].subject), `expected one welcome email to shop D, captured ${mail.length}`);
+        need(/Nothing has been changed on your Google listing/.test(mail[0].html) && !/£/.test(mail[0].html), 'the welcome email wording is not as expected');
+        // Signing in again, as any returning shop does, must not send it twice.
+        const back = await call('auth/callback/google', 'GET', `/api/auth/callback/google?code=code-d&state=${encodeURIComponent(JSON.stringify({ action: 'login', plan: 'monthly' }))}`);
+        need(back.location?.endsWith('/dashboard'), `a returning connected shop went to ${back.location}`);
+        need(world.emails.filter((e) => e.to === EMAIL('d')).length === 1, 'a second welcome email was captured');
+        need((world.emails as any[]).length === 1, 'someone else got a welcome email');
+      } finally { delete process.env.WELCOME_EMAIL; }
+      const r = await retailerRow('d');
+      need(r.connection_status === 'connected', `shop D is ${r.connection_status}`);
+      return 'off: 0 emails for four connections; on: 1 to the shop that connected (captured, not sent); a second sign-in sends nothing';
+    });
+
+    await step('dead ends', 'the wrong Google account: no account is made, the shop is told why, and the same link then works with the right account', async () => {
+      const first = await signIn('f');
+      need(first.dest.startsWith('/connect-help?why=no_listing&invite='), `went to ${first.dest}`);
+      const { data: none } = await db.from('users').select('id').eq('email', EMAIL('f')).maybeSingle();
+      let r = await retailerRow('f');
+      need(!none && r.user_id === null, 'an account was created for a Google account that manages no listing');
+      need(r.connection_status === 'no_access' && r.connect_issue === 'no_listing', `recorded ${r.connection_status} / ${r.connect_issue}`);
+      const row = (await adminList()).find((x) => x.id === shops.f.retailerId);
+      need(row.help.label === 'Wrong Google account' && row.help.needsHelp && /Ask who set the shop up/.test(row.help.action), `needs-help row reads: ${JSON.stringify(row.help).slice(0, 200)}`);
+      // The shop presses "Try a different Google account" and signs in with the right one.
+      const second = await signIn('f', 'f2');
+      r = await retailerRow('f');
+      need(second.dest === '/connected' && r.user_id === shops.f.userId && r.connection_status === 'connected' && r.connect_issue === null, `second try went to ${second.dest}; status ${r.connection_status}, issue ${r.connect_issue}`);
+      return 'first try: help page, nothing stored, reason recorded and shown to support; second try with the right account: connected';
+    });
+
+    await step('dead ends', 'pressing Cancel at Google, and leaving the box unticked, each lead to a help page that keeps the invite', async () => {
+      const s = shops.g;
+      const accepted = await call('invite/accept', 'POST', '/api/invite/accept', { form: { token: s.inviteToken! } });
+      const toGoogle = await call('auth/callback/google', 'GET', new URL(accepted.location!).pathname + new URL(accepted.location!).search);
+      const state = new URL(toGoogle.location!).searchParams.get('state') || '';
+      const cancelled = await call('auth/callback/google', 'GET', `/api/auth/callback/google?error=access_denied&state=${encodeURIComponent(state)}`);
+      need(cancelled.location?.includes('/connect-help?why=cancelled&invite='), `Cancel went to ${cancelled.location}`);
+      let r = await retailerRow('g');
+      need(r.connect_issue === 'cancelled' && r.connection_status === 'invited' && r.user_id === null, `after Cancel: ${r.connection_status} / ${r.connect_issue}`);
+      // "Try again" on the help page goes back to Google with the invite still attached.
+      const help = new URL(cancelled.location!);
+      const retry = await call('auth/callback/google', 'GET', `/api/auth/callback/google?invite=${encodeURIComponent(help.searchParams.get('invite')!)}`);
+      need(JSON.parse(new URL(retry.location!).searchParams.get('state') || '{}').invite, 'the retry from the help page lost the invite');
+      // This time the box is left unticked.
+      world.personas.g.scopeUnticked = true;
+      const unticked = await call('auth/callback/google', 'GET', `/api/auth/callback/google?code=code-g&state=${encodeURIComponent(new URL(retry.location!).searchParams.get('state')!)}`);
+      world.personas.g.scopeUnticked = false;
+      need(unticked.location?.includes('/connect-help?why=unticked&invite='), `unticked box went to ${unticked.location}`);
+      r = await retailerRow('g');
+      const { data: none } = await db.from('users').select('id').eq('email', EMAIL('g')).maybeSingle();
+      need(r.connect_issue === 'unticked' && !none, `after the unticked box: issue ${r.connect_issue}, account created: ${!!none}`);
+      const row = (await adminList()).find((x) => x.id === shops.g.retailerId);
+      need(row.help.label === 'Box not ticked' && row.state === 'invited', `needs-help row reads ${row.help.label} / ${row.state}`);
+      const { data: inv } = await db.from('retailer_invites').select('status, accepted_at, user_id').eq('retailer_id', s.retailerId).single();
+      need(inv.status === 'pending' && inv.accepted_at && !inv.user_id, 'the invite was used up by a refusal');
+      return 'Cancel: help page, reason "cancelled"; unticked box: help page, reason "unticked"; no account either time; the link is still good; support sees which it was';
+    });
+
+    await step('dead ends', 'a connected shop that says "this is not my shop" can start again itself, with the same invitation', async () => {
+      const before = await retailerRow('d');
+      const oldUser = shops.d.userId;
+      const peek = await call('connection/reset', 'GET', '/api/connection/reset', { cookie: shops.d.cookie });
+      need(peek.status === 405 && (await retailerRow('d')).user_id === before.user_id, 'opening the address without pressing the button changed something');
+      const nobody = await call('connection/reset', 'POST', '/api/connection/reset');
+      need(nobody.location?.endsWith('/login'), `with nobody signed in it went to ${nobody.location}`);
+      const reset = await call('connection/reset', 'POST', '/api/connection/reset', { cookie: shops.d.cookie });
+      need(reset.status === 303 && reset.location?.includes('/api/auth/callback/google?invite='), `reset went to ${reset.status} ${reset.location}`);
+      const r = await retailerRow('d');
+      const { data: gone } = await db.from('users').select('id').eq('id', oldUser).maybeSingle();
+      const { data: inv } = await db.from('retailer_invites').select('status, user_id').eq('retailer_id', shops.d.retailerId).single();
+      need(!gone && r.user_id === null && r.listing_confirmed_at === null && inv.status === 'pending' && !inv.user_id, `after reset: account ${gone ? 'still there' : 'gone'}, shop linked: ${!!r.user_id}, invite ${inv.status}`);
+      // Another shop's session cannot reset this one: the route only ever acts on the signed-in shop.
+      const again = await signIn('d');
+      need(again.dest === '/connected' && (await retailerRow('d')).connection_status === 'connected', `reconnecting went to ${again.dest}`);
+      need(shops.d.userId !== oldUser, 'the old account was reused');
+      return 'a button, not a link; removes only the signed-in shop\'s own account; the invitation works again; reconnected';
+    });
+
+    await step('visibility', 'opening an invite is recorded by the page\'s script, once, and says nothing about whether a link is real', async () => {
+      const open = (token: string) => call('invite/opened', 'POST', '/api/invite/opened', { body: { token } });
+      const real = await open(shops.g.inviteToken!), fake = await open('not-a-real-token-not-a-real-token');
+      need(real.status === 204 && fake.status === 204, `opened gave ${real.status} / ${fake.status}`);
+      const { data: a } = await db.from('retailer_invites').select('opened_at').eq('retailer_id', shops.g.retailerId).single();
+      need(a.opened_at, 'opening was not recorded');
+      await open(shops.g.inviteToken!);
+      const { data: b } = await db.from('retailer_invites').select('opened_at').eq('retailer_id', shops.g.retailerId).single();
+      need(b.opened_at === a.opened_at, 'a second open overwrote the first');
+      return 'recorded once; a made-up link gets the same answer';
+    });
 
     await step('ownership', 'signing in without an invite is refused (Stellar is invite-only)', async () => {
       world.personas.stranger = { key: 'stranger', email: EMAIL('stranger'), name: `${TEST_PREFIX}Stranger`, listings: [] };
@@ -291,6 +412,10 @@ describe('dummy run on staging', () => {
       const r = await admin('admin/pilot', { action: 'list' });
       const by = (k: string) => r.data.retailers.find((x: any) => x.id === shops[k].retailerId);
       need(by('a').state === 'live' && by('g').state === 'invited', `A is ${by('a').state}, G is ${by('g').state}`);
+      // The wrong listing and the unverified listing are connected, and are NOT live.
+      need(by('b').state === 'connected_not_live' && by('b').help.label === 'Check listing' && by('b').help.buttons.includes('confirm_listing'), `B is ${by('b').state} / ${by('b').help.label}`);
+      need(by('c').state === 'connected_not_live' && by('c').help.label === 'Waiting on Google', `C is ${by('c').state} / ${by('c').help.label}`);
+      need(r.data.needsHelp >= 3, `needs-help count is ${r.data.needsHelp}`);
       need(by('a').review?.source === 'connected' && by('a').review.link.includes(PID('a')), 'A has no review link from its connected listing');
       need(by('g').review?.source === 'baseline', 'G (not connected) should use the baseline place id, marked "check first"');
       need(!/rt-|refresh_token|google_refresh/.test(r.text), 'the admin list leaked a credential');
@@ -307,7 +432,13 @@ describe('dummy run on staging', () => {
       auditA = r.data;
       const { data: days } = await db.from('daily_metrics').select('date').eq('profile_id', A().profileId).eq('metric', 'CALL_CLICKS').order('date', { ascending: true });
       need(days?.length > 300, `only ${days?.length} days of history stored`);
-      return `score ${r.data.audit.score}, predicted ${r.data.predicted}; ${days.length} days of history stored, from ${days[0].date} to ${days[days.length - 1].date}`;
+      need(!('defaultHours' in r.data) && !('predicted' in r.data), 'the audit still offers default hours or a predicted score');
+      need(r.data.hours?.daysSet === 0 && r.data.hours.draft.every((d: any) => !d.open && !d.from), 'a listing with no hours should come back as an empty week, not a suggested one');
+      need(!r.data.audit.fixes.some((f: any) => f.key === 'attributes') && r.data.manual.some((m: any) => m.key === 'photos'), 'the audit should not offer fixes we do not make, and should list them plainly instead');
+      // Looking again must not move the score the shop joined with.
+      const again = await call('audit', 'POST', '/api/audit', { cookie: A().cookie });
+      need(again.data.scoreAtActivation === r.data.audit.score, 'the activation score changed on a second look');
+      return `score ${r.data.audit.score}; no default hours, no predicted score; ${r.data.manual.length} gaps listed as "we do not do this"; ${days.length} days of history stored, from ${days[0].date} to ${days[days.length - 1].date}`;
     });
     await step('onboarding', 'an audit with no session is refused', async () => {
       const r = await call('audit', 'POST', '/api/audit');
@@ -325,45 +456,94 @@ describe('dummy run on staging', () => {
       return 'saved by the shop; refused: "' + bad.data.error.slice(0, 60) + '…"';
     });
     let previews: any;
-    await step('onboarding', 'previews are drafted in the shop\'s voice; the reply sample is never a low-star review', async () => {
+    let drafts: any[] = [];
+    await step('onboarding', 'suggestions are drafted in the shop\'s voice; every reply is drafted for the shop to read; none is for a low-star review', async () => {
       const r = await call('audit/previews', 'POST', '/api/audit/previews', { cookie: A().cookie });
       need(r.status === 200, `previews gave ${r.status} ${r.text.slice(0, 120)}`);
       previews = r.data.previews;
       need(previews.firstPost?.endsWith('Dummy and the team'), 'the post preview did not use the sign-off');
-      need(previews.reviewPreview && previews.reviewPreview.rating >= 4, `reply sample was for a ${previews.reviewPreview?.rating}-star review`);
-      need(previews.reviewPreview.totalUnreplied === 2, `expected 2 reviews to reply to (the 4 and 5 star), got ${previews.reviewPreview.totalUnreplied}`);
-      return `reply sample: ${previews.reviewPreview.rating} stars; reviews it will reply to: ${previews.reviewPreview.totalUnreplied}`;
+      need(previews.description.length <= 750, `the description is ${previews.description.length} characters; Google allows 750`);
+      need(previews.reviewPreview?.totalUnreplied === 2 && previews.lowStarUnreplied === 2, `expected 2 good and 2 lower-rated reviews unanswered, got ${previews.reviewPreview?.totalUnreplied} and ${previews.lowStarUnreplied}`);
+      const d = await call('onboarding/reply-drafts', 'POST', '/api/onboarding/reply-drafts', { cookie: A().cookie, body: { have: [] } });
+      drafts = d.data.drafts;
+      need(d.status === 200 && drafts.length === 2 && d.data.remaining === 0, `reply drafts: ${drafts?.length}, remaining ${d.data?.remaining}`);
+      need(drafts.every((x: any) => x.rating >= 4 && x.text.endsWith('Dummy and the team')), 'a draft was for a low-star review, or did not use the sign-off');
+      need(listingOf('a').reviews.every((x) => x.reviewId === 'rev-answered' || !x.reviewReply), 'drafting a reply posted it');
+      return `2 reply drafts, both for 4 or 5 stars, nothing posted; description ${previews.description.length} characters`;
     });
-    await step('onboarding', 'mobile number and choices are saved; a bad number is refused', async () => {
+    await step('onboarding', 'choices are saved; a mobile number is optional, checked, and can be removed', async () => {
       const bad = await call('account/delete', 'PATCH', '/api/account/delete', { cookie: A().cookie, body: { phone_number: '12345' } });
       const ok = await call('account/delete', 'PATCH', '/api/account/delete', { cookie: A().cookie, body: { phone_number: PHONE, auto_post_enabled: true, auto_reply_enabled: true } });
       need(bad.status === 400 && ok.status === 200, `bad number ${bad.status}, good number ${ok.status}`);
-      return 'saved';
+      const gone = await call('account/delete', 'PATCH', '/api/account/delete', { cookie: A().cookie, body: { phone_number: '' } });
+      const { data: u } = await db.from('users').select('phone_number').eq('id', A().userId).single();
+      need(gone.status === 200 && u.phone_number === null, 'the mobile number could not be removed');
+      await call('account/delete', 'PATCH', '/api/account/delete', { cookie: A().cookie, body: { phone_number: PHONE } });
+      return 'saved; removed; saved again for the later checks';
     });
-    await step('onboarding', 'applying the fixes changes the listing, replies to 4 and 5 stars only, and queues a holding reply', async () => {
+    await step('hours', 'opening hours are never guessed: with nothing confirmed, nothing is written', async () => {
+      for (const bad of [undefined, [], week({})]) {
+        const r = await fix('a', { step: 'hours', hours: bad });
+        need(r.result.ok === false, 'an empty week was accepted');
+      }
+      need(!la().location.regularHours, 'HOURS WERE WRITTEN THAT THE SHOP NEVER CONFIRMED');
+      return 'empty and missing weeks refused; the listing still has no hours';
+    });
+    await step('onboarding', 'each change is applied on its own, checked on "Google", and only then reported as done', async () => {
       const smsBefore = world.sms.length, emailsBefore = world.emails.length;
-      const r = await call('profile-fix', 'POST', '/api/profile-fix', { cookie: A().cookie, body: {
-        description: previews.description, services: previews.services, categories: previews.categories, hours: auditA.defaultHours || undefined,
-        replyToReviews: true, firstPost: previews.firstPost, queueLowStar: true,
-      } });
-      need(r.status === 200, `profile-fix gave ${r.status} ${r.text.slice(0, 200)}`);
-      const failed = (r.data.results || []).filter((x: any) => !x.success);
-      need(failed.length === 0, `steps failed: ${JSON.stringify(failed).slice(0, 300)}`);
+      const hours = week({ MONDAY: ['09:00', '17:30'], TUESDAY: ['09:00', '17:30'], WEDNESDAY: ['09:00', '17:30'], THURSDAY: ['09:00', '17:30'], FRIDAY: ['09:00', '17:30'], SATURDAY: ['09:30', '16:00'] });
+      const done: string[] = [];
+      const one = async (body: any) => { const r = await fix('a', body); need(r.result.ok, `${body.step} was not done: ${r.result.message} ${r.result.detail || ''}`); done.push(body.step); return r.result; };
+      await one({ step: 'description', text: previews.description });
+      await one({ step: 'services', names: previews.services });
+      await one({ step: 'categories', names: previews.categories });
+      const h = await one({ step: 'hours', hours });
+      need(/Monday 9:00 to 17:30/.test(h.message), `the hours result did not say what was written: ${h.message}`);
+      // Replies go a few to a request, as the screen sends them; each has its own result.
+      const batch = await fix('a', { step: 'replies', replies: [...drafts.map((d: any) => ({ reviewId: d.reviewId, text: d.text })), { reviewId: 'rev-2star', text: drafts[0].text }] });
+      need(batch.results.length === 3 && batch.results.filter((x: any) => x.ok).length === 2 && batch.results[2].ok === false, `batched replies: ${JSON.stringify(batch.results.map((x: any) => [x.reviewId, x.ok]))}`);
+      done.push('reply', 'reply');
+      await one({ step: 'lowStar' });
+      await one({ step: 'firstPost', text: previews.firstPost });
+      // Sending a step twice must change nothing.
+      const twice = await fix('a', { step: 'reply', reviewId: drafts[0].reviewId, text: drafts[0].text });
+      need(twice.result.ok, 'repeating a reply step failed');
+
       need(la().location.profile?.description === previews.description, 'the description did not reach "Google"');
+      need(la().location.regularHours.periods.length === 6 && canon(la().location.regularHours.periods[0]) === canon({ openDay: 'MONDAY', openTime: { hours: 9 }, closeDay: 'MONDAY', closeTime: { hours: 17, minutes: 30 } }), 'the hours on "Google" are not the ones the shop confirmed');
+      need(la().location.categories.primaryCategory.name === 'categories/gcid:flooring_store' && la().location.categories.additionalCategories.every((c: any) => /^categories\/gcid:/.test(c.name)), 'categories were not sent by Google\'s own ids, or the main category changed');
+      need(la().location.serviceItems.every((x: any) => x.freeFormServiceItem.category === 'categories/gcid:flooring_store'), 'services were not attached to the listing\'s category by its id');
       const rev = (id: string) => la().reviews.find((x) => x.reviewId === id)!;
       need(rev('rev-5star').reviewReply && rev('rev-4star').reviewReply, 'a 4 or 5 star review did not get its reply');
       need(!rev('rev-2star').reviewReply && !rev('rev-old-1star').reviewReply, 'A LOW-STAR REVIEW GOT A REPLY WITHOUT APPROVAL');
       need(rev('rev-5star').reviewReply!.comment.endsWith('Dummy and the team'), 'the reply did not use the sign-off');
+      const low = await fix('a', { step: 'reply', reviewId: 'rev-2star', text: 'Thank you for your review, we are glad you were pleased with the job.' });
+      need(low.result.ok === false && !rev('rev-2star').reviewReply, 'A REPLY TO A LOW-STAR REVIEW WAS ACCEPTED');
       const { data: pending } = await db.from('review_replies').select('reply_content, status, reviews!inner(google_review_id, profile_id)').eq('reviews.profile_id', A().profileId).eq('status', 'pending');
       need(pending.length === 1 && pending[0].reviews.google_review_id === 'rev-2star', `expected one holding reply queued for the recent 2-star, found ${pending.length}`);
       need(/^Thank you for your feedback, Lena\./.test(pending[0].reply_content) && !/refund|fault|discount|compensat/i.test(pending[0].reply_content), 'the queued reply is not the fixed holding reply');
       const { data: old } = await db.from('reviews').select('id').eq('profile_id', A().profileId).eq('google_review_id', 'rev-old-1star');
       need(old.length === 0, 'the 60-day-old 1-star review was picked up (14-day rule)');
-      need(world.sms.length === smsBefore && world.emails.length === emailsBefore, 'onboarding sent a message');
+      need(world.sms.length === smsBefore && world.emails.length === emailsBefore, 'applying changes sent a message');
       const { data: recorded } = await db.from('reviews').select('google_review_id').eq('profile_id', A().profileId);
       const ids = (recorded || []).map((x: any) => x.google_review_id).sort();
-      need(ids.includes('rev-5star') && ids.includes('rev-4star'), `the reviews onboarding replied to were not recorded (recorded: ${ids.join(', ') || 'none'}), so the daily check will treat them as new`);
-      return `${r.data.successfulFixes} of ${r.data.totalFixes} steps; replies on the 4 and 5 star; 2-star: holding reply waiting; 60-day-old 1-star: left alone; 0 messages`;
+      need(ids.includes('rev-5star') && ids.includes('rev-4star'), `the reviews replied to were not recorded (recorded: ${ids.join(', ') || 'none'}), so the daily check will treat them as new`);
+
+      const fin = await fix('a', { step: 'finish' });
+      const { data: prof } = await db.from('profiles').select('audit_score, audit_score_after').eq('id', A().profileId).single();
+      need(fin.measured && fin.measured.score > auditA.audit.score, `the score after was ${fin.measured?.score}, before ${auditA.audit.score}`);
+      need(prof.audit_score === auditA.audit.score && prof.audit_score_after === fin.measured.score, `stored scores: at activation ${prof.audit_score} (should be ${auditA.audit.score}), latest ${prof.audit_score_after} (should be ${fin.measured.score})`);
+      return `${done.length} steps, each checked: ${Array.from(new Set(done)).join(', ')}; score ${auditA.audit.score} -> ${fin.measured.score}, measured from "Google"; replies on the 4 and 5 star only; 2-star: holding reply waiting; 60-day-old 1-star: left alone; 0 messages`;
+    });
+    await step('honesty', 'a change "Google" refuses is reported as not done, in plain words, and nothing claims otherwise', async () => {
+      // The unverified listing: make "Google" refuse to change it, as it would.
+      (listingOf('c') as any).refuseWrites = true;
+      const r = await fix('c', { step: 'description', text: previews.description });
+      (listingOf('c') as any).refuseWrites = false;
+      need(r.result.ok === false && /would not let us/.test(r.result.message) && r.result.nextStep, `a refused change was reported as: ${JSON.stringify(r.result).slice(0, 200)}`);
+      const { data: rows } = await db.from('change_log').select('status').eq('location_name', listingOf('c').loc);
+      need(rows.length === 1 && rows[0].status === 'failed', 'the refused change was not recorded as failed');
+      return `"${r.result.message}" ${r.result.nextStep.slice(0, 70)}…`;
     });
     await step('safety', 'no low-star review text was ever sent to the model', async () => {
       const leaked = world.modelCalls.filter((m) => /LOWSTAR-MARKER/.test(m.user + m.system));
@@ -398,52 +578,103 @@ describe('dummy run on staging', () => {
     });
 
     // ════════ 5. Posts and first-three approval ════════
-    await step('posts', 'post 1 (from onboarding) waits for approval and is not published until approved', async () => {
+    await step('posts', 'post 1 is the one the shop read and ticked: booked, published at its time, and cancellable until then', async () => {
       let posts = await postsOf('a');
-      need(posts.length === 1 && posts[0].status === 'awaiting_approval', `expected one post awaiting approval, got ${posts.map((p: any) => p.status)}`);
-      await makeDue(posts[0].id);
-      const early = await cron('post-publisher');
-      need(early.data.published === 0 && la().posts.length === 0, 'AN UNAPPROVED POST WAS PUBLISHED');
-      const previewsRun = await cron('post-previews');
-      need(world.emails.filter((e) => /approve|waiting/i.test(e.subject)).length === 0, 'the preview email was sent while switched off');
-      await approvePost(posts[0].id);
+      need(posts.length === 1 && posts[0].status === 'pending_approval' && posts[0].approved_at, `expected one booked post the shop approved by ticking it, got ${posts.map((p: any) => p.status)}`);
+      const dash = await call('dashboard', 'GET', '/api/dashboard', { cookie: A().cookie });
+      need(dash.data.postsToManage?.length === 1 && dash.data.postsToManage[0].waiting === false, 'the booked post is not on the dashboard with a way to stop it');
       await makeDue(posts[0].id);
       const pub = await cron('post-publisher');
       need(pub.data.published === 1 && la().posts.length === 1 && la().posts[0].summary === posts[0].content, `published ${pub.data.published}`);
-      return `not published while waiting; preview job: ${JSON.stringify(previewsRun.data).slice(0, 90)}; published after approval`;
+      return 'booked with the wording the shop saw; shown on the dashboard; published when due';
     });
-    await step('posts', 'posts 2 and 3 also wait; post 4 does not, and gets the usual preview', async () => {
+    await step('posts', 'posts 2 and 3 wait for the shop; they are approved from the dashboard (and by the old email link); nothing piles up', async () => {
+      const manage = (body: any, cookie = A().cookie) => call('posts/manage', 'POST', '/api/posts/manage', { cookie, body });
       const statuses: string[] = [];
-      for (const n of [2, 3]) {
-        await ageAllPosts('a');
-        const gen = await cron('post-generator');
-        need(gen.data.generated === 1, `post ${n}: generator made ${gen.data.generated}`);
-        const p = (await postsOf('a')).pop();
-        statuses.push(p.status);
-        need(p.status === 'awaiting_approval', `post ${n} was ${p.status}`);
-        await approvePost(p.id); await makeDue(p.id);
-        const pub = await cron('post-publisher');
-        need(pub.data.published === 1, `post ${n}: published ${pub.data.published}`);
-      }
+      // Post 2: approved from the dashboard, after changing its wording.
+      await ageAllPosts('a');
+      let gen = await cron('post-generator');
+      need(gen.data.generated === 1, `post 2: generator made ${gen.data.generated}`);
+      const p2 = (await postsOf('a')).pop();
+      statuses.push(p2.status);
+      need(p2.status === 'awaiting_approval', `post 2 was ${p2.status}`);
+      await makeDue(p2.id);
+      const early = await cron('post-publisher');
+      need(early.data.published === 0 && la().posts.length === 1, 'AN UNAPPROVED POST WAS PUBLISHED');
+      const previewsRun = await cron('post-previews');
+      need(world.emails.filter((e) => /approve|waiting/i.test(e.subject)).length === 0, 'the preview email was sent while switched off');
+      // While one is waiting, the weekly writer must not add another.
+      await ageAllPosts('a');
+      const pile = await cron('post-generator');
+      need(pile.data.generated === 0 && (await postsOf('a')).filter((x: any) => x.status === 'awaiting_approval').length === 1, `a second post was written while one was still waiting (generated ${pile.data.generated})`);
+      const dash = await call('dashboard', 'GET', '/api/dashboard', { cookie: A().cookie });
+      need(dash.data.postsToManage?.some((x: any) => x.id === p2.id && x.waiting), 'the waiting post is not on the dashboard');
+      const stranger = await manage({ id: p2.id, action: 'approve' }, shops.e.cookie);
+      need(stranger.status === 404, `another shop could act on this post (${stranger.status})`);
+      const badWords = await manage({ id: p2.id, action: 'approve', content: 'Carpets from £9 a metre this week only, pop in and see us in the showroom.' });
+      need(badWords.status === 400, `wording with a price in it was accepted (${badWords.status})`);
+      const newWords = 'New ranges are in the showroom this week. Pop in and have a look. Dummy and the team';
+      const ok = await manage({ id: p2.id, action: 'approve', content: newWords });
+      need(ok.status === 200 && ok.data.post.status === 'pending_approval' && ok.data.post.content === newWords, `dashboard approve gave ${ok.status} ${ok.text.slice(0, 120)}`);
+      const twice = await manage({ id: p2.id, action: 'approve' });
+      need(twice.status === 409, `approving twice gave ${twice.status}`);
+      await makeDue(p2.id);
+      let pub = await cron('post-publisher');
+      need(pub.data.published === 1 && la().posts[0].summary === newWords, `post 2: published ${pub.data.published}`);
+      // Post 3: skipped from the dashboard, then the next one approved by the email link, which still works.
+      await ageAllPosts('a');
+      gen = await cron('post-generator');
+      const p3 = (await postsOf('a')).pop();
+      need(gen.data.generated === 1 && p3.status === 'awaiting_approval', `post 3 was ${p3.status}`);
+      const skip = await manage({ id: p3.id, action: 'skip' });
+      need(skip.status === 200 && skip.data.post.status === 'cancelled', `skip gave ${skip.status}`);
+      await ageAllPosts('a');
+      gen = await cron('post-generator');
+      const p3b = (await postsOf('a')).pop();
+      statuses.push(p3b.status);
+      need(gen.data.generated === 1 && p3b.status === 'awaiting_approval', `the post after a skipped one was ${p3b.status}`);
+      await approvePost(p3b.id); await makeDue(p3b.id);
+      pub = await cron('post-publisher');
+      need(pub.data.published === 1, `post 3: published ${pub.data.published}`);
+      // Post 4: three have been published, so this one does not wait, and gets the usual preview.
       await ageAllPosts('a');
       const emailsBefore = world.emails.length;
-      const gen = await cron('post-generator');
+      gen = await cron('post-generator');
       const p4 = (await postsOf('a')).pop();
       statuses.push(p4.status);
       need(gen.data.generated === 1 && p4.status === 'pending_approval', `post 4 was ${p4.status}`);
       const preview = world.emails.slice(emailsBefore);
       need(preview.length === 1 && preview[0].to === EMAIL('a') && preview[0].html.includes('/api/posts/cancel'), `post 4 preview emails: ${preview.length}`);
       await makeDue(p4.id);
-      const pub = await cron('post-publisher');
+      pub = await cron('post-publisher');
       need(pub.data.published === 1 && la().posts.length === 4, `after post 4, "Google" has ${la().posts.length} posts`);
       const texts = new Set(la().posts.map((x) => x.summary));
       need(texts.size === 4, 'two posts had the same text');
-      return `statuses as written: awaiting, ${statuses.join(', ')}; 4 posts on "Google"; post 4's preview captured (not sent) to the test address`;
+      return `statuses as written: ${statuses.join(', ')}; unapproved post not published; no second post written while one waited; another shop refused; a price in edited wording refused; approve, edit and skip all from the dashboard; 4 posts on "Google"; preview job with the email off: ${JSON.stringify(previewsRun.data).slice(0, 60)}`;
     });
     await step('posts', 'the generator only writes for shops that asked for posts', async () => {
       const others = await db.from('scheduled_posts').select('id', { count: 'exact', head: true }).neq('profile_id', A().profileId);
       need((others.count || 0) === 0, `${others.count} posts were written for shops with posts switched off`);
       return 'B to E have posts off: 0 posts written for them';
+    });
+    await step('held', 'a shop on a listing nobody has confirmed is held: no post is written for it until a person says "this is right"', async () => {
+      // Shop A sits this one out, so the only post that could be written here is shop B's.
+      await call('account/delete', 'PATCH', '/api/account/delete', { cookie: shops.a.cookie, body: { auto_post_enabled: false } });
+      await call('account/delete', 'PATCH', '/api/account/delete', { cookie: shops.b.cookie, body: { auto_post_enabled: true } });
+      const before = await cron('post-generator');
+      need((await postsOf('b')).length === 0, `a post was written for a shop on an unconfirmed listing (generated ${before.data.generated})`);
+      const ok = await admin('admin/pilot', { action: 'confirm_listing', retailerId: shops.b.retailerId });
+      need(ok.status === 200, `confirm_listing gave ${ok.status}`);
+      const row = (await adminList()).find((x) => x.id === shops.b.retailerId);
+      need(row.state === 'live' && !row.help.needsHelp, `after "this is right", B is ${row.state}`);
+      const after = await cron('post-generator');
+      const posts = await postsOf('b');
+      need(after.data.generated === 1 && posts.length === 1 && posts[0].status === 'awaiting_approval', `after confirming, generator made ${after.data.generated}; B has ${posts.map((x: any) => x.status)}`);
+      // Tidy: B goes back to posts off, and its waiting post is skipped, so the later checks see what they expect.
+      await call('posts/manage', 'POST', '/api/posts/manage', { cookie: shops.b.cookie, body: { id: posts[0].id, action: 'skip' } });
+      await call('account/delete', 'PATCH', '/api/account/delete', { cookie: shops.b.cookie, body: { auto_post_enabled: false } });
+      await call('account/delete', 'PATCH', '/api/account/delete', { cookie: shops.a.cookie, body: { auto_post_enabled: true } });
+      return 'held while unconfirmed; live and written for once a person confirmed it; its first post waits for approval';
     });
 
     // ════════ 6. New reviews: 4 to 5 stars and 1 to 3 stars ════════
@@ -576,9 +807,25 @@ describe('dummy run on staging', () => {
       }
       // Pretend the last sync was two days ago, so the hourly job has something to do.
       await db.from('profiles').update({ metrics_synced_at: new Date(Date.now() - 2 * DAY).toISOString() }).in('id', ['a', 'b', 'c', 'd', 'e'].map((k) => shops[k].profileId).filter(Boolean));
+      // Google finishes verifying shop C's listing. Nobody tells us: the daily check has to notice.
+      listingOf('c').location.metadata.hasVoiceOfMerchant = true;
       const sync = await cron('metrics-sync');
       need(sync.status === 200 && sync.data.failed === 0 && sync.data.synced >= 1, `metrics-sync: ${JSON.stringify(sync.data)}`);
-      return `${got.join(', ')}; metrics-sync: ${JSON.stringify(sync.data).slice(0, 120)}`;
+      need(sync.data.rechecked >= 5, `the daily connection check looked at ${sync.data.rechecked} shops`);
+      const c = await retailerRow('c');
+      need(c.connection_status === 'connected', `after Google verified it, shop C is still ${c.connection_status}`);
+      const b = await retailerRow('b');
+      need(b.connection_status === 'check_listing' && b.listing_confirmed_at, 'the daily check wiped a person\'s "this is right"');
+      // The same run marks today's live shops for the monthly count; a second run the same day adds nothing.
+      need(sync.data.liveCount?.live >= 5 && sync.data.liveCount.marked >= 5, `live count: ${JSON.stringify(sync.data.liveCount)}`);
+      await db.from('profiles').update({ metrics_synced_at: new Date(Date.now() - 2 * DAY).toISOString() }).eq('id', shops.d.profileId);
+      // The count is taken at the start of a run, so the next run picks up shop C,
+      // which only became live during the first. After that, nobody is marked twice.
+      const again = await cron('metrics-sync');
+      need(again.data.liveCount?.marked === 1, `the next run should mark only shop C, newly live; it marked ${again.data.liveCount?.marked}`);
+      const third = await cron('metrics-sync');
+      need(third.data.liveCount?.marked === 0, `a further run the same day marked ${third.data.liveCount?.marked} again`);
+      return `${got.join(', ')}; metrics-sync: ${JSON.stringify(sync.data).slice(0, 160)}; C went from "waiting on Google" to connected by itself; B's confirmation kept; a second run marks nobody twice`;
     });
     await step('report', 'the monthly report\'s figures equal what "Google" reported, not four times it', async () => {
       const em0 = world.emails.length;
@@ -616,6 +863,38 @@ describe('dummy run on staging', () => {
       const bad = await db.from('profiles').update({ monthly_report_sent_for: 'October' }).eq('id', shops.b.profileId);
       need(bad.error, 'the database accepted a malformed month marker');
       return `all 5 marked ${months[0]}; second run: sent 0; a malformed marker is refused by the database`;
+    });
+
+    await step('statement', 'the month\'s live shops are listed by name, with the cap and credit worked out from settings, never from code', async () => {
+      const month = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/London', year: 'numeric', month: '2-digit' }).format(new Date());
+      const plain = await admin('admin/pilot', { action: 'statement', month });
+      need(plain.status === 200 && plain.data.statement.money === null, `with no price set the statement should show counts only: ${plain.text.slice(0, 160)}`);
+      const names: string[] = plain.data.statement.lines.map((l: any) => l.name);
+      need(names.includes(shops.a.name) && names.includes(shops.b.name) && names.includes(shops.c.name) && !names.includes(shops.g.name), `live shops listed: ${names.join(', ')}`);
+      process.env.BILLING_PRICE_PENCE_PER_SHOP = '1000'; process.env.BILLING_MONTHLY_CAP_SHOPS = '2';
+      try {
+        const r = await admin('admin/pilot', { action: 'statement', month });
+        const st = r.data.statement, n = st.liveShops;
+        need(st.shopsAboveCap === n - 2 && st.billableShops === 2, `cap of 2 with ${n} live: ${st.shopsAboveCap} above, ${st.billableShops} charged`);
+        need(st.money.grossPence === n * 1000 && st.money.creditPence === (n - 2) * 1000 && st.money.totalPence === 2000, `money: ${JSON.stringify(st.money)}`);
+        need(r.data.csv.includes(shops.a.name) && /Credit: \d+ shops above the cap,-\d+\.00/.test(r.data.csv) && r.data.csv.includes('Total,20.00'), 'the spreadsheet does not show the credit line and total');
+        // A test shop marked "not counted" is left out from then on.
+        const ex = await admin('admin/pilot', { action: 'set_excluded', retailerId: shops.e.retailerId, excluded: true });
+        need(ex.status === 200, `set_excluded gave ${ex.status}`);
+        await admin('admin/pilot', { action: 'set_excluded', retailerId: shops.e.retailerId, excluded: false });
+        return `${n} live shops by name; cap 2: ${st.shopsAboveCap} shown as a credit; total adds up; figures here are made-up test settings`;
+      } finally { delete process.env.BILLING_PRICE_PENCE_PER_SHOP; delete process.env.BILLING_MONTHLY_CAP_SHOPS; }
+    });
+
+    await step('ad spend', 'spend is entered by an admin, checked, and never appears in anything the shop sees', async () => {
+      const bad = await admin('admin/pilot', { action: 'set_ad_spend', retailerId: A().retailerId, spend: 'lots' });
+      const ok = await admin('admin/pilot', { action: 'set_ad_spend', retailerId: A().retailerId, spend: '250.50' });
+      const badEnd = await admin('admin/pilot', { action: 'set_ad_spend', retailerId: A().retailerId, spend: '250.50', endDate: '2020-01-01' });
+      need(bad.status === 400 && ok.status === 200 && ok.data.updated.adSpendPence === 25050 && badEnd.status === 400, `bad ${bad.status}, good ${ok.status}, end before start ${badEnd.status}`);
+      const dash = await call('dashboard', 'GET', '/api/dashboard', { cookie: A().cookie });
+      need(!/25050|250\.50|ad_spend|adSpend/.test(dash.text), 'the shop\'s dashboard response contains the spend');
+      need(world.emails.filter((e) => e.to === EMAIL('a')).every((e) => !/250\.50/.test(e.html)), 'an email to the shop contains the spend');
+      return 'saved as pence; nonsense and an end date before the start refused; not in the shop\'s dashboard or emails';
     });
 
     await step('before and after', 'the report shows "Change during your ads" against shops without ads', async () => {
@@ -659,9 +938,13 @@ describe('dummy run on staging', () => {
       const data = await call('console/data', 'GET', '/api/console/data', { cookie: `stellar_funder_session=${cookie}` });
       need(data.status === 200 && data.data.shops?.length === 7, `console data gave ${data.status} with ${data.data?.shops?.length} shops`);
       const by = (k: string) => data.data.shops.find((s: any) => s.retailerId === shops[k].retailerId);
+      need(by('a').adSpend === '£250.50' && by('a').adChange?.label === 'Clear rise' && by('a').adChange.flag === false && !/\d/.test(by('a').adChange.detail.replace(/[+-]?\d+%/g, '')), `shop A ad columns: ${JSON.stringify({ s: by('a').adSpend, c: by('a').adChange })}`);
+      need(by('d').adSpend === null && by('d').adChange === null, 'a shop with no ads has ad columns filled in');
+      need(by('g').statusNote?.label === 'Box not ticked' && by('a').statusNote === null, `status notes: G ${JSON.stringify(by('g').statusNote)?.slice(0, 80)}, A ${by('a').statusNote}`);
+      need(by('a').pilotState === 'live' && by('b').pilotState === 'live' && by('c').pilotState === 'live', `console states: A ${by('a').pilotState}, B ${by('b').pilotState}, C ${by('c').pilotState}`);
       need(by('a').participating && by('a').postsLast30 >= 6, `shop A: participating ${by('a').participating}, posts ${by('a').postsLast30}`);
       need(by('g').participating === false && by('g').scoreAtActivation === null && by('g').actionsChange === null, 'a shop that has not joined has figures showing');
-      need(!/@|07700|rev-|LOWSTAR|refresh/.test(data.text.replace(/"viewer":"[^"]*"/, '')), 'the console response contains contact details, review text or a credential');
+      need(!/@|07700|rev-|LOWSTAR|refresh/.test(data.text.replace(/"viewer":"[^"]*"/, '').replace(/hello@stellarlocal\.co\.uk/g, '')), 'the console response contains contact details, review text or a credential');
       need(Array.isArray(data.data.league?.ranked) && Array.isArray(data.data.league?.excluded), 'no league in the response');
       need(data.data.league.ranked.length + data.data.league.excluded.length >= 5, 'the league does not account for every joined shop');
       need(data.data.league.ranked.length >= 4, `only ${data.data.league.ranked.length} shops were ranked; left out: ${JSON.stringify(data.data.league.excluded).slice(0, 300)}`);
@@ -678,10 +961,72 @@ describe('dummy run on staging', () => {
       return '404';
     });
 
+    // ════════ 9b. Google access lost; hours, holiday hours and website from Settings; undo ════════
+    await step('lost access', 'when Google withdraws our permission, the daily check notices, the shop is told, and support sees it', async () => {
+      world.personas.e.tokenRevoked = true;
+      await db.from('profiles').update({ metrics_synced_at: new Date(Date.now() - 2 * DAY).toISOString() }).eq('id', shops.e.profileId);
+      const sync = await cron('metrics-sync');
+      need(sync.data.lostAccess === 1, `the daily check reported ${sync.data.lostAccess} lost connections`);
+      const { data: u } = await db.from('users').select('token_status, token_invalid_at').eq('id', shops.e.userId).single();
+      need(u.token_status === 'invalid' && u.token_invalid_at, `shop E's access is recorded as ${u.token_status}`);
+      const dash = await call('dashboard', 'GET', '/api/dashboard', { cookie: shops.e.cookie });
+      need(dash.data.lostAccess?.title && /Reconnect/.test(dash.data.lostAccess.nextStep), 'the shop\'s dashboard does not say the connection is lost');
+      const row = (await adminList()).find((x) => x.id === shops.e.retailerId);
+      need(row.state === 'connected_not_live' && row.help.label === 'Connection lost' && !/token|credential/i.test(`${row.help.why} ${row.help.action}`), `support sees: ${JSON.stringify(row.help).slice(0, 200)}`);
+      // A busy Google must NOT be mistaken for this.
+      const { GoogleAuthError, isDeadGrant } = await mod('lib/google.ts');
+      need(isDeadGrant(new GoogleAuthError('Token refresh failed: busy', 429, false)) === false, 'a busy Google would be treated as a lost connection');
+      return 'noticed by the daily check; shop told on its dashboard with a Reconnect button; support sees "Connection lost" in plain words; shop no longer counted as live';
+    });
+    let websiteChangeId = '';
+    await step('settings', 'the shop sets holiday hours and its website from Settings; each is checked on "Google" and logged', async () => {
+      const listing = await call('listing', 'GET', '/api/listing', { cookie: A().cookie });
+      need(listing.status === 200 && listing.data.available && listing.data.hours.daysSet === 6 && listing.data.website === 'https://shop.invalid', `listing read gave ${listing.text.slice(0, 160)}`);
+      const day = iso(new Date(Date.now() + 20 * DAY));
+      const hol = await fix('a', { step: 'holidayHours', days: [{ date: day, open: false }] });
+      need(hol.result.ok && la().location.specialHours.specialHourPeriods.length === 1 && la().location.specialHours.specialHourPeriods[0].closed === true, `holiday hours: ${hol.result.message}`);
+      const past = await fix('a', { step: 'holidayHours', days: [{ date: '2020-01-01', open: false }] });
+      need(past.result.ok === false, 'a date in the past was accepted');
+      const site = await fix('a', { step: 'website', url: 'www.zz-test-floors.invalid' });
+      need(site.result.ok && la().location.websiteUri === 'https://www.zz-test-floors.invalid', `website: ${site.result.message}`);
+      const junk = await fix('a', { step: 'website', url: 'not a website' });
+      need(junk.result.ok === false && la().location.websiteUri === 'https://www.zz-test-floors.invalid', 'nonsense was accepted as a website');
+      const { data: rows } = await db.from('change_log').select('id, target, before_value').eq('location_name', la().loc).in('target', ['websiteUri', 'specialHours']).eq('status', 'applied');
+      need(rows.length === 2 && rows.find((x: any) => x.target === 'websiteUri').before_value.websiteUri === 'https://shop.invalid', 'the two changes were not logged with what they replaced');
+      websiteChangeId = rows.find((x: any) => x.target === 'websiteUri').id;
+      return 'holiday hours and website written, read back and logged; a past date and a nonsense address refused';
+    });
+    await step('undo', 'the shop undoes one of its own changes itself; another shop cannot; support undoes one from the admin page', async () => {
+      const mine = await call('changes', 'GET', '/api/changes', { cookie: A().cookie });
+      need(mine.status === 200 && mine.data.changes.length >= 6 && mine.data.changes.some((c: any) => c.what === 'Opening hours' && /Monday 9:00 to 17:30/.test(c.after) && c.before === 'nothing'), `the shop's list of changes: ${mine.text.slice(0, 200)}`);
+      const notMine = await call('changes', 'POST', '/api/changes', { cookie: shops.d.cookie, body: { changeId: websiteChangeId } });
+      need(notMine.status === 404 && la().location.websiteUri === 'https://www.zz-test-floors.invalid', `another shop could undo this (${notMine.status})`);
+      const undone = await call('changes', 'POST', '/api/changes', { cookie: A().cookie, body: { changeId: websiteChangeId } });
+      need(undone.data.undo?.ok && la().location.websiteUri === 'https://shop.invalid', `the shop's own undo: ${undone.text.slice(0, 160)}`);
+      const twice = await call('changes', 'POST', '/api/changes', { cookie: A().cookie, body: { changeId: websiteChangeId } });
+      need(twice.data.undo?.ok === false && /Already undone/.test(twice.data.undo.message), 'the same change could be undone twice');
+      // Support, from the admin page: the holiday hours.
+      const list = await admin('admin/pilot', { action: 'changes', retailerId: A().retailerId });
+      const hol = list.data.changes.find((c: any) => c.what === 'Holiday hours' && c.canUndo);
+      need(hol, 'support cannot see the holiday-hours change');
+      const wrongShop = await admin('admin/pilot', { action: 'undo_change', retailerId: shops.d.retailerId, changeId: hol.id });
+      need(wrongShop.status === 404, `support could undo a change through the wrong shop (${wrongShop.status})`);
+      const byAdmin = await admin('admin/pilot', { action: 'undo_change', retailerId: A().retailerId, changeId: hol.id });
+      need(byAdmin.data.undo.ok && !la().location.specialHours, `support's undo: ${byAdmin.text.slice(0, 160)}`);
+      // A field changed again since is not put back blindly.
+      const before = la().location.profile.description;
+      la().location.profile.description = 'The shop rewrote this itself, in Google.';
+      const desc = list.data.changes.find((c: any) => c.what === 'Description');
+      const refused = await admin('admin/pilot', { action: 'undo_change', retailerId: A().retailerId, changeId: desc.id });
+      need(refused.data.undo.ok === false && /changed again since/.test(refused.data.undo.message) && la().location.profile.description === 'The shop rewrote this itself, in Google.', 'an undo overwrote a later change without being told to');
+      la().location.profile.description = before;
+      return 'the shop sees its changes in plain words and undoes one itself, checked on "Google"; not twice; not another shop\'s; support undoes one from the admin page; an undo that would lose a later change is refused';
+    });
+
     // ════════ 10. Undo ════════
     await step('revert', 'the revert script puts the listing back from the change log', async () => {
       const original = JSON.parse(la().original);
-      need(la().posts.length === 7 && la().location.profile.description !== '', 'nothing to revert');
+      need(la().posts.length === 7 && la().location.profile.description !== '', `nothing to revert: ${la().posts.length} posts on "Google", description ${la().location.profile.description ? 'set' : 'empty'}`);
       const argv = process.argv, exit = process.exit;
       const lines: string[] = [];
       const log = console.log;
@@ -705,7 +1050,7 @@ describe('dummy run on staging', () => {
       const failedLines = lines.filter((l) => l.includes('✗'));
       need(failedLines.length === 0, `revert failures: ${failedLines.slice(0, 3).join(' | ')}`);
       need(la().posts.length === 0, `${la().posts.length} of our posts are still on "Google"`);
-      for (const f of ['profile', 'serviceItems', 'categories', 'regularHours']) {
+      for (const f of ['profile', 'serviceItems', 'categories', 'regularHours', 'websiteUri', 'specialHours']) {
         need(canon(la().location[f]) === canon(original[f]), `"${f}" was not restored: now ${canon(la().location[f])?.slice(0, 160)}, was ${canon(original[f])?.slice(0, 160)}`);
       }
       const rev = (id: string) => la().reviews.find((x) => x.reviewId === id)!;
@@ -715,7 +1060,7 @@ describe('dummy run on staging', () => {
       need(la().reviews.length === 8, 'a review itself was touched');
       const skipped = lines.filter((l) => /SKIP/.test(l));
       const stillThere = rev('rev-2star').reviewReply ? 'the holding reply the shop approved by hand is left in place and reported for a manual check' : 'the hand-approved holding reply was removed too';
-      return `7 posts deleted; description, services, categories and hours back to what they were; our automatic replies removed; the shop's own replies and all 8 reviews untouched; ${skipped.length} skipped (${stillThere})`;
+      return `7 posts deleted; description, services, categories, hours, website and holiday hours back to what they were; our automatic replies removed; the shop's own replies and all 8 reviews untouched; ${skipped.length} skipped (${stillThere})`;
     });
 
     // ════════ 11. Leaving: account deletion, photo files, retention ════════

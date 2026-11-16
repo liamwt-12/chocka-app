@@ -172,10 +172,12 @@ export async function refreshAccessToken(refreshToken: string): Promise<string> 
 //                           the first attempt may have landed.
 // Every other 4xx is a decision Google will make again identically.
 //
-// COST: at most about 3.5 seconds of waiting, and only on the failure path.
-// Google's Retry-After is honoured, capped, so one request cannot sit for long.
+// COST: at most about 3.5 seconds of waiting by default, and only on the
+// failure path. Google's Retry-After is honoured but capped at 2 seconds a
+// time, so one request waits 6 seconds at the very most and a job with a time
+// budget cannot be held past it by a run of refusals.
 let RETRY_DELAYS_MS = [300, 900, 2200];
-const RETRY_AFTER_CAP_MS = 4000;
+const RETRY_AFTER_CAP_MS = 2000;
 
 /** Tests only: shorten or remove the waits. Returns the previous value. */
 export function setGoogleRetryDelaysForTests(delays: number[]): number[] {

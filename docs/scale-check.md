@@ -227,3 +227,58 @@ The "change during your ads" comparison now reads the other shops' figures ten a
 ### Google quota
 
 Unchanged per shop (seven requests), but now spread out: about 84 requests per five-minute run, far below the 300-a-minute limit. The earlier worry, 1,260 requests in a few minutes at 180 shops, no longer applies.
+
+
+## 92 shops in one week (17 November 2026)
+
+A second simulation, for the question "can every shop Tarkett has start in the same week?". Same harness, same assumed timings as above, with shops joining as well as jobs running.
+
+To run it: `npx vitest run --config scripts/scale-check/day-one.vitest.config.ts`
+
+### What it found before the fixes
+
+Run against the code as it stood on 16 November, the simulation found four things that would break and several that would back up:
+
+| What | Before |
+|---|---|
+| Applying changes for a shop with 20 unanswered reviews | One request of about 76 seconds against a 60-second limit. Cut off part-way; the screen said "Sorted" anyway |
+| A "too many requests" answer from Google | Not retried while scoring or applying. On the sign-in refresh it marked the shop as disconnected |
+| First posts | Nobody could approve one. 276 waiting after two Fridays, none published |
+| A history pull that keeps failing | Went first every hour for ever. With 30 failing listings, the other 62 got no figures in 24 runs |
+
+### After
+
+| What | Now |
+|---|---|
+| Longest single request while a shop sets up | **3.9 seconds** (5.7 if the model takes 5 seconds, not 3). Changes are applied one small request at a time, each checked |
+| A shop with 20 unanswered reviews | 11 requests, 27 changes, about 25 seconds in all. Every change done and checked |
+| "Too many requests" on the sign-in refresh, or on the first read | The shop is told Google is busy and offered a retry. It is **not** marked disconnected |
+| "Too many requests" on every edit, or every reply | Retried with back-off. What still fails is listed as **not done**, with a "Try again". Nothing is reported as done that was not |
+| The model refusing every call | The screen says suggestions could not be written, with a "Try again". It no longer says the listing needs nothing |
+| First posts after two Fridays, nobody approving | **92 waiting, one per shop** (was 276). Approved from the dashboard |
+| 30 listings whose history pull always fails | The other **62 of 62** get their figures |
+
+### Arrivals
+
+| Pattern | Shops | Busiest minute: requests to Google | Model calls in the busiest minute | Every change done |
+|---|---|---|---|---|
+| Spread over a working day (a fifth of 92) | 19 | 62 | 24 | 19 of 19 |
+| 60 shops within two hours of the email landing, mixed listings | 60 | 267 | 54 | 60 of 60 |
+| The same, but every listing empty with 20 unanswered reviews | 60 | 371 | 96 | 60 of 60 |
+| Ten shops pressing the button in the same second | 10 | 369 | 123 (28 at once) | 10 of 10 |
+
+The assumed limit is 300 requests a minute. The figures above include sign-in refreshes, which go to a different Google service and are not thought to count against that limit, so the true numbers are lower. The two rows above 300 are the deliberately extreme ones. If the limit is hit, requests are retried with a growing wait, and anything that still fails is shown to the shop as not done with a retry. **Nothing is lost and nothing is misreported**; the cost is a slower screen.
+
+A shop uses about 24 requests to Google to connect and be scored, and between 57 and 91 if it then applies every suggestion.
+
+### Scheduled jobs at 92
+
+Unchanged from the table at the top of this document: every job finishes inside its window with nobody sent anything twice. Longest single run 22 seconds.
+
+### Still true, and worth knowing
+
+- **Old reviews beyond the cap are never answered.** At most 20 are offered when a shop looks at its suggestions, newest first, and the daily check leaves anything older than 14 days alone. The screen now tells the shop how many it is not showing.
+- **The Monday text shows a false rise for a shop's first four weeks.** No mobile number is asked for any more, so a new shop gets no text unless it adds one.
+- **The old day-by-day welcome sequence still sends nothing.** It is replaced by one welcome email at connection, off unless switched on.
+- **The model's own rate limit is not known.** A busy answer is now retried twice.
+- **What the simulation cannot show:** calls made side by side do not slow each other; the timings are assumed; Google's real limits have not been observed.

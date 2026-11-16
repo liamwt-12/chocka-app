@@ -31,7 +31,7 @@ import * as google from './google';
 import { loggedUpdateLocation, loggedReplyToReview, type WriteContext } from './change-log';
 import { validateContent } from './ai';
 import { containsPhoneNumber, replyBreaksRules, aiReplyAllowed, PUBLISHABLE } from './safe-automation';
-import { validateHoursDraft, toGooglePeriods, samePeriods, describeHours, validateSpecialDays, toGoogleSpecialPeriods, fromGoogleSpecialPeriods } from './opening-hours';
+import { validateHoursDraft, toGooglePeriods, samePeriods, describeHours, validateSpecialDays, toGoogleSpecialPeriods, fromGoogleSpecialPeriods, unshowableSpecialPeriod } from './opening-hours';
 import { ONBOARDING_REPLY_CAP, REVIEWS_CONFLICT_TARGET } from './review-intake';
 import { queueOnboardingHoldingReplies } from './onboarding-reviews';
 import { ukTomorrowAt } from './post-schedule';
@@ -190,7 +190,7 @@ export async function applyCategories(c: FixContext, names: unknown): Promise<St
     const got = new Set(((after?.categories?.additionalCategories || []) as any[]).map((x) => x.name));
     const notShown = resolved.filter((r) => !got.has(r.name)).map((r) => r.displayName);
     const left = [...unknown, ...notShown];
-    const added = wanted.length - left.length;
+    const added = resolved.length - notShown.length;
     if (left.length) return { step: 'categories', ok: false, message: `${added ? `${added} added. ` : ''}Google does not have, or did not take: ${left.join(', ')}.`, nextStep: 'Nothing else was changed. You can pick a different category yourself in Google.', retryable: notShown.length > 0 };
     return { step: 'categories', ok: true, message: `${wanted.length} extra categor${wanted.length === 1 ? 'y is' : 'ies are'} on your listing.` };
   } catch (e) { return failed('categories', e); }
@@ -228,9 +228,11 @@ export async function applySpecialHours(c: FixContext, days: unknown, today: str
   try {
     const now = await g.getLocationFields(c.accessToken, c.profile.google_location_name, ['specialHours']);
     const existing: any[] = Array.isArray(now?.specialHours?.specialHourPeriods) ? now.specialHours.specialHourPeriods : [];
-    const iso = (d: any) => (d?.year ? `${d.year}-${String(d.month).padStart(2, '0')}-${String(d.day).padStart(2, '0')}` : '');
-    // Kept untouched: anything spanning several days that has not finished.
-    const keep = existing.filter((p) => iso(p?.startDate) !== iso(p?.endDate ?? p?.startDate) && iso(p?.endDate ?? p?.startDate) >= today);
+    // Kept untouched: every entry the editor could not show the shop (a range of
+    // days, an all-day opening, anything in a shape we do not understand) that
+    // has not already passed. Only entries the shop could SEE in the editor are
+    // replaced by its list.
+    const keep = existing.filter((p) => unshowableSpecialPeriod(p, today));
     const specialHourPeriods = [...keep, ...toGoogleSpecialPeriods(v.value)];
     await loggedUpdateLocation(logCtx(c), c.accessToken, c.profile.google_location_name, 'specialHours', specialHourPeriods.length ? { specialHours: { specialHourPeriods } } : {});
     const after = await g.getLocationFields(c.accessToken, c.profile.google_location_name, ['specialHours']);
@@ -247,11 +249,13 @@ export async function applySpecialHours(c: FixContext, days: unknown, today: str
 export function cleanWebsite(input: unknown): string | null {
   let t = typeof input === 'string' ? input.trim() : '';
   if (!t || /\s/.test(t) || t.length > 200) return null;
+  const typedPath = /^(?:https?:\/\/)?[^/]+\/./i.test(t);
   if (!/^https?:\/\//i.test(t)) t = `https://${t}`;
   try {
     const u = new URL(t);
     if (!/^https?:$/.test(u.protocol) || !/^[a-z0-9-]+(\.[a-z0-9-]+)+$/i.test(u.hostname)) return null;
-    return u.toString().replace(/\/$/, '');
+    // A bare address loses the slash the browser adds; a path the shop typed is kept exactly.
+    return typedPath ? u.toString() : u.toString().replace(/\/$/, '');
   } catch { return null; }
 }
 
@@ -263,7 +267,7 @@ export async function applyWebsite(c: FixContext, url: unknown): Promise<StepRes
   try {
     await loggedUpdateLocation(logCtx(c), c.accessToken, c.profile.google_location_name, 'websiteUri', { websiteUri: clean });
     const after = await g.getLocationFields(c.accessToken, c.profile.google_location_name, ['websiteUri']);
-    if (String(after?.websiteUri || '').replace(/\/$/, '') !== clean) return { step: 'website', ok: false, message: 'We sent your website address, but Google is not showing it yet.', nextStep: 'Google sometimes holds a change for review. Check your listing in a day or so.', retryable: true };
+    if (String(after?.websiteUri || '').replace(/\/$/, '') !== clean.replace(/\/$/, '')) return { step: 'website', ok: false, message: 'We sent your website address, but Google is not showing it yet.', nextStep: 'Google sometimes holds a change for review. Check your listing in a day or so.', retryable: true };
     return { step: 'website', ok: true, message: `Your website (${clean.replace(/^https?:\/\//, '')}) is on your listing.` };
   } catch (e) { return failed('website', e); }
 }
@@ -280,7 +284,7 @@ export function replyProblem(text: string): string | null {
  * Post one reply the shop has seen, to one review. Safe to repeat: a review
  * that already has a reply is left exactly as it is.
  */
-export async function applyReply(c: FixContext, reviewId: unknown, text: unknown): Promise<StepResult> {
+export async function applyReply(c: FixContext, reviewId: unknown, text: unknown, alreadyRead?: any[]): Promise<StepResult> {
   const g = c.g ?? google;
   const id = typeof reviewId === 'string' ? reviewId : '';
   const t = typeof text === 'string' ? text.trim() : '';
@@ -288,8 +292,8 @@ export async function applyReply(c: FixContext, reviewId: unknown, text: unknown
   const problem = replyProblem(t);
   if (problem) return refused('reply', problem, 'Change the wording, or leave this one for now.');
   try {
-    const data = await g.getReviews(c.accessToken, c.profile.google_location_name, c.profile.google_account_id || undefined);
-    const rev = (data.reviews || []).find((r: any) => (r.reviewId || r.name) === id);
+    const reviews = alreadyRead ?? (await g.getReviews(c.accessToken, c.profile.google_location_name, c.profile.google_account_id || undefined)).reviews ?? [];
+    const rev = reviews.find((r: any) => (r.reviewId || r.name) === id);
     if (!rev) return refused('reply', 'That review is no longer on your listing.', 'Nothing was posted.');
     const rating = g.parseStarRating(rev.starRating);
     // Never an unattended reply to a 1 to 3 star review, whatever was sent here.
@@ -309,8 +313,54 @@ export async function applyReply(c: FixContext, reviewId: unknown, text: unknown
       { onConflict: REVIEWS_CONFLICT_TARGET },
     );
     if (error) console.error(`[listing-fixes] replied to review ${id} but could not record it: ${error.message}`);
+    // Read it back, unless the caller is posting several and will read them all back at once.
+    if (!alreadyRead) {
+      const check = (await g.getReviews(c.accessToken, c.profile.google_location_name, c.profile.google_account_id || undefined)).reviews ?? [];
+      if (String(check.find((r: any) => (r.reviewId || r.name) === id)?.reviewReply?.comment ?? '').trim() !== t) return { step: 'reply', ok: false, message: `We sent your reply to ${name}, but the review is not showing it yet.`, nextStep: 'Check the review in Google in a few minutes. If the reply is not there, try again.', retryable: true };
+    }
     return { step: 'reply', ok: true, message: `Your reply to ${name} is on your listing.` };
   } catch (e) { return failed('reply', e); }
+}
+
+/** How many replies one request may post. Small, so no request runs long. */
+export const REPLIES_PER_REQUEST = 5;
+
+/**
+ * Post a few replies in one request: the reviews are read from Google once and
+ * each reply is then posted and reported on its own. This is what the screen
+ * uses; it makes far fewer requests to Google than one reply per request, which
+ * matters when many shops join at once. Each reply still succeeds or fails by
+ * itself, and the whole thing is safe to send twice.
+ */
+export async function applyReplies(c: FixContext, items: unknown): Promise<Array<StepResult & { reviewId: string }>> {
+  const g = c.g ?? google;
+  const list = (Array.isArray(items) ? items : []).slice(0, REPLIES_PER_REQUEST).map((x: any) => ({ reviewId: typeof x?.reviewId === 'string' ? x.reviewId : '', text: x?.text }));
+  if (!list.length) return [];
+  let reviews: any[];
+  try { reviews = (await g.getReviews(c.accessToken, c.profile.google_location_name, c.profile.google_account_id || undefined)).reviews || []; }
+  catch (e) { return list.map((x) => ({ ...failed('reply', e), reviewId: x.reviewId })); }
+  const out: Array<StepResult & { reviewId: string }> = [];
+  for (const x of list) {
+    const r = await applyReply(c, x.reviewId, x.text, reviews);
+    // Keep the copy in hand in step with what was just posted, so a repeat within the batch is seen as done.
+    if (r.ok) { const rev = reviews.find((y: any) => (y.reviewId || y.name) === x.reviewId); if (rev && !rev.reviewReply) rev.reviewReply = { comment: String(x.text).trim() }; }
+    out.push({ ...r, reviewId: x.reviewId });
+  }
+  // One read-back for the whole batch: a reply is only "done" if the review now shows it.
+  if (out.some((r) => r.ok)) {
+    try {
+      const after = (await g.getReviews(c.accessToken, c.profile.google_location_name, c.profile.google_account_id || undefined)).reviews || [];
+      for (let i = 0; i < out.length; i++) {
+        if (!out[i].ok) continue;
+        const shown = String(after.find((y: any) => (y.reviewId || y.name) === out[i].reviewId)?.reviewReply?.comment ?? '').trim();
+        if (shown !== String(list[i].text ?? '').trim()) out[i] = { ...out[i], ok: false, message: 'We sent this reply, but the review is not showing it yet.', nextStep: 'Check the review in Google in a few minutes. If the reply is not there, try again.', retryable: true };
+      }
+    } catch (e) {
+      const p = plainProblem(e);
+      for (let i = 0; i < out.length; i++) if (out[i].ok) out[i] = { ...out[i], ok: false, message: 'We sent this reply but could not check that Google has it.', nextStep: p.nextStep, retryable: true };
+    }
+  }
+  return out;
 }
 
 /** The good reviews with no reply yet, newest first, up to the cap. What the shop is shown drafts for. Pure. */
@@ -343,9 +393,11 @@ export async function scheduleFirstPost(c: FixContext, text: unknown, now: Date 
   const check = validateContent(t, 'post');
   if (!check.valid) return refused('firstPost', check.reason === 'length out of range' ? 'The post is too short or too long.' : `The post cannot go up as written (${check.reason}).`, 'Change the wording and try again.');
   try {
-    const { data: same } = await c.db.from('scheduled_posts').select('id, status').eq('profile_id', c.profile.id).eq('content', t).limit(1);
+    // "Already booked" means a post with these words that is still going to go
+    // up, or has. One that was skipped or cancelled does not count.
+    const { data: same } = await c.db.from('scheduled_posts').select('id, status').eq('profile_id', c.profile.id).eq('content', t).limit(5);
     const when = ukTomorrowAt(10, now);
-    if (!same?.length) {
+    if (!(same || []).some((p: any) => p.status !== 'cancelled')) {
       const { error } = await c.db.from('scheduled_posts').insert({ profile_id: c.profile.id, content: t, scheduled_for: when.toISOString(), status: PUBLISHABLE, approved_at: now.toISOString() });
       if (error) throw new Error(error.message);
     }

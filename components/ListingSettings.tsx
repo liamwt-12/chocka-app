@@ -79,7 +79,7 @@ export default function ListingSettings({ cardStyle, labelStyle }: { cardStyle: 
           <div id="holiday" style={{ borderTop: `1px solid ${C.border}`, margin: '20px 0 0', paddingTop: 18 }}>
             <h3 style={h3}>Holiday hours</h3>
             <p style={hint}>Days you are closed, or open different hours: bank holidays, Christmas, a week away. Without these, Google shows your normal hours on those days.</p>
-            {d.holidays.complex && <p style={{ ...hint, color: C.soft }}>Your listing also has some holiday hours covering several days in a row. We leave those exactly as they are.</p>}
+            {d.holidays.complex && <p style={{ ...hint, color: C.soft }}>Your listing also has some holiday hours we cannot show here (several days in a row, or open all day). We leave those exactly as they are.</p>}
             {days.length === 0 && <p style={{ ...hint, color: C.soft, marginBottom: 8 }}>None set.</p>}
             {days.map((x, i) => (
               <div key={x.date} style={{ background: C.card2, borderRadius: 10, padding: 10, marginBottom: 8 }}>

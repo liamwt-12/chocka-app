@@ -20,7 +20,8 @@ describe('decideRecheck', () => {
   });
   it('nothing to compare against is not a mismatch', () => {
     expect(decideRecheck([L()], 'locations/1', null).status).toBe('connected');
-    expect(decideRecheck([L({ placeId: undefined })], 'locations/1', 'PID-B').status).toBe('connected');
+    // Google giving nothing to compare with is NOT a match: the hold stays until a person looks.
+    expect(decideRecheck([L({ placeId: undefined })], 'locations/1', 'PID-B').status).toBe('check_listing');
   });
 });
 

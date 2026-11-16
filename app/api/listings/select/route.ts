@@ -116,7 +116,7 @@ export async function POST(request: NextRequest) {
       const result = statusForChosenListing(chosen, retailer.place_id ?? null);
       const { error: statusError } = await supabaseAdmin
         .from('retailers')
-        .update({ connection_status: result.status, connection_detail: result.detail, connection_checked_at: new Date().toISOString() })
+        .update({ connection_status: result.status, connection_detail: result.detail, connection_checked_at: new Date().toISOString(), listing_confirmed_at: null })
         .eq('id', retailer.id);
       if (statusError) console.error('[listings/select] could not record connection status:', statusError.message);
       connection = { status: result.status, ...SHOP_MESSAGES[result.status] };

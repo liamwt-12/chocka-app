@@ -62,6 +62,12 @@ export async function GET(request: NextRequest) {
     // path is shared by all current users; the invite flow must add a field, not
     // change the shape.
     const inviteRef = searchParams.get('invite');
+    // The help page's "Try again" comes straight here, without passing the
+    // invite page that checks the link is still good. So check it here: a link
+    // that has expired or been withdrawn does not get another go.
+    if (inviteRef && !(await inviteStillUsable(inviteRef))) {
+      return NextResponse.redirect(new URL('/login?error=invite_required', baseUrl));
+    }
     const state = JSON.stringify({ action, plan, ...(inviteRef ? { invite: inviteRef } : {}) });
     return NextResponse.redirect(getGoogleAuthUrl(state, redirectUri));
   }
@@ -92,7 +98,11 @@ export async function GET(request: NextRequest) {
       );
       const invite = inviteFromState(searchParams.get('state'));
       await noteConnectIssue(invite, 'unticked', 'signed in, but left the Business Profile box unticked on Google\'s screen');
-      await revokeQuietly(tokens.refresh_token || tokens.access_token);
+      // NOTHING IS REVOKED HERE. Handing this permission back would cancel the
+      // whole grant for this person, including a working one they gave earlier
+      // (a connected shop reconnecting, or the operator account), and with it
+      // every stored sign-in that depends on it. A grant without the business
+      // scope lets us do nothing, so it is simply left.
       // An invited shop goes to the help page, which explains the box and sends
       // it back through its own invite. Anyone else gets the sign-in page as before.
       return NextResponse.redirect(new URL(invite ? helpPath('unticked', invite) : '/login?error=scope_missing', baseUrl));
@@ -185,7 +195,7 @@ export async function GET(request: NextRequest) {
       // A free brand has no setup to finish: connecting is the whole of it, so
       // a shop that has connected goes to its dashboard, or to the "you're
       // connected" page the first time. A paid brand still has its setup steps.
-      const free = tenant.priceMonthlyGbp === 0;
+      const free = tenant.priceMonthlyGbp === 0 && (await userBelongsToTenant(existingUser.tenant_id, tenant.slug));
       if (existingProfile) {
         dest = existingUser.onboarding_step === 'complete' ? '/dashboard' : free ? '/connected' : '/onboarding';
       } else {
@@ -218,12 +228,54 @@ export async function GET(request: NextRequest) {
       // A returning retailer can still be arriving from an invite — they may have
       // signed up previously, or accepted, abandoned, and come back later. Runs
       // after everything above has succeeded, so it cannot affect the sign-in.
-      await linkInviteToUser(parsedState.invite, existingUser.id, tenant.slug);
+      // Not when the account turned out to manage no listing: the shop was told
+      // nothing has been connected, so nothing is, and its link stays good.
+      if (!dest.startsWith('/connect-help')) await linkInviteToUser(parsedState.invite, existingUser.id, tenant.slug);
       if (dest === '/connected') await afterConnected(existingUser, tenant);
 
       const response = NextResponse.redirect(new URL(dest, baseUrl));
       setSessionCookie(response, existingUser.id);
       return response;
+    }
+
+    // LOOK FOR THE LISTING BEFORE CREATING ANYTHING (invited shops).
+    //
+    // The account used to be created first. So a shop that signed in with a
+    // Google account managing no listing, or on a moment when Google would not
+    // answer, was left holding a half-made account that had used up its invite.
+    // Now an invited shop only gets an account once a listing has been found.
+    // Until then nothing is stored, the permission is handed back, and the
+    // shop's link still works with a different Google account.
+    let found: { listings: Listing[]; expected: ExpectedShop | null; outcome: OwnershipResult } | null = null;
+    if (parsedState.invite) {
+      const expected = await expectedShopForInvite(parsedState.invite);
+      let listings: Listing[];
+      try {
+        listings = await getManageableListings(tokens.access_token);
+      } catch (err) {
+        console.error('[auth] enumeration threw for an invited shop before any account was created; sending to help:', err);
+        await noteConnectIssue(parsedState.invite, 'google_error', 'Google did not answer when we looked for the listing');
+        await revokeQuietly(tokens.refresh_token);
+        return NextResponse.redirect(new URL(helpPath('google_error', parsedState.invite), baseUrl));
+      }
+      const outcome = detectOwnership(listings, expected?.placeId ?? null);
+      console.log(`[auth] ownership: ${outcome.status}: ${outcome.detail}`);
+      if (outcome.status === 'no_access') {
+        if (expected) { await recordConnectionStatus(expected.retailerId, 'no_access', outcome.detail); await recordConnectIssue(expected.retailerId, 'no_listing'); }
+        await revokeQuietly(tokens.refresh_token);
+        return NextResponse.redirect(new URL(helpPath('no_listing', parsedState.invite), baseUrl));
+      }
+      // Clear a half-made account from an earlier attempt, so this one is not
+      // turned away as "already claimed" (lib/connection-reset.ts). Only now,
+      // when we know this person really does manage a listing: someone holding
+      // the link but no listing can no longer disturb anyone. And only when the
+      // listing is the very one we expected, or the earlier attempt has been
+      // left for a while: a shop in the middle of choosing is not interrupted.
+      if (expected) {
+        try { await releaseStaleClaim(supabaseAdmin, expected.retailerId, { evenIfRecent: outcome.status === 'connected' }); }
+        catch (err) { console.error('[auth] could not check for a stale claim:', err); }
+      }
+      found = { listings, expected, outcome };
     }
 
     // Step 3b: On the Stellar host, refuse to CREATE an account without a usable
@@ -244,15 +296,6 @@ export async function GET(request: NextRequest) {
     // Chocka is untouched: the condition is tenant-scoped, and Chocka has no
     // invite concept at all.
     if (tenant.slug === 'stellar') {
-      // If this shop is held by an earlier sign-in that never reached a listing
-      // (the wrong Google account), clear that first, so the right account is
-      // not turned away as "already claimed". Only ever removes an account with
-      // no listing bound: lib/connection-reset.ts.
-      const expectedForRelease = await expectedShopForInvite(parsedState.invite);
-      if (expectedForRelease) {
-        try { await releaseStaleClaim(supabaseAdmin, expectedForRelease.retailerId); }
-        catch (err) { console.error('[auth] could not check for a stale claim:', err); }
-      }
       const admitted = await inviteAdmitsSignup(parsedState.invite);
       if (!admitted.ok) {
         console.error(
@@ -322,36 +365,6 @@ export async function GET(request: NextRequest) {
       throw new Error(
         `No tenants row for slug "${tenant.slug}" — refusing to create an account that would be silently mis-branded`,
       );
-    }
-
-    // LOOK FOR THE LISTING BEFORE CREATING ANYTHING (invited shops).
-    //
-    // The account used to be created first. So a shop that signed in with a
-    // Google account managing no listing, or on a moment when Google would not
-    // answer, was left holding a half-made account that had used up its invite.
-    // Now an invited shop only gets an account once a listing has been found.
-    // Until then nothing is stored, the permission is handed back, and the
-    // shop's link still works with a different Google account.
-    let found: { listings: Listing[]; expected: ExpectedShop | null; outcome: OwnershipResult } | null = null;
-    if (parsedState.invite) {
-      const expected = await expectedShopForInvite(parsedState.invite);
-      let listings: Listing[];
-      try {
-        listings = await getManageableListings(tokens.access_token);
-      } catch (err) {
-        console.error('[auth] enumeration threw for an invited shop before any account was created; sending to help:', err);
-        await noteConnectIssue(parsedState.invite, 'google_error', 'Google did not answer when we looked for the listing');
-        await revokeQuietly(tokens.refresh_token);
-        return NextResponse.redirect(new URL(helpPath('google_error', parsedState.invite), baseUrl));
-      }
-      const outcome = detectOwnership(listings, expected?.placeId ?? null);
-      console.log(`[auth] ownership: ${outcome.status}: ${outcome.detail}`);
-      if (outcome.status === 'no_access') {
-        if (expected) { await recordConnectionStatus(expected.retailerId, 'no_access', outcome.detail); await recordConnectIssue(expected.retailerId, 'no_listing'); }
-        await revokeQuietly(tokens.refresh_token);
-        return NextResponse.redirect(new URL(helpPath('no_listing', parsedState.invite), baseUrl));
-      }
-      found = { listings, expected, outcome };
     }
 
     const { data: newUser, error: insertError } = await supabaseAdmin
@@ -816,7 +829,7 @@ async function expectedShopForInvite(inviteRef: unknown): Promise<ExpectedShop |
 async function recordConnectionStatus(retailerId: string, status: ConnectionStatus, detail: string): Promise<void> {
   const { error } = await supabaseAdmin
     .from('retailers')
-    .update({ connection_status: status, connection_detail: detail.slice(0, 500), connection_checked_at: new Date().toISOString() })
+    .update({ connection_status: status, connection_detail: detail.slice(0, 500), connection_checked_at: new Date().toISOString(), listing_confirmed_at: null })
     .eq('id', retailerId);
   if (error) console.error(`[auth] could not record connection status for retailer ${retailerId}: ${error.message}`);
 }
@@ -890,4 +903,25 @@ async function afterConnected(user: { id: string; email?: string | null }, tenan
   } catch (err) {
     console.error('[auth] afterConnected failed, sign-in unaffected:', err);
   }
+}
+
+/** Is this signed invite reference still for a link that can be used (not expired, not withdrawn, not used up)? */
+async function inviteStillUsable(inviteRef: string): Promise<boolean> {
+  try {
+    const id = parseInviteRef(inviteRef);
+    if (!id) return false;
+    const { data } = await supabaseAdmin.from('retailer_invites').select('status, expires_at').eq('id', id).maybeSingle();
+    if (!data) return false;
+    return data.status === 'pending' && Date.parse(data.expires_at) > Date.now();
+  } catch (err) {
+    console.error('[auth] could not check the invite before sign-in:', err);
+    return false;
+  }
+}
+
+/** Does this account belong to the brand whose address it was opened on? */
+async function userBelongsToTenant(tenantId: string | null | undefined, slug: string): Promise<boolean> {
+  if (!tenantId) return slug === PRIMARY_TENANT_SLUG;
+  const { data } = await supabaseAdmin.from('tenants').select('id').eq('slug', slug).maybeSingle();
+  return data?.id === tenantId;
 }
