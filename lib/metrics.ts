@@ -186,29 +186,45 @@ export async function syncDailyMetrics(
 
 /** Skip a listing synced more recently than this. */
 export const RESYNC_AFTER_HOURS = 20;
+/**
+ * How long to leave a listing alone after a history pull FAILED. Until this
+ * existed, a listing whose pull kept failing was put first in every hourly run
+ * for ever, ahead of everyone else: with thirty such listings nobody else's
+ * figures were fetched at all.
+ */
+export const RETRY_FAILED_AFTER_HOURS = 6;
 
 /**
- * Which listings the hourly job should sync, in order: never backfilled first,
- * then longest since last sync. Pure, so the ordering is tested.
+ * Which profiles to sync this run, in order.
+ *
+ * `metrics_synced_at` is the time of the last ATTEMPT, successful or not
+ * (markSyncAttemptFailed stamps it on failure). So:
+ *   - never tried at all: first, a new shop gets its history promptly
+ *   - tried and failed: again after RETRY_FAILED_AFTER_HOURS, in its turn
+ *   - synced: again after RESYNC_AFTER_HOURS
+ * and within that, longest-waiting first, so one stuck listing cannot starve
+ * the rest.
  */
 export function pickProfilesToSync<U extends { profiles?: any[] | null }>(
   users: U[],
   now: Date,
 ): Array<{ user: U; profile: any }> {
-  const cutoff = now.getTime() - RESYNC_AFTER_HOURS * 3_600_000;
+  const resyncCutoff = now.getTime() - RESYNC_AFTER_HOURS * 3_600_000;
+  const retryCutoff = now.getTime() - RETRY_FAILED_AFTER_HOURS * 3_600_000;
   const out: Array<{ user: U; profile: any }> = [];
   for (const user of users) {
     const profile = user.profiles?.[0];
     if (!profile?.google_location_name) continue;
-    const synced = profile.metrics_synced_at ? Date.parse(profile.metrics_synced_at) : 0;
-    if (profile.metrics_backfilled_at && synced > cutoff) continue;
+    const tried = profile.metrics_synced_at ? Date.parse(profile.metrics_synced_at) : 0;
+    if (profile.metrics_backfilled_at ? tried > resyncCutoff : tried > retryCutoff) continue;
     out.push({ user, profile });
   }
-  out.sort((a, b) => {
-    const aNew = a.profile.metrics_backfilled_at ? 1 : 0;
-    const bNew = b.profile.metrics_backfilled_at ? 1 : 0;
-    if (aNew !== bNew) return aNew - bNew;
-    return (a.profile.metrics_synced_at || '').localeCompare(b.profile.metrics_synced_at || '');
-  });
+  out.sort((a, b) => (a.profile.metrics_synced_at || '').localeCompare(b.profile.metrics_synced_at || ''));
   return out;
+}
+
+/** Record that a sync was tried and failed, so the listing takes its turn instead of jumping the queue. */
+export async function markSyncAttemptFailed(db: MetricsDb, profileId: string, now: Date = new Date()): Promise<void> {
+  const { error } = await db.from('profiles').update({ metrics_synced_at: now.toISOString() }).eq('id', profileId);
+  if (error) console.error(`[metrics] could not record a failed sync attempt for profile ${profileId}: ${error.message}`);
 }

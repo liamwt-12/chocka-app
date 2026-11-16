@@ -252,7 +252,7 @@ describe('getManageableListings transient retry', () => {
 
     expect(err).toBeInstanceOf(GbpError);
     expect(err.status).toBe(503);
-    expect(calls).toBe(3); // initial + 2 retries
+    expect(calls).toBe(4); // initial + 3 retries
   });
 
   it('does NOT retry a 403 — Google will give the same answer again', async () => {
@@ -427,5 +427,61 @@ describe('getReviews pagination', () => {
       ? new Response(JSON.stringify({ reviews: revs(50), nextPageToken: 'p1' }), { status: 200 })
       : new Response('quota', { status: 429 }))) as any;
     await expect(getReviews('t', 'locations/1')).rejects.toThrow(/Failed to get reviews/);
+  });
+});
+
+
+describe('one door for every Google request', () => {
+  it('a "too many requests" answer on a read is retried, then succeeds', async () => {
+    const { getAttributes, setGoogleRetryDelaysForTests } = await import('./google');
+    const before = setGoogleRetryDelaysForTests([0, 0, 0]);
+    let calls = 0;
+    global.fetch = vi.fn(async () => (++calls < 3 ? resp(false, 429, {}, '{"error":{"status":"RESOURCE_EXHAUSTED"}}') : resp(true, 200, { attributes: [] }))) as any;
+    try { expect(await getAttributes('t', 'locations/1')).toEqual({ attributes: [] }); } finally { setGoogleRetryDelaysForTests(before); }
+    expect(calls).toBe(3);
+  });
+
+  it('creating a post is retried on 429 but NOT on a 5xx, which may have landed', async () => {
+    const { createLocalPost, setGoogleRetryDelaysForTests } = await import('./google');
+    const before = setGoogleRetryDelaysForTests([0, 0, 0]);
+    try {
+      let calls = 0;
+      global.fetch = vi.fn(async () => { calls++; return resp(false, 503, {}, 'bad moment'); }) as any;
+      await expect(createLocalPost('t', 'locations/1', 'hello')).rejects.toThrow(/503/);
+      expect(calls).toBe(1);
+      calls = 0;
+      global.fetch = vi.fn(async () => (++calls < 2 ? resp(false, 429, {}, 'slow down') : resp(true, 200, { name: 'p' }))) as any;
+      expect(await createLocalPost('t', 'locations/1', 'hello')).toEqual({ name: 'p' });
+      expect(calls).toBe(2);
+    } finally { setGoogleRetryDelaysForTests(before); }
+  });
+
+  it('a busy Google on the sign-in refresh is NOT a dead connection; invalid_grant is', async () => {
+    const { refreshAccessToken, isDeadGrant, GoogleAuthError, setGoogleRetryDelaysForTests } = await import('./google');
+    const before = setGoogleRetryDelaysForTests([0, 0, 0]);
+    try {
+      global.fetch = vi.fn(async () => resp(false, 429, {}, '{"error":"rate_limited"}')) as any;
+      const busy = await refreshAccessToken('rt').catch((e) => e);
+      expect(busy).toBeInstanceOf(GoogleAuthError);
+      expect(isDeadGrant(busy)).toBe(false);
+      global.fetch = vi.fn(async () => resp(false, 400, {}, '{"error":"invalid_grant"}')) as any;
+      const dead = await refreshAccessToken('rt').catch((e) => e);
+      expect(isDeadGrant(dead)).toBe(true);
+      expect((global.fetch as any).mock.calls).toHaveLength(1); // a refusal is not retried
+    } finally { setGoogleRetryDelaysForTests(before); }
+  });
+
+  it('nothing marks a shop disconnected without asking isDeadGrant', async () => {
+    const { readFileSync } = await import('node:fs');
+    for (const f of ['../app/api/audit/route.ts', '../app/api/cron/post-publisher/route.ts', '../app/api/reviews/auto-reply/route.ts', '../app/api/profile-fix/route.ts']) {
+      const src = readFileSync(new URL(f, import.meta.url), 'utf8');
+      if (/token_status: 'invalid'/.test(src)) expect(src).toMatch(/isDeadGrant/);
+    }
+  });
+
+  it('every call in the file goes through the retrying door', async () => {
+    const { readFileSync } = await import('node:fs');
+    const src = readFileSync(new URL('./google.ts', import.meta.url), 'utf8');
+    expect(src.match(/await fetch\(/g)).toHaveLength(1); // the one inside googleFetch
   });
 });

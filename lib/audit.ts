@@ -38,7 +38,8 @@ export function scoreProfile(data: { location: any; attributes: any; media: any;
   if (daySet.size >= 5) { hs = 12; hd = `${daySet.size} days set`; }
   else if (daySet.size > 0) { hs = 6; hd = `Only ${daySet.size} days`; }
   items.push(mk('hours', 'Opening hours', hs, 12, hd));
-  if (hs < 12) fixes.push({ key: 'hours', label: 'Set your opening hours', description: 'Default trade hours, adjustable', pointsGain: 12 - hs });
+  // Hours are only ever the shop's own: it types them in and confirms them (lib/opening-hours.ts).
+  if (hs < 12) fixes.push({ key: 'hours', label: 'Add your opening hours', description: 'You tell us the times, we put them on Google', pointsGain: 12 - hs });
 
   // 3 Services 12
   const svcs = loc.serviceItems || [];
@@ -79,8 +80,12 @@ export function scoreProfile(data: { location: any; attributes: any; media: any;
   else if (replied > 0) { rs = 4; rd = `${replied}/${revs.length} replied`; }
   else { rd = `${revs.length} reviews, none replied`; }
   items.push(mk('reviews', 'Reviews replied to', rs, 8, rd));
+  // Only 4 and 5 star reviews are offered a drafted reply. Lower ones never get
+  // one posted from here, so they are not counted as something we will fix, and
+  // the points are only promised when replying would answer every review.
+  const unrepGood = revs.filter((r: any) => !r.reviewReply && (r.starRating === 'FOUR' || r.starRating === 'FIVE')).length;
   const unrep = revs.length - replied;
-  if (unrep > 0) fixes.push({ key: 'reviews', label: `Reply to ${unrep} unanswered review${unrep === 1 ? '' : 's'}`, description: 'AI replies in your voice', pointsGain: rs < 8 ? 8 - rs : 0 });
+  if (unrepGood > 0) fixes.push({ key: 'reviews', label: `Reply to ${unrepGood} unanswered review${unrepGood === 1 ? '' : 's'}`, description: 'You read each reply before it is posted', pointsGain: unrepGood === unrep ? 8 - rs : replied === 0 ? 4 : 0 });
 
   // 8-9 Phone Website
   items.push(mk('phone', 'Phone number', loc.phoneNumbers?.primaryPhone ? 5 : 0, 5, loc.phoneNumbers?.primaryPhone ? 'Set' : 'Missing'));
@@ -90,7 +95,6 @@ export function scoreProfile(data: { location: any; attributes: any; media: any;
   const attrs = data.attributes?.attributes || [];
   const atS = attrs.length >= 4 ? 5 : attrs.length > 0 ? 3 : 0;
   items.push(mk('attributes', 'Profile attributes', atS, 5, attrs.length ? `${attrs.length} set` : 'None'));
-  if (atS < 5) fixes.push({ key: 'attributes', label: 'Set profile attributes', description: 'Payment methods, accessibility', pointsGain: 5 - atS });
 
   // 11 Service area 5
   items.push(mk('serviceArea', 'Service area', loc.serviceArea ? 5 : 0, 5, loc.serviceArea ? 'Set' : 'Not defined'));
@@ -100,7 +104,8 @@ export function scoreProfile(data: { location: any; attributes: any; media: any;
   const thirty = 30 * 86400000;
   const recentPo = postList.filter((p: any) => p.createTime && (now - new Date(p.createTime).getTime()) < thirty);
   items.push(mk('posts', 'Recent Google posts', recentPo.length > 0 ? 5 : 0, 5, recentPo.length ? `${recentPo.length} in last 30 days` : 'None'));
-  if (!recentPo.length) fixes.push({ key: 'firstPost', label: 'Schedule your first post', description: 'Goes live tomorrow morning', pointsGain: 5 });
+  // The points arrive when the post is actually published, not when it is booked.
+  if (!recentPo.length) fixes.push({ key: 'firstPost', label: 'Book your first post', description: 'Goes up tomorrow morning, once you have read it', pointsGain: 0 });
 
   // 13 Special hours 3
   items.push(mk('specialHours', 'Holiday hours', loc.specialHours?.specialHourPeriods ? 3 : 0, 3, loc.specialHours?.specialHourPeriods ? 'Set' : 'Not set'));
@@ -120,4 +125,28 @@ export function scoreProfile(data: { location: any; attributes: any; media: any;
 
 export function predictedScore(audit: AuditResult): number {
   return Math.min(audit.score + audit.fixes.reduce((s, f) => s + f.pointsGain, 0), audit.maxScore);
+}
+
+/**
+ * The gaps the score counts that this app does NOT fill, with how the shop can
+ * do each one itself. Said plainly on screen, so the score never implies we
+ * will fix something we will not. Pure.
+ */
+export interface ManualGap { key: string; label: string; why: string; how: string }
+
+const MANUAL: Record<string, Omit<ManualGap, 'key'>> = {
+  photos: { label: 'Photos', why: 'We do not add photos for you.', how: 'In Google, open your Business Profile and choose "Add photo". Six or more photos of your showroom and finished jobs is a good start.' },
+  recentPhotos: { label: 'A recent photo', why: 'We do not add photos for you.', how: 'Add one new photo every month or two. A phone photo of a finished job is ideal.' },
+  website: { label: 'Website', why: 'We do not set a website for you, because we cannot know the right address.', how: 'In Google, open "Edit profile", then "Contact", and add your website. If you have none, leave it.' },
+  attributes: { label: 'Extra details (payment, access)', why: 'We do not set these, because only you know them.', how: 'In Google, open "Edit profile", then "More", and tick what applies: card payments, wheelchair access, appointments.' },
+  serviceArea: { label: 'Area you cover', why: 'We do not set this for you.', how: 'In Google, open "Edit profile", then "Location", and add the towns you fit in.' },
+  specialHours: { label: 'Holiday hours', why: 'These are your decision, so we only set them when you tell us.', how: 'Add your bank holiday and Christmas hours in Settings here, or in Google under "Hours".' },
+  googleUpdates: { label: 'Changes Google is suggesting', why: 'Google wants you to accept or reject its own suggested edits.', how: 'Open your Business Profile in Google and look for a notice about suggested changes.' },
+  phone: { label: 'Phone number', why: 'We do not set a phone number for you.', how: 'In Google, open "Edit profile", then "Contact", and add the number customers should ring.' },
+};
+
+export function manualGaps(audit: AuditResult): ManualGap[] {
+  return audit.items
+    .filter((i) => i.score < i.maxScore && MANUAL[i.key])
+    .map((i) => ({ key: i.key, ...MANUAL[i.key] }));
 }

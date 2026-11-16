@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
-import { refreshAccessToken } from '@/lib/google';
+import { refreshAccessToken, isDeadGrant } from '@/lib/google';
 import { loggedReplyToReview } from '@/lib/change-log';
 import { generateReviewHash, linkHashMatches } from '@/lib/cron';
 import { getTenantBySlug } from '@/lib/tenant';
@@ -147,11 +147,21 @@ export async function POST(request: NextRequest) {
       `[auto-reply] token refresh failed for user ${user.id}, reply ${pendingReply.id}:`,
       String(err?.message).slice(0, 200),
     );
-    const { error: tokErr } = await supabaseAdmin
-      .from('users')
-      .update({ token_status: 'invalid', token_invalid_at: new Date().toISOString() })
-      .eq('id', access.aadUserId);
-    if (tokErr) console.error('[auto-reply] failed to record token_status=invalid:', tokErr);
+    // Only a dead grant marks the connection as lost (lib/google.ts isDeadGrant).
+    if (isDeadGrant(err)) {
+      const { error: tokErr } = await supabaseAdmin
+        .from('users')
+        .update({ token_status: 'invalid', token_invalid_at: new Date().toISOString() })
+        .eq('id', access.aadUserId);
+      if (tokErr) console.error('[auto-reply] failed to record token_status=invalid:', tokErr);
+    }
+
+    if (!isDeadGrant(err)) {
+      return new NextResponse(
+        resultPage(tenant, 'Google is busy', 'Google did not answer just now, so the reply has not been posted. Nothing is wrong with your account. Please try again in a few minutes. Your reply is saved.'),
+        { headers: { 'Content-Type': 'text/html' } },
+      );
+    }
 
     return new NextResponse(
       resultPage(
