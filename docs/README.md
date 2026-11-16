@@ -1,6 +1,6 @@
 # Documents: what each one is and where it lives
 
-Written 16 November 2026. This repository is **public**, so some documents are deliberately kept out of it.
+Written 16 November 2026, refreshed 18 November 2026. This repository is **public**, so some documents are deliberately kept out of it.
 
 "Where" tells you how to read a document today:
 
@@ -12,11 +12,13 @@ Written 16 November 2026. This repository is **public**, so some documents are d
 
 | If you want to… | Read |
 |---|---|
-| Merge the open pull requests | `docs/merge-runbook.md` (PR #41) |
+| Merge the open pull requests | `docs/merge-runbook.md` (PR #41, and in the release PR #63). It describes two ways: one merge, or twelve stages |
 | Test the whole product on your own Google listing | `docs/test-listing-runbook.md` (PR #45) |
 | Brief the solicitor | `docs/legal-drafts/solicitor-briefing.md` (PR #44) |
 | Know what was done overnight and what is waiting on you | `docs/overnight-report.md` (not committed) |
-| Show a Tarkett rep how to onboard a shop | `docs/rep-guide.md` (PR #31) |
+| Show a Tarkett rep how to onboard a shop | `docs/rep-guide.md` (PR #31, updated in #56 and #61) |
+| Give Tarkett the words to invite a shop | `docs/invite-wording.md` (PR #56). On the solicitor's list |
+| Write the monthly update to Tarkett | `docs/templates/new-this-month.md` (PR #62). A template; nothing sends it |
 
 ## Running and releasing
 
@@ -32,8 +34,8 @@ Written 16 November 2026. This repository is **public**, so some documents are d
 
 | Document | What it is | Where |
 |---|---|---|
-| `docs/dummy-run-report.md` | The dummy run on staging: every flow driven through the real code with Google and the model faked. What passed, the two bugs it found, and how to run it again | PR #48 (`test-staging-dummy-run`) |
-| `docs/scale-check.md` | How long each scheduled job takes at 10, 180 and 500 shops against Netlify's limits, what was fixed, and what still needs fixing | PR #49 (`perf-cron-time-budgets`) |
+| `docs/dummy-run-report.md` | The dummy run on staging: every flow driven through the real code with Google and the model faked. What passed, the bugs it found, and how to run it again. 54 checks as of #62 | PR #48, updated in #60 and #62 |
+| `docs/scale-check.md` | How long each scheduled job takes at 10, 180 and 500 shops against Netlify's limits, and the simulation of 92 shops starting in one week | PR #49, updated in #60 |
 | `docs/consistency-checks.md` | Model ids, settings against the runbooks, which routes check what, what gets logged, and test stability | PR #50 (`chore-consistency-fixes`) |
 | `docs/secrets-scan.md` | A scan of the working tree and history for keys, passwords and committed personal data | **Not committed.** Its findings are for Liam first |
 | `FOLLOWUPS.md` | Deferred work, with the reasoning for each item. Used in place of TODO comments | On main |
@@ -56,6 +58,8 @@ Written 16 November 2026. This repository is **public**, so some documents are d
 | Document | What it is | Where |
 |---|---|---|
 | `docs/rep-guide.md` | A plain guide for a Tarkett rep: adding a shop, generating its link, what each status means | PR #31 (`feat-pilot-admin-tools`) |
+| `docs/invite-wording.md` | Draft words for Tarkett to send a shop with its link. We never send it | PR #56 |
+| `docs/templates/new-this-month.md` | A fill-in template for a monthly update to Tarkett, with rules for whoever fills it in | PR #62 |
 | `docs/offboarding-email.md` | Draft email to the old Chocka test accounts | On main |
 
 ## Background and history
@@ -79,6 +83,9 @@ These stay on Liam's machine. They contain prices, names or commercial terms, or
 | `docs/build-plan-2026-11.md` | The build plan that the November pull requests follow |
 | `docs/monday-brief.md`, `docs/monday-plan.md` | Notes for the meeting with Tarkett |
 | `docs/localo-audit.md` | Notes on a competing product |
+| `docs/flow-visual/` | A page of before-and-after screenshots of the onboarding flow, and the notes on load behind it |
+| `docs/expansion-readiness.md` | A sized list of what would have to change to serve another country or kind of customer. Nothing in it is built |
+| `docs/PRIVATE-CONTEXT.md` | Background notes for whoever is working on the code. Also listed in `.git/info/exclude`, so it cannot be added by accident |
 
 If one of these is ever needed in the repository, make the repository private first, or take the commercial detail out.
 
