@@ -711,7 +711,7 @@ To take them one at a time instead, merge `origin/retention/1-hands-off`, then `
 2. The shop table has a **How we work** column. Every connected shop reads "Ask me first (not chosen yet)" with what it has switched on.
 3. **Needs help**: any live shop with nothing on is listed as **Nothing switched on**. It is still **Live** in the shop table and still on the statement.
 4. **Live shops in a month**: before the term dates are set, a message that no statement can be produced until they are. Once set, the statement, and with a cap, "The cap applies for the term ...".
-5. **Review cards for the counter → Download all cards (PDF)**: a file with one A6 page per connected shop. Scan one with a phone.
+5. **Review cards for the counter → Download all cards (PDF)**: a file with one A6 page per connected shop, set in Lato, which is embedded in the file (open source; the licence is in `lib/fonts/`). Colours are RGB. Scan one with a phone, and send one to the printer before a batch.
 6. **Read the emails that are switched off**: each of the five opens with made-up content.
 7. Sign in as a shop: Settings looks as it did (the "How we work" card only appears with `HANDS_OFF_MODE=on`).
 8. The day after: `/console/summary` (if the console is on) shows "Reviews, across the network" once three live shops have reviews.

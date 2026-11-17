@@ -3,7 +3,10 @@ import { inflateSync } from 'zlib';
 import { readFileSync } from 'node:fs';
 import QRCode from 'qrcode';
 import { NextRequest } from 'next/server';
-import { reviewCardsPdf, cardContent, qrRuns, toWinAnsi, textWidth, wrap, fit, cardFileName, TRIM, BLEED_MM } from './review-card-pdf';
+import { createHash } from 'node:crypto';
+import { reviewCardsPdf, cardContent, cardFonts, qrRuns, toWinAnsi, textWidth, wrap, fit, cardFileName, TRIM, BLEED_MM } from './review-card-pdf';
+import { LATO_REGULAR, LATO_BOLD } from './fonts/lato-data';
+import { readTrueType } from './fonts/truetype';
 import { loadBulkCards, loadShopCard, cardStyle, cardsPdfFor } from './review-card-data';
 import { reviewCardSignature } from './review-link';
 import { getTenantBySlug } from './tenant';
@@ -37,7 +40,7 @@ describe('the file is a well-formed PDF', () => {
   it('starts and ends as a PDF, and every object is where the index says it is', () => {
     expect(doc.text.startsWith('%PDF-1.4\n')).toBe(true);
     expect(doc.text.endsWith('%%EOF\n')).toBe(true);
-    expect(doc.objects).toBe(5 + 2 * 2);
+    expect(doc.objects).toBe(9 + 2 * 2);
   });
   it('has one page per card', () => {
     expect(doc.pages).toHaveLength(2);
@@ -79,10 +82,35 @@ describe('print-ready: A6 with bleed', () => {
     expect(rects[1][0]).toBe(0); expect(rects[1][2]).toBe(w);     // band, full width
     expect(rects[1][1] + rects[1][3]).toBeCloseTo(h, 1);          // and up to the top edge
   });
-  it('uses only the two built-in typefaces and contains no picture', () => {
-    expect(doc.text).toMatch(/\/BaseFont \/Helvetica \/Encoding \/WinAnsiEncoding/);
-    expect(doc.text).toMatch(/\/BaseFont \/Helvetica-Bold \/Encoding \/WinAnsiEncoding/);
-    expect(doc.text).not.toMatch(/\/Subtype \/Image|\/XObject|\/FontFile/);
+  it('embeds Lato Regular and Bold in full, so a printer needs nothing installed; and contains no picture', () => {
+    expect(doc.text).toMatch(/\/Subtype \/TrueType \/BaseFont \/Lato-Regular \/FirstChar 32 \/LastChar 255 \/Widths \[[\d ]+\] \/FontDescriptor 6 0 R \/Encoding \/WinAnsiEncoding/);
+    expect(doc.text).toMatch(/\/Subtype \/TrueType \/BaseFont \/Lato-Bold /);
+    expect(doc.text).toMatch(/\/FontName \/Lato-Regular \/Flags 32 [^>]*\/FontFile2 7 0 R/);
+    expect(doc.text).toMatch(/\/FontName \/Lato-Bold \/Flags 32 [^>]*\/FontFile2 9 0 R/);
+    expect(doc.text).not.toMatch(/Helvetica|\/Subtype \/Type1|\/Subtype \/Image|\/XObject/);
+    // The font in the file is the published one, byte for byte: it unpacks to the recorded length and checksum.
+    for (const [packed, name] of [[LATO_REGULAR, 'Lato-Regular'], [LATO_BOLD, 'Lato-Bold']] as const) {
+      const raw = inflateSync(Buffer.from(packed.deflatedBase64.join(''), 'base64'));
+      expect(raw.length).toBe(packed.length);
+      expect(createHash('sha256').update(raw).digest('hex')).toBe(packed.sha256);
+      expect(doc.text).toContain(`/Length1 ${packed.length} /Filter /FlateDecode`);
+      expect(readTrueType(raw).postScriptName).toBe(name);
+    }
+  });
+  it('measures text with the font\'s own widths', () => {
+    const m = cardFonts().regular.metrics;
+    expect(m.widths).toHaveLength(224);
+    expect(m.widths['i'.charCodeAt(0) - 32]).toBeLessThan(m.widths['m'.charCodeAt(0) - 32]);
+    expect(m.widths['é'.charCodeAt(0) - 32]).toBe(m.widths['e'.charCodeAt(0) - 32]);
+    expect(textWidth('mm', 10, false)).toBeCloseTo((2 * m.widths['m'.charCodeAt(0) - 32]) / 100, 5);
+    expect(textWidth('Thank you', 14, true)).toBeGreaterThan(textWidth('Thank you', 14, false));
+    expect(m.ascent).toBeGreaterThan(m.capHeight);
+    expect(m.descent).toBeLessThan(0);
+  });
+  it('the licence travels with the font', () => {
+    const ofl = readFileSync(new URL('./fonts/Lato-OFL.txt', import.meta.url), 'utf8');
+    expect(ofl).toMatch(/SIL Open Font License, Version 1\.1/);
+    expect(ofl).toMatch(/Reserved Font Name "Lato"/);
   });
   it('keeps every line of text at least 6 mm inside the trim', () => {
     const [x0, , x1] = box('TrimBox');
@@ -151,10 +179,14 @@ describe('names of every kind', () => {
     const inner = TRIM.width - 12 * MM;
     expect(fit('Bare Carpets', [24, 12], true, inner, 2)).toEqual({ size: 24, lines: ['Bare Carpets'] });
     const long = fit('The Very Long Named Flooring and Carpet Warehouse Company of North Yorkshire Limited', [24, 22, 20, 18, 16, 14, 12], true, inner, 2);
-    expect(long.size).toBe(12);
+    expect(long.size).toBeLessThanOrEqual(14);
     expect(long.lines).toHaveLength(2);
-    expect(long.lines[1].endsWith('...')).toBe(true);
-    for (const l of long.lines) expect(textWidth(l, 12, true)).toBeLessThanOrEqual(inner);
+    for (const l of long.lines) expect(textWidth(l, long.size, true)).toBeLessThanOrEqual(inner);
+    const longer = fit('The Very Long Named Flooring and Carpet Warehouse Company of North Yorkshire and the Whole of the East Riding Limited', [24, 22, 20, 18, 16, 14, 12], true, inner, 2);
+    expect(longer.size).toBe(12);
+    expect(longer.lines).toHaveLength(2);
+    expect(longer.lines[1].endsWith('...')).toBe(true);
+    for (const l of longer.lines) expect(textWidth(l, 12, true)).toBeLessThanOrEqual(inner);
     expect(wrap('one two three', 10, false, 1000)).toEqual(['one two three']);
   });
   it('nothing runs off the card: one very long word is cut, a long town is drawn at the size it fits, and "..." appears only where something was dropped', () => {

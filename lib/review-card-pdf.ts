@@ -12,17 +12,20 @@
  *   - everything is drawn as shapes and text, nothing is a picture, so it is
  *     sharp at any size. The QR code is black squares on white
  *   - nothing that matters is within 6 mm of the trim
- *   - the two typefaces are the ones every PDF reader and printer already has
- *     (Helvetica and Helvetica Bold), so no font file is needed or embedded
+ *   - the typeface is Lato (Regular and Bold), which is open source, and both
+ *     weights are EMBEDDED in the file whole, so a printer needs nothing
+ *     installed and nothing is substituted (lib/fonts/). Colours are RGB
  *
  * WRITTEN BY HAND, WITH NO PDF LIBRARY. The file format for a page of
- * rectangles and a few lines of text is small, and writing it here means no
+ * rectangles, a few lines of text and two embedded fonts is small, and writing it here means no
  * new dependency and the same bytes for the same input every time.
  *
  * Pure: takes names and links, returns bytes. Reads nothing, sends nothing.
  */
-import { deflateSync } from 'zlib';
+import { deflateSync, inflateSync } from 'zlib';
 import QRCode from 'qrcode';
+import { LATO_REGULAR, LATO_BOLD, type PackedFont } from './fonts/lato-data';
+import { readTrueType, type FontMetrics } from './fonts/truetype';
 
 const MM = 72 / 25.4;
 /** A6, in points. */
@@ -36,9 +39,19 @@ export interface CardColours { ink: string; paper: string; accent: string; soft:
 export interface CardInput { name: string; town?: string | null; link: string }
 export interface CardOptions { colours: CardColours; wordmark: string; title?: string }
 
-// ── Helvetica character widths, in thousandths of the type size (from the font's published metrics) ──
-const W_REGULAR = [278, 278, 355, 556, 556, 889, 667, 191, 333, 333, 389, 584, 278, 333, 278, 278, 556, 556, 556, 556, 556, 556, 556, 556, 556, 556, 278, 278, 584, 584, 584, 556, 1015, 667, 667, 722, 722, 667, 611, 778, 722, 278, 500, 667, 556, 833, 722, 778, 667, 778, 722, 667, 611, 722, 667, 944, 667, 667, 611, 278, 278, 278, 469, 556, 333, 556, 556, 500, 556, 556, 278, 556, 556, 222, 222, 500, 222, 833, 556, 556, 556, 556, 333, 500, 278, 556, 500, 722, 500, 500, 500, 334, 260, 334, 584];
-const W_BOLD = [278, 333, 474, 556, 556, 889, 722, 238, 333, 333, 389, 584, 278, 333, 278, 278, 556, 556, 556, 556, 556, 556, 556, 556, 556, 556, 333, 333, 584, 584, 584, 611, 975, 722, 722, 722, 722, 667, 611, 778, 722, 278, 556, 722, 611, 833, 722, 778, 667, 778, 722, 667, 611, 722, 667, 944, 667, 667, 611, 333, 278, 333, 584, 556, 333, 556, 611, 556, 611, 556, 333, 611, 611, 278, 278, 556, 278, 889, 611, 611, 611, 611, 389, 556, 333, 611, 556, 778, 556, 556, 500, 389, 280, 389, 584];
+// ── The two embedded fonts. Unpacked and measured once, the first time a card is made. ──
+interface CardFont { metrics: FontMetrics; /** The font file as stored in the PDF: still compressed. */ packed: Buffer; length: number }
+let fonts: { regular: CardFont; bold: CardFont } | null = null;
+function load(f: PackedFont): CardFont {
+  const packed = Buffer.from(f.deflatedBase64.join(''), 'base64');
+  const raw = inflateSync(packed);
+  if (raw.length !== f.length) throw new Error(`${f.file} did not unpack to its recorded size`);
+  return { metrics: readTrueType(raw), packed, length: raw.length };
+}
+export function cardFonts(): { regular: CardFont; bold: CardFont } {
+  if (!fonts) fonts = { regular: load(LATO_REGULAR), bold: load(LATO_BOLD) };
+  return fonts;
+}
 
 /** Characters outside Latin-1 that the standard encoding (WinAnsi) still has. */
 const WIN_ANSI_EXTRA: Record<string, number> = { '€': 0x80, '‘': 0x91, '’': 0x92, '“': 0x93, '”': 0x94, '–': 0x96, '—': 0x97, '…': 0x85 };
@@ -66,17 +79,18 @@ export function toWinAnsi(text: string): string {
       out += b >= 32 && b <= 126 ? base : '?';
     }
   }
-  return out;
+  // Anything the embedded font has no shape for would print as a blank box: it becomes "?".
+  const has = cardFonts().regular.metrics.has, hasBold = cardFonts().bold.metrics.has;
+  return Array.from(out).map((ch) => { const c = ch.charCodeAt(0); return has[c - 32] && hasBold[c - 32] ? ch : '?'; }).join('');
 }
 
-/** Width of already-encoded text, in points. An accented letter is as wide as the plain one. */
+/** Width of already-encoded text, in points, from the embedded font's own measurements. */
 export function textWidth(encoded: string, size: number, bold: boolean, tracking = 0): number {
-  const table = bold ? W_BOLD : W_REGULAR;
+  const m = (bold ? cardFonts().bold : cardFonts().regular).metrics;
   let units = 0;
   for (const ch of encoded) {
-    let code = ch.charCodeAt(0);
-    if (code > 126) { const base = (ch.normalize('NFD')[0] || 'n').charCodeAt(0); code = base >= 32 && base <= 126 ? base : 110; }
-    units += table[code - 32] ?? 556;
+    const code = ch.charCodeAt(0);
+    units += code >= 32 && code <= 255 ? m.widths[code - 32] : 0;
   }
   return (units / 1000) * size + tracking * Math.max(0, encoded.length - 1);
 }
@@ -214,15 +228,22 @@ export function reviewCardsPdf(cards: CardInput[], o: CardOptions): Buffer {
   const objects: Buffer[] = [];
   const add = (body: string | Buffer): number => { objects.push(Buffer.isBuffer(body) ? body : Buffer.from(body, 'latin1')); return objects.length; };
 
-  // 1 catalog, 2 pages, 3 and 4 fonts, 5 info; then two objects per card.
-  const first = 6;
+  // 1 catalog, 2 pages, 3 and 4 fonts, 5 info, 6 to 9 each font's description and file; then two objects per card.
+  const first = 10;
   const kids = cards.map((_, i) => `${first + i * 2} 0 R`).join(' ');
+  const { regular, bold } = cardFonts();
+  const fontObject = (f: CardFont, descriptor: number) => `<< /Type /Font /Subtype /TrueType /BaseFont /${f.metrics.postScriptName} /FirstChar 32 /LastChar 255 /Widths [${f.metrics.widths.join(' ')}] /FontDescriptor ${descriptor} 0 R /Encoding /WinAnsiEncoding >>`;
+  // Flags 32: an ordinary text font. StemV is not in the font file; a usual figure for the weight is given.
+  const descriptor = (f: CardFont, file: number) => `<< /Type /FontDescriptor /FontName /${f.metrics.postScriptName} /Flags 32 /FontBBox [${f.metrics.bbox.join(' ')}] /ItalicAngle ${f.metrics.italicAngle} /Ascent ${f.metrics.ascent} /Descent ${f.metrics.descent} /CapHeight ${f.metrics.capHeight} /StemV ${f.metrics.weight >= 600 ? 140 : 80} /FontFile2 ${file} 0 R >>`;
+  const fontFile = (f: CardFont) => Buffer.concat([Buffer.from(`<< /Length ${f.packed.length} /Length1 ${f.length} /Filter /FlateDecode >>\nstream\n`, 'latin1'), f.packed, Buffer.from('\nendstream', 'latin1')]);
   add('<< /Type /Catalog /Pages 2 0 R >>');
   add(`<< /Type /Pages /Count ${cards.length} /Kids [${kids}] >>`);
-  add('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>');
-  add('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>');
+  add(fontObject(regular, 6));
+  add(fontObject(bold, 8));
   // The title is read in a different encoding from the page text, so it is kept to plain letters.
   add(`<< /Title ${pdfString(toWinAnsi(o.title || 'Review cards').replace(/[^\x20-\x7E]/g, "'"))} /Producer ${pdfString(toWinAnsi(o.wordmark || 'Review cards'))} >>`);
+  add(descriptor(regular, 7)); add(fontFile(regular));
+  add(descriptor(bold, 9)); add(fontFile(bold));
   const box = (x0: number, y0: number, x1: number, y1: number) => `[${n(x0)} ${n(y0)} ${n(x1)} ${n(y1)}]`;
   for (const card of cards) {
     const stream = deflateSync(Buffer.from(cardContent(card, o), 'latin1'));
