@@ -9,7 +9,7 @@
  * It reports whether a setting is PRESENT, never its value. Nothing secret
  * leaves the server. It reads; it changes nothing.
  */
-import { liveRulesFromEnv } from './shop-status';
+import { parseLiveRequires } from './shop-status';
 import { billingSettingsFromEnv } from './billing';
 
 export interface Check {
@@ -56,11 +56,16 @@ export function settingChecks(env: Env = process.env): Check[] {
   out.push({ key: 'MONTHLY_REPORT_PLAIN_SUMMARY', label: 'Monthly report: "what we did, what changed" in words', ok: null, detail: isOn(env, 'MONTHLY_REPORT_PLAIN_SUMMARY') ? 'ON. The monthly report opens with a plain summary.' : 'Off. The monthly report is as it was.' });
   out.push({ key: 'TARKETT_CONSOLE_ENABLED', label: 'Tarkett console', ok: null, detail: isOn(env, 'TARKETT_CONSOLE_ENABLED') ? 'ON. Tarkett users can sign in and see per-shop figures. Check the privacy checklist was completed.' : 'Off.' });
 
-  const rules = liveRulesFromEnv(env.LIVE_REQUIRES);
-  const relaxed = (['matched', 'verified', 'access'] as const).filter((k) => !rules[k]);
-  out.push({ key: 'LIVE_REQUIRES', label: 'What counts as live', ok: null, detail: relaxed.length ? `Relaxed: a shop counts as live without ${relaxed.join(', ')}.` : 'Connected, right listing, verified by Google, access not lost.' });
+  const parsed = parseLiveRequires(env.LIVE_REQUIRES);
+  const rules = parsed.rules;
+  const relaxed = (['matched', 'verified', 'access', 'active'] as const).filter((k) => !rules[k]);
+  // Relaxing what counts as live changes what is billed, so it is a cross, not a note.
+  out.push({ key: 'LIVE_REQUIRES', label: 'What counts as live', ok: parsed.problem || relaxed.length ? false : null, detail: parsed.problem ? parsed.problem : relaxed.length ? `RELAXED: a shop counts as live, and is counted on the statement, without ${relaxed.map((k) => (k === 'active' ? 'posts or replies switched on' : k)).join(', ')}. Remove LIVE_REQUIRES, or set it to matched,verified,access,active, unless that is intended.` : 'Connected, right listing, verified by Google, access not lost, and posts or replies switched on (and not paused).' });
   const b = billingSettingsFromEnv(env);
-  out.push({ key: 'BILLING', label: 'Monthly statement', ok: null, detail: `Price per shop ${b.pricePence === null ? 'not set (the statement shows counts only)' : 'set'}; monthly cap ${b.capPence === null ? 'not set' : 'set'}. A shop counts for a month if it is live on the month's last day.` });
+  const term = b.termStart && b.termEnd ? (b.termEnd < b.termStart ? 'set, but it ends before it starts' : 'set') : b.termStart || b.termEnd ? 'only one of its two dates is set' : 'not set';
+  // A cap with no usable term is never applied, so it is flagged rather than left to be discovered on a statement.
+  const capWithoutTerm = b.capPence !== null && term !== 'set';
+  out.push({ key: 'BILLING', label: 'Monthly statement', ok: capWithoutTerm ? false : null, detail: `Price per shop ${b.pricePence === null ? 'not set (the statement shows counts only)' : 'set'}; monthly cap ${b.capPence === null ? 'not set' : 'set'}; the term the cap belongs to ${term}${capWithoutTerm ? '. THE CAP WILL NOT BE APPLIED until BILLING_TERM_START and BILLING_TERM_END are both set, as days like 2027-01-31' : ''}. The cap, and its credit line, apply only to months that end inside the term. A shop counts for a month if it is live on the month's last day.` });
   return out;
 }
 

@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { reviewAlertEmailsEnabled, planForReview, shopsToCheck, leftSinceJoining, type ReviewFacts } from './review-alerts';
-import { newReviewEmail, postApprovalEmail } from './email';
+import { newReviewEmail, postApprovalEmail, reviewAlertEmail } from './email';
 import { earlyPreviewEmailsEnabled } from './safe-automation';
 import { getTenantBySlug } from './tenant';
 import { emailPreview, EMAIL_PREVIEWS } from './email-previews';
@@ -23,14 +23,18 @@ describe('review alert emails are off unless switched on', () => {
 });
 
 describe('with the switch off, everything is exactly as before', () => {
-  it('only shops with replies on are looked at', () => {
+  it('only shops with replies on are looked at (a paused one too, to record and not reply)', () => {
     const users = [
       { id: 'on', auto_reply_enabled: true, profiles: [{}] },
       { id: 'off', auto_reply_enabled: false, profiles: [{}] },
       { id: 'paused', auto_reply_enabled: true, automation_paused_at: '2026-12-01T00:00:00Z', profiles: [{}] },
       { id: 'no-listing', auto_reply_enabled: true, profiles: [] },
     ];
-    expect(shopsToCheck(users, false).map((u) => u.id)).toEqual(['on']);
+    // A paused shop with replies on is still looked at, so a review that arrives while it is
+    // paused is recorded then (and not replied to) rather than answered in a burst on Resume.
+    expect(shopsToCheck(users, false).map((u) => u.id)).toEqual(['on', 'paused']);
+    expect(plan({ rating: 5, repliesOn: true, paused: true })).toEqual({ reply: 'none', alert: 'none' });
+    expect(plan({ rating: 2, repliesOn: true, paused: true })).toEqual({ reply: 'none', alert: 'none' });
   });
   it('a good review is replied to and no new email is sent', () => {
     expect(plan({ rating: 5, repliesOn: true })).toEqual({ reply: 'ai_publish', alert: 'none' });
@@ -86,10 +90,22 @@ describe('what never happens, in any combination', () => {
   it('nothing is ever posted for a shop with replies off, or paused', () => {
     for (const f of all) if (!f.repliesOn || f.paused) expect(['none', 'holding_draft']).toContain(planForReview(f).reply);
   });
-  it('the holding reply is only posted unattended in hands-off', () => {
-    for (const f of all) if (planForReview(f).reply === 'holding_publish') expect(f.handsOff && f.repliesOn && !f.paused).toBe(true);
+  it('the holding reply is only posted unattended in hands-off, for a rating that really is 1 to 3, left after the permission was given', () => {
+    for (const f of all) for (const sincePermission of [true, false, undefined]) {
+      const p = planForReview({ ...f, sincePermission });
+      if (p.reply === 'holding_publish') expect(f.handsOff && f.repliesOn && !f.paused && f.rating >= 1 && f.rating <= 3 && sincePermission === true).toBe(true);
+    }
+    const hands = { ...base, repliesOn: true, handsOff: true };
+    expect(planForReview({ ...hands, rating: 2, sincePermission: true })).toEqual({ reply: 'holding_publish', alert: 'low_replied' });
+    // A complaint from before the shop gave permission (it may have settled it by phone) is drafted, never posted.
+    expect(planForReview({ ...hands, rating: 2, sincePermission: false })).toEqual({ reply: 'holding_draft', alert: 'low_needs_input' });
+    // A rating that could not be read might be a five: "sorry to hear" is never posted on a guess.
+    for (const rating of [0, NaN]) expect(planForReview({ ...hands, rating, sincePermission: true })).toEqual({ reply: 'holding_draft', alert: 'low_needs_input' });
   });
-  it('the alert switch never changes what is posted', () => {
+  it('texts are not started by the email switch', () => {
+    expect(route).toMatch(/user\.sms_enabled && user\.phone_number && switchesInForce\(user\)\.replies && !isPaused\(user\)/);
+  });
+  it('the alert switch never changes what is posted for a review, taken on its own', () => {
     const posted = (r: string) => (r === 'ai_publish' || r === 'holding_publish' ? r : 'nothing');
     for (const f of all) expect(posted(planForReview({ ...f, alertsOn: true }).reply)).toBe(posted(planForReview({ ...f, alertsOn: false }).reply));
   });
@@ -110,7 +126,8 @@ describe('since joining', () => {
 
 describe('the job', () => {
   it('asks the one module what to do, and sends the new email only through it', () => {
-    expect(route).toMatch(/shopsToCheck\(users, alertsOn\)/);
+    expect(route).toMatch(/shopsToCheck\(users\.map\(\(u: any\) => \(\{ \.\.\.u, auto_reply_enabled: switchesInForce\(u\)\.replies \}\)\), alertsOn\)/);
+    expect(route).toMatch(/repliesOn: switchesInForce\(user\)\.replies/);
     expect(route).toMatch(/const plan = planForReview\(/);
     expect(route).toMatch(/if \(plan\.alert !== 'good' \|\| !user\.email\) return;/);
     expect(route.match(/newReviewEmail\(/g)).toHaveLength(1);
@@ -150,6 +167,15 @@ describe('the emails', () => {
   it('the early-post preview email says nothing is posted unless approved', () => {
     const html = postApprovalEmail({ businessName: 'Bare Carpets', postContent: 'A post.', scheduledFor: '2026-12-07T10:00:00Z', approveUrl: 'https://example.test/a', skipUrl: 'https://example.test/s', approvalsLeft: 3, tenant });
     expect(html).toContain('If you do nothing, nothing is posted.');
+  });
+});
+
+describe('the existing "needs your input" email, now sent to more shops, escapes what the customer wrote', () => {
+  it('a reviewer\'s name or comment cannot put markup beside the Publish button', () => {
+    const html = reviewAlertEmail({ businessName: '<b>Bare</b> Carpets', reviewerName: '<a href="https://evil.example">click</a>', rating: 2, comment: '<img src=x onerror=alert(1)> & more', suggestedReply: 'Thank you <for> your feedback.', approveUrl: 'https://example.test/a', rejectUrl: 'https://example.test/r', tenant: getTenantBySlug('stellar') });
+    expect(html).not.toMatch(/<a href="https:\/\/evil|<img src=x|<b>Bare|<for>/);
+    expect(html).toContain('&lt;img src=x onerror=alert(1)&gt; &amp; more');
+    expect(html).toContain('https://example.test/a');
   });
 });
 

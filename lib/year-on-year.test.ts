@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
-import { sameWeeksLastYear, sameMonthLastYear, mergeRanges, movedEnough, actionsOf, percentOf, YEAR_SHIFT_DAYS, MIN_BASE_ACTIONS, MIN_EXTRA_ACTIONS, BASIS_WORDS } from './year-on-year';
+import { sameWeeksLastYear, sameMonthLastYear, mergeRanges, movedEnough, actionsOf, percentOf, hasFigures, YEAR_SHIFT_DAYS, MIN_BASE_ACTIONS, MIN_EXTRA_ACTIONS, BASIS_WORDS } from './year-on-year';
 import { whatChanged, chooseComparison, narrativeHtml } from './report-narrative';
 import { HISTORY_DAYS } from './metrics';
 import { LEAGUE_MIN_BASE_ACTIONS, LEAGUE_WINDOW_DAYS } from './league';
@@ -110,6 +110,18 @@ describe('the shop\'s monthly report', () => {
     expect(chooseComparison(true, { ...y, complete: false }, { ...m, complete: false })).toBeNull();
     // A part month is never compared with a whole one.
     expect(chooseComparison(false, y, m)).toBeNull();
+  });
+  it('does not call two more calls a rise, or two fewer a fall', () => {
+    const lines = whatChanged({ views: 1000, calls: 23, websiteClicks: 12, directions: 18 }, { views: 1000, calls: 21, websiteClicks: 12, directions: 20 }, 'last_year');
+    expect(lines[0]).toBe('Calls from your listing: 23 (21 in the same month last year).');
+    expect(lines[2]).toBe('Requests for directions: 18 (20 in the same month last year).');
+    expect(whatChanged({ views: 1000, calls: 24, websiteClicks: 12, directions: 18 }, { views: 1000, calls: 21, websiteClicks: 12, directions: 20 }, 'last_year')[0]).toMatch(/up from 21 .*\(\+14%\)/);
+  });
+  it('a period of noughts is not figures, however many days are stored', () => {
+    const t = (o: any) => ({ daysWithData: 28, views: 0, calls: 0, websiteClicks: 0, directions: 0, ...o });
+    expect(hasFigures(t({}), 28)).toBe(false);
+    expect(hasFigures(t({ views: 3 }), 28)).toBe(true);
+    expect(hasFigures(t({ views: 300, daysWithData: 27 }), 28)).toBe(false);
   });
   it('never says why', () => {
     const text = whatChanged(now, { views: 500, calls: 10, websiteClicks: 1, directions: 1 }, 'last_year').join(' ') + narrativeHtml(['a'], ['b'], true);

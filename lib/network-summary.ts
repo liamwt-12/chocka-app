@@ -27,6 +27,7 @@ import type { MetricTotals } from './metrics';
 import type { ConsoleShop } from './console-data';
 import type { LeagueEntry } from './league';
 import { networkReviews, type NetworkReviews, type ShopReviews } from './review-snapshot';
+import { hasFigures } from './year-on-year';
 
 /** A month's figures only count for a shop with at least this many days of data in it. */
 export const MIN_DAYS_IN_MONTH = 20;
@@ -103,7 +104,9 @@ export function buildNetworkSummary(
     const leftOut = counted.length - list.length;
     return m.complete && list.length >= MIN_SHOPS_FOR_TOTALS && (leftOut === 0 || leftOut >= MIN_SHOPS_FOR_TOTALS);
   };
-  const withLastYear = counted.filter((x) => fullNow(x) && !!x.sameMonthLastYear && x.sameMonthLastYear.daysWithData >= daysLastYear - DAYS_SHORT_ALLOWED);
+  // "Has last year" means real figures: a month of noughts from before a listing existed would otherwise
+  // make a newer shop look like growth, the very thing comparing the same shops is meant to prevent.
+  const withLastYear = counted.filter((x) => fullNow(x) && !!x.sameMonthLastYear && hasFigures(x.sameMonthLastYear, daysLastYear - DAYS_SHORT_ALLOWED));
   const withMonthBefore = counted.filter((x) => fullNow(x) && x.lastMonth.daysWithData >= m.daysBefore - DAYS_SHORT_ALLOWED);
   const basis: TotalsBasis = comparableSet(withLastYear) ? 'last_year' : comparableSet(withMonthBefore) ? 'month_before' : null;
   const both = basis === 'last_year' ? withLastYear : basis === 'month_before' ? withMonthBefore : [];
@@ -124,7 +127,7 @@ export function buildNetworkSummary(
     : !showTotals ? `Only ${counted.length} shop${counted.length === 1 ? ' has' : 's have'} a full month of figures so far. Totals are shown from ${MIN_SHOPS_FOR_TOTALS} shops, so that a total is never one shop's own figures.`
     : !m.complete ? `From ${counted.length} shops. Google's figures for the last few days of the month are not all in yet, so there is no comparison until they are.`
     : basis === 'last_year' ? `${sameShops} Compared with ${beforeLabel} for the same shops, per day, so the time of year is not counted as a change.`
-    : basis === 'month_before' ? `${sameShops} Too few shops have figures from the same month last year, so this is compared with the month before, per day. The time of year affects that comparison.`
+    : basis === 'month_before' ? `${sameShops} ${withLastYear.length >= MIN_SHOPS_FOR_TOTALS ? 'Comparing with the same month last year would leave out only one or two shops, whose figures could then be worked out' : 'Too few shops have figures from the same month last year'}, so this is compared with the month before, per day. The time of year affects that comparison.`
     : `From ${counted.length} shops with a full month of figures. No comparison yet: too few shops have a second full month to compare with.`;
 
   const bands = league.ranked.map((e) => e.band as string);

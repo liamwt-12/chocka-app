@@ -93,6 +93,21 @@ describe('the monthly network summary', () => {
       expect(s2.totals.basis).toBe('month_before');
     });
 
+    it('a month of noughts from before a listing existed is not "last year": it cannot make a newer shop look like growth', () => {
+      // Google can return a nought for every day before a listing existed: 30 stored days, no figures.
+      const zeroFilled = (id: string) => ({ retailerId: id, thisMonth: T({ daysWithData: 30, calls: 40, views: 400 }), lastMonth: T({ daysWithData: 31, calls: 40, views: 400 }), sameMonthLastYear: T({ daysWithData: 30 }) });
+      const steady = (id: string) => Y(id, { calls: 40, views: 400 }, { calls: 40, views: 400 }, { calls: 40, views: 400 });
+      const s = buildNetworkSummary([], { ranked: [] }, [steady('a'), steady('b'), steady('c'), zeroFilled('x'), zeroFilled('y'), zeroFilled('z')], SPAN);
+      expect(s.totals).toMatchObject({ basis: 'last_year', shopsCompared: 3 });
+      expect(line(s, /Calls/)).toMatchObject({ sameShopsThisMonth: 120, before: 120, change: 0 });   // not 240 against 120
+    });
+
+    it('says the real reason when last year is not used because it would leave out only one or two shops', () => {
+      const newListing = (id: string) => ({ retailerId: id, thisMonth: T({ daysWithData: 30, calls: 10 }), lastMonth: T({ daysWithData: 31, calls: 10 }), sameMonthLastYear: T({ daysWithData: 0 }) });
+      const s = buildNetworkSummary([], { ranked: [] }, [Y('a', { calls: 60 }, { calls: 40 }), Y('b', { calls: 60 }, { calls: 40 }), Y('c', { calls: 60 }, { calls: 40 }), newListing('x')], SPAN);
+      expect(s.totals.note).toMatch(/would leave out only one or two shops, whose figures could then be worked out/);
+    });
+
     it('falls back to the month before when fewer than three shops have last year, and says so', () => {
       const s = buildNetworkSummary([], { ranked: [] }, [Y('a', { calls: 60 }, { calls: 40 }, { calls: 62 }), { ...Y('b', { calls: 60 }, {}, { calls: 62 }), sameMonthLastYear: undefined }, { ...Y('c', { calls: 60 }, {}, { calls: 62 }), sameMonthLastYear: T({ daysWithData: 4 }) }], SPAN);
       expect(s.totals).toMatchObject({ basis: 'month_before', beforeLabel: 'the month before' });

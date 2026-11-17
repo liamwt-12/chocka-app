@@ -10,7 +10,7 @@ import { resolveAccess } from '@/lib/managed-access';
 import { livePresenceScore } from '@/lib/presence-score';
 import { loadMetricRows, totalsFor, previousMonth, type MetricRow, loadMetricRanges } from '@/lib/metrics';
 import { compareAdPeriod, comparisonRanges, adComparisonEmailSection } from '@/lib/ad-comparison';
-import { sameMonthLastYear } from '@/lib/year-on-year';
+import { sameMonthLastYear, hasFigures } from '@/lib/year-on-year';
 import { startBudget, rotateForRun, runIndex } from '@/lib/cron-budget';
 import { plainSummaryEnabled, whatWeDid, whatChanged, narrativeHtml, chooseComparison } from '@/lib/report-narrative';
 import { loadNarrativeFacts } from '@/lib/report-narrative-data';
@@ -131,7 +131,7 @@ export async function GET(request: NextRequest) {
             const yearAgoTotals = totalsFor(await loadMetricRows(supabaseAdmin, profile.id, yearAgo.from, yearAgo.to), yearAgo.from, yearAgo.to);
             const compare = chooseComparison(
               monthTotals.daysWithData >= daysIn(month.to) - 2,
-              { complete: yearAgoTotals.daysWithData >= yearAgo.days - 2, figures: yearAgoTotals },
+              { complete: hasFigures(yearAgoTotals, yearAgo.days - 2), figures: yearAgoTotals },
               { complete: beforeTotals.daysWithData >= daysIn(before.to) - 2, figures: beforeTotals },
             );
             const changed = whatChanged(enoughDays ? monthTotals : null, compare ? compare.before : null, compare?.comparedWith);

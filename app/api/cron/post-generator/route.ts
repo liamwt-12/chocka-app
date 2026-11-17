@@ -6,7 +6,7 @@ import { sendEmail, postPreviewEmail } from '@/lib/email';
 import { getTenantForRow } from '@/lib/tenant';
 import { nextMondaySlot } from '@/lib/post-schedule';
 import { APPROVAL_REQUIRED_POSTS, AWAITING_APPROVAL, PUBLISHABLE } from '@/lib/safe-automation';
-import { postNeedsApproval, isPaused } from '@/lib/automation-mode';
+import { postNeedsApproval, isPaused, switchesInForce } from '@/lib/automation-mode';
 import { loadVoiceForUser } from '@/lib/voice';
 import { reservePhotoForUser } from '@/lib/shop-photos';
 import { startBudget, selectAll, rotateForRun, runIndex } from '@/lib/cron-budget';
@@ -62,7 +62,7 @@ export async function GET(request: NextRequest) {
     for (const p of stillWaiting) hasPost.add(p.profile_id);
     // A shop that has pressed Pause is written nothing (lib/automation-mode.ts).
     // Rotated each run, so one shop whose post keeps failing its checks is not at the front every time.
-    const todo = rotateForRun<any>(users.filter((u: any) => u.auto_post_enabled && !isPaused(u) && u.profiles?.[0] && !hasPost.has(u.profiles[0].id)), runIndex(5), 3);
+    const todo = rotateForRun<any>(users.filter((u: any) => switchesInForce(u).posts && !isPaused(u) && u.profiles?.[0] && !hasPost.has(u.profiles[0].id)), runIndex(5), 3);
     let remaining = todo.length;
 
     for (const user of todo) {

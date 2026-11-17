@@ -13,7 +13,7 @@ import { resolveAccess } from '@/lib/managed-access';
 import { splitNewReviews, reviewKey, BACKLOG_DAYS, REVIEWS_CONFLICT_TARGET } from '@/lib/review-intake';
 import { holdingReply } from '@/lib/safe-automation';
 import { startBudget, rotateForRun, runIndex, selectAll } from '@/lib/cron-budget';
-import { holdingReplyGoesOut, isPaused } from '@/lib/automation-mode';
+import { holdingReplyGoesOut, isPaused, switchesInForce, leftSincePermission } from '@/lib/automation-mode';
 import { reviewAlertEmailsEnabled, planForReview, shopsToCheck, leftSinceJoining } from '@/lib/review-alerts';
 
 /**
@@ -54,7 +54,7 @@ export async function GET(request: NextRequest) {
     // With it on: every connected shop, so each hears about its new reviews
     // (lib/review-alerts.ts). What is replied to does not change.
     const alertsOn = reviewAlertEmailsEnabled();
-    const eligible = rotateForRun<any>(shopsToCheck(users, alertsOn), runIndex(EVERY_MINUTES), STRIDE);
+    const eligible = rotateForRun<any>(shopsToCheck(users.map((u: any) => ({ ...u, auto_reply_enabled: switchesInForce(u).replies })), alertsOn), runIndex(EVERY_MINUTES), STRIDE);
     let checked = 0;
 
     for (const user of eligible) {
@@ -154,8 +154,8 @@ export async function GET(request: NextRequest) {
           //   replies off or paused: nothing is written. With
           //     REVIEW_ALERT_EMAILS on the shop is still told about the review
           const plan = planForReview({
-            rating, repliesOn: !!user.auto_reply_enabled, paused: isPaused(user), handsOff: holdingReplyGoesOut(user),
-            alertsOn, sinceJoining: leftSinceJoining(review.createTime, profile.created_at),
+            rating, repliesOn: switchesInForce(user).replies, paused: isPaused(user), handsOff: holdingReplyGoesOut(user),
+            alertsOn, sinceJoining: leftSinceJoining(review.createTime, profile.created_at), sincePermission: leftSincePermission(review.createTime, user),
           });
           const goodAlert = async (replyState: 'posted' | 'waiting' | 'none', reply: string | null) => {
             if (plan.alert !== 'good' || !user.email) return;
@@ -240,8 +240,9 @@ export async function GET(request: NextRequest) {
             const approveUrl = `${appUrl}/api/reviews/auto-reply?action=approve&review_id=${newReview.id}&hash=${hash}`;
             const rejectUrl = `${appUrl}/api/reviews/auto-reply?action=reject&review_id=${newReview.id}&hash=${hash}`;
 
-            // SMS alert
-            if (user.sms_enabled && user.phone_number) {
+            // SMS alert. Only for a shop with replies on, as before: the alert
+            // switch is for emails and must not start texts.
+            if (user.sms_enabled && user.phone_number && switchesInForce(user).replies && !isPaused(user)) {
               const firstName = reviewerName.split(' ')[0];
               const smsBody = `New ${rating}-star review from ${firstName}. We've drafted a reply — check your email to approve or handle it yourself. - ${t.brandName}`;
               const sid = await sendSMS({ to: user.phone_number, body: smsBody });

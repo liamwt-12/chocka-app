@@ -106,7 +106,7 @@ export function reviewAlertEmail(params: {
   const t = params.tenant ?? getTenant();
   const brand = t.palette.brandStrong;
   const stars = '★'.repeat(params.rating) + '☆'.repeat(5 - params.rating);
-  const firstName = params.businessName.split(' ')[0];
+  const firstName = escHtml(params.businessName.split(' ')[0]);
   const isPositive = params.rating >= 4;
 
   return emailWrapper(`
@@ -117,15 +117,15 @@ export function reviewAlertEmail(params: {
 
     <div style="background: #F0EDE8; border-radius: 12px; padding: 18px; margin-bottom: 20px;">
       <div style="margin-bottom: 8px;">
-        <span style="font-weight: 600; font-size: 14px;">${params.reviewerName}</span>
+        <span style="font-weight: 600; font-size: 14px;">${escHtml(params.reviewerName)}</span>
         <span style="color: ${isPositive ? brand : '#B8860B'}; font-size: 14px; margin-left: 8px;">${stars}</span>
       </div>
-      <p style="font-size: 14px; color: #555; line-height: 1.55; margin: 0;">${params.comment || '(no comment left)'}</p>
+      <p style="font-size: 14px; color: #555; line-height: 1.55; margin: 0;">${escHtml(params.comment) || '(no comment left)'}</p>
     </div>
 
     <p style="font-size: 13px; color: #999; margin: 0 0 8px;">Our suggested reply:</p>
     <div style="background: #FFF0EB; border-left: 3px solid ${brand}; border-radius: 0 12px 12px 0; padding: 16px 16px 16px 14px; margin-bottom: 28px;">
-      <p style="font-size: 14px; color: #1A1A1A; line-height: 1.55; margin: 0;">${params.suggestedReply}</p>
+      <p style="font-size: 14px; color: #1A1A1A; line-height: 1.55; margin: 0;">${escHtml(params.suggestedReply)}</p>
     </div>
 
     <a href="${params.approveUrl}" style="display: inline-block; background: ${brand}; color: #fff; padding: 12px 20px; border-radius: 8px; text-decoration: none; font-size: 14px; font-weight: 600; margin-right: 8px;">Publish This Reply</a>
@@ -259,7 +259,7 @@ export function postApprovalEmail(params: {
   `, t);
 }
 
-const escHtml = (v: string) => String(v ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' } as Record<string, string>)[c]);
+function escHtml(v: string): string { return String(v ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' } as Record<string, string>)[c]); }
 
 /**
  * Hands-off only (lib/automation-mode.ts): a 1 to 3 star review came in and

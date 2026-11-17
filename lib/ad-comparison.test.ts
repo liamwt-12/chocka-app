@@ -64,6 +64,17 @@ describe('compareAdPeriod: against the same weeks last year', () => {
     expect(html).toContain('We have no figures for your listing from the same weeks last year.');
     expect(adComparisonEmailSection(compareAdPeriod(START, withHistory, [], NOW))).toContain('The same four weeks last year compared with the four weeks from 2026-10-05.');
   });
+  it('a year-ago window of noughts (a listing that did not exist yet) is not a base: it falls back and says so', () => {
+    const zeros = [...lastYear({ BUSINESS_IMPRESSIONS_MOBILE_SEARCH: 0, CALL_CLICKS: 0, WEBSITE_CLICKS: 0 }), ...shopRows];
+    const c = compareAdPeriod(START, zeros, [], NOW);
+    expect(c.status === 'ok' && c.basis).toBe('weeks_before');
+    expect(c.status === 'ok' && c.shop.find((m) => m.key === 'calls')).toMatchObject({ before: 28, after: 56 });   // not "0 to 56"
+  });
+  it('24 of last year\'s 28 days is not the whole window: it is not compared as if it were', () => {
+    const part = [...lastYear({ BUSINESS_IMPRESSIONS_MOBILE_SEARCH: 15, CALL_CLICKS: 2 }).filter((r) => r.date >= '2025-10-10'), ...shopRows];
+    const c = compareAdPeriod(START, part, [], NOW);
+    expect(c.status === 'ok' && c.basis).toBe('weeks_before');
+  });
   it('a few days of last year are not enough: it falls back rather than compare with a part period', () => {
     const thin = [...lastYear({ CALL_CLICKS: 9 }).filter((r) => r.date < '2025-10-16'), ...shopRows];
     const c = compareAdPeriod(START, thin, [], NOW);

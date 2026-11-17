@@ -165,6 +165,35 @@ describe('flag ON', () => {
     expect(joined).toMatchObject({ name: 'Testwell', scoreAtActivation: 61, postsLast30: 4, repliesLast30: 2, adStartDate: '2026-10-01' });
     expect(notJoined).toMatchObject({ participating: false, scoreAtActivation: null, adStartDate: null });
   });
+
+  const joinedShop = () => {
+    handlers.funder_users = () => ({ data: { id: FUNDER, tenant_id: 't', name: 'Z', active: true }, error: null });
+    handlers.retailers = () => ({ data: [{ id: 'r1', name: 'Testwell', town: 'Leeds', user_id: 'u1', connection_status: 'connected' }], error: null });
+    handlers.retailer_invites = () => ({ data: [], error: null });
+    handlers.users = () => ({ data: [{ id: 'u1', google_refresh_token: 'v1.secret', token_status: 'valid', auto_post_enabled: true, profiles: [{ id: 'p1', created_at: '2026-09-01T00:00:00Z', audit_score: 61, google_location_name: 'locations/1' }] }], error: null });
+    handlers.scheduled_posts = () => ({ data: null, error: null, count: 4 });
+    handlers.review_replies = () => ({ data: null, error: null, count: 2 });
+    handlers.daily_metrics = () => ({ data: [], error: null });
+  };
+  const load = () => dataGET(req('/api/console/data', { headers: { cookie: `${FUNDER_COOKIE}=${createFunderSession(FUNDER)}` } }));
+
+  it('data: if the accounts cannot be read it is an error, not a page of shops that look disconnected', async () => {
+    joinedShop();
+    handlers.users = () => ({ data: null, error: { message: 'column users.automation_paused_at does not exist' } });
+    const res = await load();
+    expect(res.status).toBeGreaterThanOrEqual(500);
+  });
+
+  it('data: one shop whose figures cannot be read does not take the page down, and a count that failed is unknown, not nought', async () => {
+    joinedShop();
+    handlers.daily_metrics = () => ({ data: null, error: { message: 'timeout' } });
+    handlers.scheduled_posts = () => ({ data: null, error: { message: 'timeout' }, count: null as any });
+    const res = await load();
+    expect(res.status).toBe(200);
+    const shop = (await res.json()).shops[0];
+    expect(shop).toMatchObject({ name: 'Testwell', participating: true, postsLast30: null, repliesLast30: 2 });
+    expect(shop.improvement).toMatch(/could not be read/);
+  });
 });
 
 describe('league ranks improvement on last year, not size', () => {
@@ -206,9 +235,13 @@ describe('league ranks improvement on last year, not size', () => {
     expect(w).toMatchObject({ recentFrom: '2026-10-13', recentTo: '2026-11-09', lastYearFrom: '2025-10-14', lastYearTo: '2025-11-10' });
     const dow = (d: string) => new Date(`${d}T00:00:00Z`).getUTCDay();
     expect(dow(w.lastYearFrom)).toBe(dow(w.recentFrom));
-    expect(leagueRanges('2026-09-01', NOW)).toEqual([{ from: '2025-10-14', to: '2025-11-10' }, { from: '2026-08-04', to: '2026-11-09' }]);
-    // A shop that joined a year ago: the weeks before it joined run into last year's weeks. One range, nothing read twice.
-    expect(leagueRanges('2025-11-01', NOW)).toEqual([{ from: '2025-10-04', to: '2026-11-09' }]);
+    // Only the three windows that are added up, however long ago the shop joined.
+    expect(leagueRanges('2026-09-01', NOW)).toEqual([{ from: '2025-10-14', to: '2025-11-10' }, { from: '2026-08-04', to: '2026-08-31' }, { from: '2026-10-13', to: '2026-11-09' }]);
+    // A shop that joined a year ago: the weeks before it joined run into last year's weeks. Merged, nothing read twice.
+    expect(leagueRanges('2025-11-01', NOW)).toEqual([{ from: '2025-10-04', to: '2025-11-10' }, { from: '2026-10-13', to: '2026-11-09' }]);
+    // Three years in, it is still at most three short reads, never the whole of the shop's time with us.
+    const days = (r: { from: string; to: string }) => (Date.parse(r.to) - Date.parse(r.from)) / 86_400_000 + 1;
+    expect(leagueRanges('2023-10-01', NOW).reduce((t, r) => t + days(r), 0)).toBe(84);
   });
 
   it('carries no raw counts', () => {
@@ -226,6 +259,25 @@ describe('league ranks improvement on last year, not size', () => {
     expect(JSON.stringify(excluded[0])).not.toMatch(/"calls"|"views"/);
   });
 
+  it('a year-ago window of noughts is "no figures", not a base: a listing that did not exist then is not ranked on it', () => {
+    // Google can return a nought for every day before a listing existed. Stored days: 28. Real figures: none.
+    const s0 = shop('ZeroFilled', '2026-09-01', 0, 2, 4, 0, 100);
+    const { ranked, excluded } = buildLeague([s0], NOW);
+    expect(ranked).toEqual([]);
+    expect(excluded[0].reason).toMatch(/no figures from the same weeks last year/);
+    expect(excluded[0].beforeJoining).toEqual({ actionsChange: 100, band: 'Strong rise' });
+  });
+  it('part of last year\'s window is not compared with a whole one', () => {
+    const part = shop('Part', '2026-09-01', 2, 2, 2);
+    part.rows = part.rows.filter((r: MetricRow) => !(r.date >= '2025-10-14' && r.date <= '2025-10-17'));   // 24 of 28 days
+    expect(buildLeague([part], NOW).ranked).toEqual([]);
+  });
+  it('the fallback does not print a percentage for a move of one or two actions', () => {
+    const tiny = shop('Tiny2', '2026-09-01', null, 0, 0);
+    tiny.rows.push(...Array.from({ length: 10 }, (_, i) => ({ date: addDaysIso('2026-08-04', i), metric: 'WEBSITE_CLICKS', value: 1 })));
+    tiny.rows.push(...Array.from({ length: 11 }, (_, i) => ({ date: addDaysIso('2026-10-13', i), metric: 'WEBSITE_CLICKS', value: 1 })));
+    expect(buildLeague([tiny], NOW).excluded[0].reason).toMatch(/Against the four weeks before it joined: no real change/);
+  });
   it('with nothing from last year and too little from before joining, it just says so', () => {
     const { excluded } = buildLeague([shop('Thin', '2026-09-01', null, 0, 1)], NOW);
     expect(excluded[0].reason).toBe('no figures from the same weeks last year, so it is not ranked');

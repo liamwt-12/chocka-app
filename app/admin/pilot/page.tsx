@@ -202,13 +202,13 @@ export default function PilotAdminPage() {
     setBusy(true); setMsg(''); setCardsNote('');
     try {
       const r = await call({ action: 'review_cards', includeUnchecked });
-      const left = [r.leftOut.notConnected.length && `${r.leftOut.notConnected.length} not connected yet`, r.leftOut.noListing.length && `${r.leftOut.noListing.length} with no listing on record`].filter(Boolean).join(', ');
+      const left = [r.leftOut.notConnected.length && `${r.leftOut.notConnected.length} not connected yet`, r.leftOut.unconfirmed?.length && `${r.leftOut.unconfirmed.length} on a listing nobody has confirmed`, r.leftOut.noListing.length && `${r.leftOut.noListing.length} with no listing on record`].filter(Boolean).join(', ');
       if (!r.pdfBase64) { setCardsNote(`No cards to print yet${left ? ` (left out: ${left})` : ''}.`); }
       else {
         const bytes = Uint8Array.from(atob(r.pdfBase64), (c) => c.charCodeAt(0));
         const url = URL.createObjectURL(new Blob([bytes], { type: 'application/pdf' }));
-        const a = document.createElement('a'); a.href = url; a.download = r.fileName; a.click(); URL.revokeObjectURL(url);
-        setCardsNote(`${r.cards} card${r.cards === 1 ? '' : 's'} in the file${r.unchecked ? `, ${r.unchecked} of them for shops not yet connected: scan those before printing` : ''}.${left ? ` Left out: ${left}.` : ''}`);
+        const a = document.createElement('a'); a.href = url; a.download = r.fileName; a.click(); setTimeout(() => URL.revokeObjectURL(url), 60_000);
+        setCardsNote(`${r.cards} card${r.cards === 1 ? '' : 's'} in the file${r.unchecked ? `, ${r.unchecked} of them for shops not yet connected or on an unconfirmed listing: scan those before printing` : ''}.${left ? ` Left out: ${left}.` : ''}`);
       }
     } catch (e: any) { setMsg(e.message); }
     setBusy(false);
@@ -499,8 +499,10 @@ export default function PilotAdminPage() {
               <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', marginBottom: 8 }}>
                 <span><strong>{statement.liveShops}</strong> live</span>
 {statement.provisional && <span style={{ color: C.amber, fontWeight: 600 }}>provisional</span>}
-                {statement.money ? <span>{money(statement.money.grossPence)}{statement.settings.capPence !== null ? <> · cap {money(statement.settings.capPence)}</> : null}{statement.money.creditPence ? <> · credit {money(statement.money.creditPence)} ({statement.shopsAboveCap} above the cap)</> : null} = <strong>{money(statement.money.totalPence)}</strong></span> : <span style={{ color: C.soft }}>No price is set (BILLING_PRICE_PENCE_PER_SHOP), so counts only.</span>}
+                {statement.money ? <span>{money(statement.money.grossPence)}{statement.cap?.applies && statement.settings.capPence !== null ? <> · cap {money(statement.settings.capPence)}</> : null}{statement.money.creditPence ? <> · credit {money(statement.money.creditPence)} ({statement.shopsAboveCap} above the cap)</> : null} = <strong>{money(statement.money.totalPence)}</strong></span> : <span style={{ color: C.soft }}>No price is set (BILLING_PRICE_PENCE_PER_SHOP), so counts only.</span>}
               </div>
+              {statement.cap?.note && <div style={{ color: ['no_term', 'bad_term'].includes(statement.cap.reason) ? C.red : C.mid, fontWeight: ['no_term', 'bad_term'].includes(statement.cap.reason) ? 700 : 400, marginBottom: 6 }}>{statement.cap.note}</div>}
+              {statement.cap?.applies && <div style={{ color: C.mid, marginBottom: 6 }}>The cap applies for the term {statement.settings.termStart} to {statement.settings.termEnd}.</div>}
               {statement.noCountOnLastDay && <div style={{ color: C.red, fontWeight: 700, marginBottom: 6 }}>No count was taken on the last day of {statement.month} (the hourly job did not run that day), so nobody is shown as live. Do not use this statement as it stands: the shops live during the month are listed below as not counted.</div>}
               {statement.lines.length === 0 ? <div style={{ color: C.mid }}>No shop counts for {statement.month}.</div> : (
                 <table style={{ width: '100%', borderCollapse: 'collapse' }}>

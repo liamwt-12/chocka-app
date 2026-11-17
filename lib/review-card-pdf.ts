@@ -104,10 +104,16 @@ export function fit(encoded: string, sizes: number[], bold: boolean, max: number
     if (lines.length <= maxLines && lines.every((l) => textWidth(l, size, bold) <= max)) return { size, lines };
   }
   const size = sizes[sizes.length - 1];
-  const lines = wrap(encoded, size, bold, max).slice(0, maxLines);
-  let last = lines[lines.length - 1] || '';
-  while (last.length > 1 && textWidth(`${last}...`, size, bold) > max) last = last.slice(0, -1);
-  if (lines.length) lines[lines.length - 1] = `${last}...`;
+  const all = wrap(encoded, size, bold, max);
+  // Every line is cut to the width (one very long word would otherwise run off
+  // the card), and "..." marks the place only where something was dropped.
+  const lines = all.slice(0, maxLines).map((line, i, kept) => {
+    const dropped = (i === kept.length - 1 && all.length > maxLines) || textWidth(line, size, bold) > max;
+    if (!dropped) return line;
+    let cut = line;
+    while (cut.length > 1 && textWidth(`${cut}...`, size, bold) > max) cut = cut.slice(0, -1);
+    return `${cut}...`;
+  });
   return { size, lines };
 }
 
@@ -122,7 +128,8 @@ const pdfString = (encoded: string) => `(${encoded.replace(/([\\()])/g, '\\$1')}
 
 /** The dark squares of a QR code for the link, as rows of runs. Only a Google review link is accepted. */
 export function qrRuns(link: string): { size: number; runs: Array<{ row: number; col: number; length: number }>; dark: number } {
-  if (!link.startsWith('https://search.google.com/local/writereview?placeid=')) throw new Error('not a Google review link');
+  // The whole link is checked, not just how it starts: nothing can ride along after the place ID.
+  if (!/^https:\/\/search\.google\.com\/local\/writereview\?placeid=[A-Za-z0-9_-]{16,300}$/.test(link)) throw new Error('not a Google review link');
   // Level Q, as on the screen card: it still scans with a quarter of it scuffed.
   const qr = QRCode.create(link, { errorCorrectionLevel: 'Q' });
   const size = qr.modules.size, data = qr.modules.data;
@@ -170,7 +177,7 @@ export function cardContent(card: CardInput, o: CardOptions): string {
   let y = (band - blockH) / 2 + name.size * 0.82;
   fill('#FFFFFF');
   for (const l of name.lines) { centred(l, name.size, true, y); y += lineH; }
-  if (town) { fill(o.colours.accent); centred(fit(town, [11, 10, 9], false, inner, 1).lines[0], 11, false, y + 1.6 * MM); }
+  if (town) { const t = fit(town, [11, 10, 9], false, inner, 1); fill(o.colours.accent); centred(t.lines[0], t.size, false, y + 1.6 * MM); }
 
   // The ask.
   fill(o.colours.ink); centred('Happy with our work?', 17, true, band + 13.5 * MM);
@@ -214,7 +221,8 @@ export function reviewCardsPdf(cards: CardInput[], o: CardOptions): Buffer {
   add(`<< /Type /Pages /Count ${cards.length} /Kids [${kids}] >>`);
   add('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>');
   add('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>');
-  add(`<< /Title ${pdfString(toWinAnsi(o.title || 'Review cards'))} /Producer ${pdfString(toWinAnsi(o.wordmark || 'Review cards'))} >>`);
+  // The title is read in a different encoding from the page text, so it is kept to plain letters.
+  add(`<< /Title ${pdfString(toWinAnsi(o.title || 'Review cards').replace(/[^\x20-\x7E]/g, "'"))} /Producer ${pdfString(toWinAnsi(o.wordmark || 'Review cards'))} >>`);
   const box = (x0: number, y0: number, x1: number, y1: number) => `[${n(x0)} ${n(y0)} ${n(x1)} ${n(y1)}]`;
   for (const card of cards) {
     const stream = deflateSync(Buffer.from(cardContent(card, o), 'latin1'));

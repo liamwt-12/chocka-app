@@ -157,6 +157,23 @@ describe('names of every kind', () => {
     for (const l of long.lines) expect(textWidth(l, 12, true)).toBeLessThanOrEqual(inner);
     expect(wrap('one two three', 10, false, 1000)).toEqual(['one two three']);
   });
+  it('nothing runs off the card: one very long word is cut, a long town is drawn at the size it fits, and "..." appears only where something was dropped', () => {
+    const inner = TRIM.width - 12 * MM;
+    const word = fit('W'.repeat(74), [24, 12], true, inner, 2);
+    for (const l of word.lines) expect(textWidth(l, word.size, true)).toBeLessThanOrEqual(inner);
+    expect(word.lines[0].endsWith('...')).toBe(true);
+    // Fits on two lines only at the smallest size: nothing dropped, so no dots.
+    expect(fit('Aaaaaaaaaaaaaaaaaa Bbbbbbbbbbbbbbbbbbb Ltd', [40, 12], true, inner, 2).lines.join(' ')).toBe('Aaaaaaaaaaaaaaaaaa Bbbbbbbbbbbbbbbbbbb Ltd');
+    const town = 'Kirkby-in-Ashfield near Sutton-in-Ashfield, North Nottinghamshire';
+    const content = cardContent({ name: 'Shop', town, link: LINK }, STYLE);
+    const m = /\/F1 ([\d.]+) Tf [\d.]+ Tc [\d.]+ [\d.]+ Td \((Kirkby[^)]*)\) Tj/.exec(content)!;
+    expect(Number(m[1])).toBeLessThan(11);                                   // drawn at the size that fits, not always at 11
+    expect(textWidth(m[2], Number(m[1]), false)).toBeLessThanOrEqual(inner);
+  });
+  it('the code is refused for a link with anything after the place ID', () => {
+    expect(() => qrRuns(`${LINK}&x=1 evil`)).toThrow(/not a Google review link/);
+    expect(() => qrRuns('https://search.google.com/local/writereview?placeid=short')).toThrow(/not a Google review link/);
+  });
   it('an empty name still makes a card', () => {
     expect(parse(reviewCardsPdf([{ name: '  ', town: '', link: LINK }], STYLE)).streams[0]).toContain('(Our shop) Tj');
   });
@@ -208,12 +225,23 @@ describe('the bulk file', () => {
   it('by default holds only shops that have connected, using the listing they chose', async () => {
     const b = await loadBulkCards(db(SHOPS, PROFILES), 't');
     expect(b.cards).toEqual([{ retailerId: 'r1', name: 'Alpha Floors', town: 'Leeds', link: LINK, source: 'connected' }]);
-    expect(b.leftOut).toEqual({ noListing: ['Gamma Flooring'], notConnected: ['Beta Carpets'] });
+    expect(b.leftOut).toEqual({ noListing: ['Gamma Flooring'], notConnected: ['Beta Carpets'], unconfirmed: [] });
   });
   it('can include shops not yet connected, marked as unchecked, and never a delisted shop or another network\'s', async () => {
     const b = await loadBulkCards(db(SHOPS, PROFILES), 't', { includeUnchecked: true });
     expect(b.cards.map((c) => [c.name, c.source])).toEqual([['Alpha Floors', 'connected'], ['Beta Carpets', 'baseline']]);
     expect(JSON.stringify(b)).not.toMatch(/Delisted|Another network/);
+  });
+  it('a shop on a listing nobody has confirmed is left out too, and is never counted as checked', async () => {
+    const shops = [...SHOPS, { id: 'r6', tenant_id: 't', name: 'Wrong Listing Floors', town: null, place_id: OTHER, user_id: 'u6', delisted_at: null, connection_status: 'check_listing', listing_confirmed_at: null },
+      { id: 'r7', tenant_id: 't', name: 'Confirmed Floors', town: null, place_id: OTHER, user_id: 'u7', delisted_at: null, connection_status: 'check_listing', listing_confirmed_at: '2026-11-01' }];
+    const profiles = [...PROFILES, { user_id: 'u6', google_place_id: PLACE }, { user_id: 'u7', google_place_id: PLACE }];
+    const b = await loadBulkCards(db(shops, profiles), 't');
+    expect(b.cards.map((c) => c.name)).toEqual(['Alpha Floors', 'Confirmed Floors']);
+    expect(b.leftOut.unconfirmed).toEqual(['Wrong Listing Floors']);
+    const all = await loadBulkCards(db(shops, profiles), 't', { includeUnchecked: true });
+    expect(all.cards.find((c) => c.name === 'Wrong Listing Floors')!.source).toBe('unconfirmed');
+    expect((await loadShopCard(db(shops, profiles), 'r6'))!.source).toBe('unconfirmed');
   });
   it('reads nothing but the name, town and listing: no contact details', () => {
     const src = readFileSync(new URL('./review-card-data.ts', import.meta.url), 'utf8');

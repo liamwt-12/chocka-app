@@ -7,7 +7,7 @@ import { shopPhotosEnabled } from '@/lib/shop-photos';
 import { googleReviewLink, reviewPlaceId, reviewCardPath } from '@/lib/review-link';
 import { parseVoiceProfile, readStoredVoice, isEmptyVoice } from '@/lib/voice';
 import { resetConnection } from '@/lib/connection-reset';
-import { shopStatus, liveRulesFromEnv } from '@/lib/shop-status';
+import { shopStatus, liveRulesFromEnv, STATUS_USER_COLUMNS } from '@/lib/shop-status';
 import { parseSpendPounds, adDatesProblem } from '@/lib/ad-spend';
 import { loadStatement, statementCsv, billingSettingsFromEnv } from '@/lib/billing';
 import { describeChange, undoChange } from '@/lib/revert';
@@ -157,7 +157,7 @@ export async function POST(request: NextRequest) {
         const bulk = await loadBulkCards(supabaseAdmin, tenantRow.id, { includeUnchecked: body.includeUnchecked === true });
         if (!bulk.cards.length) return NextResponse.json({ cards: 0, leftOut: bulk.leftOut, pdfBase64: null });
         const pdf = cardsPdfFor(getTenantBySlug(PILOT_TENANT_SLUG), bulk.cards, 'Review cards');
-        return NextResponse.json({ cards: bulk.cards.length, unchecked: bulk.cards.filter((c) => c.source === 'baseline').length, leftOut: bulk.leftOut, fileName: `review-cards-${new Date().toISOString().slice(0, 10)}.pdf`, pdfBase64: pdf.toString('base64') });
+        return NextResponse.json({ cards: bulk.cards.length, unchecked: bulk.cards.filter((c) => c.source !== 'connected').length, leftOut: bulk.leftOut, fileName: `review-cards-${new Date().toISOString().slice(0, 10)}.pdf`, pdfBase64: pdf.toString('base64') });
       }
 
       case 'preview_email': {
@@ -308,12 +308,14 @@ async function list(tenantId: string) {
     : { data: [] as any[] };
 
   // Tokens are read only to decide whether access works, and never leave this function.
-  const { data: users } = userIds.length
+  const { data: users, error: usersError } = userIds.length
     ? await supabaseAdmin
         .from('users')
-        .select(`id, created_at, onboarding_step, auto_post_enabled, auto_reply_enabled, automation_mode, automation_consent_at, automation_consent_version, automation_paused_at, google_refresh_token, token_status, token_invalid_at, managed_by_user_id, ${MANAGER_EMBED}, profiles ( google_location_name, google_place_id )`)
+        .select(`id, created_at, onboarding_step, ${STATUS_USER_COLUMNS}, google_refresh_token, token_status, token_invalid_at, managed_by_user_id, ${MANAGER_EMBED}, profiles ( google_location_name, google_place_id )`)
         .in('id', userIds)
     : { data: [] as any[] };
+  // A failed read is an error, not "nobody is connected": without the accounts every shop would read as broken.
+  if (usersError) throw new Error(`could not read the accounts: ${(usersError as any).message}`);
   const userById = new Map<string, PilotUser>((users || []).map((u: any) => [u.id, u]));
 
   // Photo counts per shop, only when SHOP_PHOTOS is on. A failure here (for

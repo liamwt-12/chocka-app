@@ -22,6 +22,13 @@
  *   - what switching replies off, or pressing Pause, means is unchanged:
  *     nothing is ever posted for that shop without its say-so
  *
+ * ONE DIFFERENCE IT MAKES LATER, on the careful side. With the switch off, a
+ * shop with replies off is not looked at, so if it turns replies on, reviews
+ * from the last 14 days are found then and answered. With the switch on, those
+ * reviews were already recorded when they arrived (and the shop told), so
+ * they are not answered later. The switch never causes a reply that would not
+ * otherwise have been posted.
+ *
  * ONLY REVIEWS SINCE THE SHOP JOINED. For a shop with replies off we have never
  * recorded its reviews, so the first look finds all of them. Only a review
  * left after the shop connected is news; anything older is recorded quietly.
@@ -62,6 +69,8 @@ export interface ReviewFacts {
   alertsOn: boolean;
   /** The review was left after the shop connected. */
   sinceJoining: boolean;
+  /** The review was left after the shop gave its hands-off permission. Only matters in hands-off. */
+  sincePermission?: boolean;
 }
 
 export function planForReview(f: ReviewFacts): { reply: ReplyAction; alert: AlertKind } {
@@ -71,14 +80,21 @@ export function planForReview(f: ReviewFacts): { reply: ReplyAction; alert: Aler
     return { reply: 'none', alert: f.alertsOn && f.sinceJoining ? 'good' : 'none' };
   }
   // 1 to 3 stars, or a rating we could not read: never AI wording.
-  if (replying) return f.handsOff ? { reply: 'holding_publish', alert: 'low_replied' } : { reply: 'holding_draft', alert: 'low_needs_input' };
+  // Posted unattended only in hands-off, only for a rating that really is 1 to
+  // 3 (an unreadable rating might be a five: it is drafted, never posted), and
+  // only for a review left after the shop gave its permission.
+  const lowForCertain = f.rating >= 1 && f.rating <= 3;
+  if (replying) return f.handsOff && lowForCertain && f.sincePermission === true ? { reply: 'holding_publish', alert: 'low_replied' } : { reply: 'holding_draft', alert: 'low_needs_input' };
   if (f.alertsOn && f.sinceJoining) return { reply: 'holding_draft', alert: 'low_needs_input' };
   return { reply: 'none', alert: 'none' };
 }
 
 /** Which shops the job looks at. With the switch off: exactly as before. */
 export function shopsToCheck<U extends { auto_reply_enabled?: boolean | null; automation_paused_at?: string | null; profiles?: any[] | null }>(users: U[], alertsOn: boolean): U[] {
-  return users.filter((u) => !!u.profiles?.[0] && (alertsOn || (!!u.auto_reply_enabled && !u.automation_paused_at)));
+  // A paused shop with replies on is still looked at, so that a review that
+  // arrives during the pause is recorded then (and not replied to), instead of
+  // being found, and answered, in a burst when the shop presses Resume.
+  return users.filter((u) => !!u.profiles?.[0] && (alertsOn || !!u.auto_reply_enabled));
 }
 
 /** Was this review left after the shop connected? An undatable review is treated as old. */

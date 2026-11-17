@@ -3,7 +3,7 @@
  * Reads only. Never selects an email address or a phone number.
  */
 import { MANAGER_EMBED } from './managed-access';
-import { shopStatus, liveRulesFromEnv } from './shop-status';
+import { shopStatus, liveRulesFromEnv, STATUS_USER_COLUMNS } from './shop-status';
 import { retentionSignals, retentionOrder, type RetentionRow } from './retention';
 
 const DAY = 86400000;
@@ -23,7 +23,7 @@ export async function loadRetention(db: { from(table: string): any }, tenantId: 
   const invites: any[] = ids.length ? must(await db.from('retailer_invites').select('id, retailer_id, status, expires_at, created_at, accepted_at, opened_at').in('retailer_id', ids), 'invitations') : [];
   // Tokens are read only to decide whether access works, and never leave this function.
   const users: any[] = userIds.length
-    ? must(await db.from('users').select(`id, created_at, last_seen_at, onboarding_step, auto_post_enabled, auto_reply_enabled, google_refresh_token, token_status, token_invalid_at, managed_by_user_id, ${MANAGER_EMBED}, profiles ( id, google_location_name, google_place_id, audit_score, audit_score_after )`).in('id', userIds), 'accounts')
+    ? must(await db.from('users').select(`id, created_at, last_seen_at, onboarding_step, ${STATUS_USER_COLUMNS}, google_refresh_token, token_status, token_invalid_at, managed_by_user_id, ${MANAGER_EMBED}, profiles ( id, google_location_name, google_place_id, audit_score, audit_score_after )`).in('id', userIds), 'accounts')
     : [];
   const userById = new Map<string, any>(users.map((u: any) => [u.id, u]));
 
@@ -50,7 +50,7 @@ export async function loadRetention(db: { from(table: string): any }, tenantId: 
     const firstInvite = mine.map((i: any) => i.created_at).sort()[0] ?? null;
     const made = profile ? changes.get(profile.id) || 0 : 0;
     const { signals, risk } = retentionSignals({
-      connected: status.connected, live: status.live, statusLabel: status.label,
+      connected: status.connected, live: status.live, statusLabel: status.label, statusKey: status.key,
       invited: mine.length > 0, daysSinceInvited: daysSince(firstInvite, now), daysSinceJoined: daysSince(user?.created_at, now), daysSinceSeen: daysSince(user?.last_seen_at, now), daysRecording: daysSince(firstSeen, now), managed: !!user?.managed_by_user_id,
       postsOn: !!user?.auto_post_enabled, repliesOn: !!user?.auto_reply_enabled,
       scoreAtStart: profile?.audit_score ?? null, scoreNow: profile?.audit_score_after ?? null, changesMade: made,

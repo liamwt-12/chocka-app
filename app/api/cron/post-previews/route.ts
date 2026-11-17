@@ -3,6 +3,8 @@ import { supabaseAdmin } from '@/lib/supabase';
 import { verifyCronSecret, unauthorizedResponse, generatePostActionHash } from '@/lib/cron';
 import { sendEmail, postApprovalEmail } from '@/lib/email';
 import { getTenantForRow } from '@/lib/tenant';
+import { isPaused } from '@/lib/automation-mode';
+import { automationHeld } from '@/lib/shop-status';
 import { earlyPreviewEmailsEnabled, postsDueForPreview, approvalsRemaining, AWAITING_APPROVAL } from '@/lib/safe-automation';
 
 /**
@@ -18,7 +20,7 @@ export async function GET(request: NextRequest) {
     const now = new Date();
     const { data: posts, error } = await supabaseAdmin
       .from('scheduled_posts')
-      .select('id, content, scheduled_for, status, preview_sent_at, profile_id, profiles!inner(id, business_name, users:user_id(id, email, tenants ( slug )))')
+      .select('id, content, scheduled_for, status, preview_sent_at, profile_id, profiles!inner(id, business_name, users:user_id(id, email, automation_paused_at, tenants ( slug ), retailers ( connection_status, listing_confirmed_at )))')
       .eq('status', AWAITING_APPROVAL)
       .is('preview_sent_at', null)
       .gt('scheduled_for', now.toISOString());
@@ -35,6 +37,8 @@ export async function GET(request: NextRequest) {
       const profile = post.profiles;
       const user = profile?.users;
       if (!user?.email) continue;
+      // Not while the shop has paused, or its listing is held: nothing could go up anyway.
+      if (isPaused(user) || automationHeld(user.retailers)) continue;
       const t = getTenantForRow(user);
       const { count: published } = await supabaseAdmin
         .from('scheduled_posts').select('id', { count: 'exact', head: true })

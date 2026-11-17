@@ -76,7 +76,7 @@ export function adVerdict(spendPence: number | null | undefined, comparison: AdC
   const none = { change: null, noAdsChange: null, flag: false };
   if (!comparison) return { key: 'no_ads', label: 'No ad dates', detail: 'No ad start date has been entered for this shop.', ...none };
   if (comparison.status === 'too_early') return { key: 'too_early', label: 'Too early to say', detail: `Four full weeks of figures after the ads started are needed. Ready from ${comparison.readyOn}.`, ...none };
-  if (comparison.status === 'not_enough_history') return { key: 'not_enough_history', label: 'Not enough history', detail: 'Google does not hold enough figures from before the ads started to compare fairly.', ...none };
+  if (comparison.status === 'not_enough_history') return { key: 'not_enough_history', label: 'Not enough history', detail: 'Google does not hold enough figures for this listing, from the same weeks last year or the weeks before the ads, to compare fairly.', ...none };
 
   const before = sum(comparison.shop, 'before'), after = sum(comparison.shop, 'after');
   const words = BASIS_WORDS[comparison.basis];

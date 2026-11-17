@@ -21,6 +21,8 @@ import { recordLiveToday } from '@/lib/billing';
 //
 // Stops well inside the time a function is allowed and carries on next hour.
 const TIME_BUDGET_MS = 18_000;
+/** Pages of reviews read for the daily note of review totals (50 a page). */
+const REVIEW_NOTE_MAX_PAGES = 6;
 
 export async function GET(request: NextRequest) {
   if (!verifyCronSecret(request)) return unauthorizedResponse();
@@ -80,8 +82,11 @@ export async function GET(request: NextRequest) {
       // count, and how many have a reply. Totals only, no review text. A
       // failure here is logged and nothing else: the figures above are already
       // stored, and yesterday's note stays.
-      try {
-        const snapshot = snapshotFrom(await getReviews(token, profile.google_location_name, profile.google_account_id), parseStarRating);
+      // Only with time in hand, and never more than a few pages: a listing with thousands of
+      // reviews must not make this run overstay. (Its rating and count are Google's own either way;
+      // the share answered is then of the newest reviews.)
+      if (Date.now() - started <= TIME_BUDGET_MS) try {
+        const snapshot = snapshotFrom(await getReviews(token, profile.google_location_name, profile.google_account_id, REVIEW_NOTE_MAX_PAGES), parseStarRating);
         const { error } = await supabaseAdmin.from('profiles').update(snapshotColumns(snapshot, new Date())).eq('id', profile.id);
         if (error) console.error(`[cron:metrics-sync] profile ${profile.id}: review totals not stored: ${error.message}`);
         else reviewNotes++;

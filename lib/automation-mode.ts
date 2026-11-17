@@ -63,12 +63,19 @@ export const ASK_FIRST_WORDING = {
   title: 'Ask me first',
   summary: 'Nothing goes on your listing unless you have said yes to it.',
   points: [
-    'Posts and review replies stay off until you turn them on.',
+    'Posts and review replies are off until you turn them on.',
     'You approve your first three posts before they go up.',
     'A reply to a 1, 2 or 3 star review always waits for you.',
   ],
   button: 'Ask me first',
 } as const;
+
+/**
+ * The wording versions a stored permission may name and still be in force. A
+ * permission given against wording that is no longer on this list (a draft
+ * that was later changed, say) stops counting: the shop is asked again.
+ */
+export const ACCEPTED_WORDING_VERSIONS: readonly string[] = [HANDS_OFF_WORDING_VERSION];
 
 export function handsOffEnabled(env: Record<string, string | undefined> = process.env): boolean {
   return (env.HANDS_OFF_MODE || '').trim().toLowerCase() === 'on';
@@ -89,7 +96,7 @@ export interface ModeRow {
  */
 export function isHandsOff(row: ModeRow | null | undefined, env: Record<string, string | undefined> = process.env): boolean {
   if (!row || !handsOffEnabled(env)) return false;
-  return row.automation_mode === 'hands_off' && !!row.automation_consent_at && !!row.automation_consent_version;
+  return row.automation_mode === 'hands_off' && !!row.automation_consent_at && !!row.automation_consent_version && ACCEPTED_WORDING_VERSIONS.includes(row.automation_consent_version);
 }
 
 /** The mode in force, which is what every job and screen should ask for. */
@@ -106,12 +113,27 @@ export function isPaused(row: ModeRow | null | undefined): boolean {
   return !!row?.automation_paused_at;
 }
 
+/**
+ * What is switched on for this shop, as every job should read it.
+ *
+ * Choosing hands-off turns posts and replies on, because that is what the shop
+ * agreed to. If that choice is then NOT in force (HANDS_OFF_MODE has been
+ * switched off, or the wording it agreed to is no longer accepted), the
+ * switches it turned on do not count either: a shop that only ever said yes
+ * to hands-off has not said yes to anything else.
+ */
+export function switchesInForce(row: (ModeRow & { auto_post_enabled?: boolean | null; auto_reply_enabled?: boolean | null }) | null | undefined, env: Record<string, string | undefined> = process.env): { posts: boolean; replies: boolean } {
+  if (!row) return { posts: false, replies: false };
+  if (row.automation_mode === 'hands_off' && !isHandsOff(row, env)) return { posts: false, replies: false };
+  return { posts: row.auto_post_enabled === true, replies: row.auto_reply_enabled === true };
+}
+
 /** Which option the choice screen offers first for a tenant. Never applied for the shop. */
 export function offeredFirst(tenantDefault: AutomationMode | undefined): AutomationMode {
   return tenantDefault === 'hands_off' ? 'hands_off' : 'ask_first';
 }
 
-export type ChoiceInput = { mode?: unknown; wordingVersion?: unknown };
+export type ChoiceInput = { mode?: unknown; wordingVersion?: unknown; /** The mode stored for the shop now. */ currentMode?: string | null };
 export type ChoiceResult =
   | { ok: true; update: Record<string, unknown> }
   | { ok: false; status: number; error: string };
@@ -123,13 +145,22 @@ export type ChoiceResult =
  * is the current wording: permission given against words we cannot name is not
  * permission. It turns posts and replies on, because that is what was agreed.
  *
- * Ask me first changes nothing else: the two switches stay as the shop left
- * them. The earlier record of permission is kept, as history.
+ * Ask me first, chosen by a shop that was never in hands-off, changes nothing
+ * else: the two switches stay as the shop left them. Chosen by a shop leaving
+ * hands-off, it also turns both switches off. The earlier record of
+ * permission is kept, as history.
  */
 export function planChoice(input: ChoiceInput, now: Date, env: Record<string, string | undefined> = process.env): ChoiceResult {
   if (!handsOffEnabled(env)) return { ok: false, status: 404, error: 'Not available' };
   const at = now.toISOString();
-  if (input.mode === 'ask_first') return { ok: true, update: { automation_mode: 'ask_first', automation_mode_chosen_at: at, updated_at: at } };
+  if (input.mode === 'ask_first') {
+    const update: Record<string, unknown> = { automation_mode: 'ask_first', automation_mode_chosen_at: at, updated_at: at };
+    // Leaving hands-off: the two switches it turned on go off again, so that
+    // "nothing goes on your listing unless you have said yes to it" is true
+    // from this moment. The shop turns on what it wants, as any shop does.
+    if (input.currentMode === 'hands_off') Object.assign(update, { auto_post_enabled: false, auto_reply_enabled: false });
+    return { ok: true, update };
+  }
   if (input.mode !== 'hands_off') return { ok: false, status: 400, error: 'Choose Hands-off or Ask me first.' };
   if (input.wordingVersion !== HANDS_OFF_WORDING_VERSION) {
     return { ok: false, status: 409, error: 'This page is out of date. Please reload it and choose again.' };
@@ -161,6 +192,18 @@ export function describeMode(row: ModeRow | null | undefined, env: Record<string
 export function postNeedsApproval(row: ModeRow | null | undefined, publishedPostCount: number, approvalRequiredPosts: number, env: Record<string, string | undefined> = process.env): boolean {
   if (isHandsOff(row, env)) return false;
   return publishedPostCount < approvalRequiredPosts;
+}
+
+/**
+ * Was this review left after the shop gave its hands-off permission? Only
+ * those are answered unattended: "if you get a 1, 2 or 3 star review" is a
+ * promise about reviews to come, not about one the shop may already have
+ * dealt with by phone. An undatable review counts as earlier.
+ */
+export function leftSincePermission(reviewCreateTime: string | null | undefined, row: ModeRow | null | undefined): boolean {
+  const r = reviewCreateTime ? Date.parse(reviewCreateTime) : NaN;
+  const c = row?.automation_consent_at ? Date.parse(row.automation_consent_at) : NaN;
+  return Number.isFinite(r) && Number.isFinite(c) && r >= c;
 }
 
 /** May the fixed holding reply to a low-star review be published without the shop's approval? Hands-off only. */

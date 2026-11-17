@@ -10,39 +10,79 @@
  * shop is live, or why it is not, asks here: /admin/pilot, the needs-help list,
  * the console, the monthly count of live shops.
  *
- * LIVE means, by default, all four of:
+ * LIVE means, by default, all five of:
  *   connected   the shop is linked to an account and a listing is bound
  *   matched     the listing is the one we invited, or a person has confirmed it
  *   verified    Google has verified the listing, so it can actually be managed
  *   access      our permission from Google still works
- * The last three can be relaxed with LIVE_REQUIRES (a comma-separated list of
- * the ones to keep: "matched,verified,access" is the default). "connected" is
- * not optional: without a bound listing there is nothing to be live.
+ *   active      posts or review replies are switched on, and the shop has not
+ *               pressed Pause: something is actually being done for it
+ * The last four can be relaxed with LIVE_REQUIRES (a comma-separated list of
+ * the ones to keep: "matched,verified,access,active" is the default).
+ * "connected" is not optional: without a bound listing there is nothing to be
+ * live.
  *
- * Being live does not require any automation to be switched on, or anything to
- * have been posted. That is a deliberate, separate question (see lib/billing.ts
- * for the activity signals a different definition could use).
+ * WHY "ACTIVE" IS PART OF IT. A shop that connected and switched nothing on
+ * gets one email a month from us and nothing else. Calling that "live", and
+ * counting it for the monthly statement, says the service is doing something
+ * it is not. Live now means the shop is connected AND we are working for it.
+ * It does not require anything to have been posted yet: a shop that switched
+ * posts on this morning is live.
+ *
+ * This is about what the SHOP has switched on. Nothing here, and nothing that
+ * reads it, ever switches posts or replies on for a shop.
  *
  * Pure: takes rows, returns a status. Tested without a database.
  */
 import { resolveAccess, type ManagedAccessRow } from './managed-access';
 import { isInviteExpired } from './invite-token';
 import { HELP, type HelpReason } from './connect-help';
+import { switchesInForce } from './automation-mode';
 
-export interface LiveRules { matched: boolean; verified: boolean; access: boolean }
-export const DEFAULT_LIVE_RULES: LiveRules = { matched: true, verified: true, access: true };
+export interface LiveRules { matched: boolean; verified: boolean; access: boolean; active: boolean }
+export const DEFAULT_LIVE_RULES: LiveRules = { matched: true, verified: true, access: true, active: true };
 
-/** LIVE_REQUIRES="matched,verified,access" (the default). Unknown words are ignored; unset means the default. */
+/** LIVE_REQUIRES="matched,verified,access,active" (the default). Unknown words are ignored; unset means the default. */
 export function liveRulesFromEnv(value: string | undefined = process.env.LIVE_REQUIRES): LiveRules {
-  if (value === undefined || value.trim() === '') return { ...DEFAULT_LIVE_RULES };
-  const keep = new Set(value.toLowerCase().split(',').map((s) => s.trim()));
-  return { matched: keep.has('matched'), verified: keep.has('verified'), access: keep.has('access') };
+  return parseLiveRequires(value).rules;
+}
+
+const LIVE_WORDS = ['matched', 'verified', 'access', 'active'] as const;
+/**
+ * Read LIVE_REQUIRES. A value containing anything that is not one of the four
+ * words (a typo, a semicolon, quotation marks) is NOT trusted to relax the
+ * definition: the full definition applies, and `problem` says why. Relaxing
+ * what counts as live changes what is billed, so it must be spelt exactly.
+ */
+export function parseLiveRequires(value: string | undefined): { rules: LiveRules; problem: string | null } {
+  if (value === undefined || value.trim() === '') return { rules: { ...DEFAULT_LIVE_RULES }, problem: null };
+  const words = value.toLowerCase().split(',').map((s) => s.trim()).filter(Boolean);
+  const unknown = words.filter((w) => !(LIVE_WORDS as readonly string[]).includes(w));
+  if (unknown.length || !words.length) return { rules: { ...DEFAULT_LIVE_RULES }, problem: `LIVE_REQUIRES contains something that is not one of ${LIVE_WORDS.join(', ')} (${unknown.join(', ').slice(0, 60) || 'nothing readable'}), so it has been ignored and the full definition applies.` };
+  const keep = new Set(words);
+  return { rules: { matched: keep.has('matched'), verified: keep.has('verified'), access: keep.has('access'), active: keep.has('active') }, problem: null };
+}
+
+/**
+ * The columns of the account row that shopStatus reads. Every query that
+ * feeds it selects these (there is a test), so "live" cannot quietly be
+ * decided without knowing what the shop has switched on.
+ */
+export const STATUS_USER_COLUMNS = 'auto_post_enabled, auto_reply_enabled, automation_paused_at, automation_mode, automation_consent_at, automation_consent_version';
+
+/** Is anything being done for this shop: posts or replies on, and not paused? */
+export function isActive(user: Parameters<typeof switchesInForce>[0]): boolean {
+  if (!user || user.automation_paused_at) return false;
+  // The switches as the jobs read them (lib/automation-mode.ts): switches that
+  // were only turned on by a hands-off choice that is not in force do not count.
+  const on = switchesInForce(user);
+  return on.posts || on.replies;
 }
 
 export type StatusKey =
   | 'live'
   // connected, but something stops it counting as live
-  | 'access_lost' | 'check_listing' | 'waiting_google' | 'no_listing_chosen'
+  | 'access_lost' | 'check_listing' | 'waiting_google' | 'no_listing_chosen' | 'nothing_on' | 'paused'
   // not connected, and we know why
   | 'cancelled' | 'unticked' | 'no_listing' | 'wrong_account' | 'google_error' | 'bounced' | 'link_expired'
   // not connected, and all we know is how far it got
@@ -83,6 +123,12 @@ export interface StatusRetailer {
 export interface StatusInvite { status: string; expires_at: string; created_at: string; accepted_at?: string | null; opened_at?: string | null }
 export interface StatusUser extends ManagedAccessRow {
   token_invalid_at?: string | null;
+  auto_post_enabled?: boolean | null;
+  auto_reply_enabled?: boolean | null;
+  automation_paused_at?: string | null;
+  automation_mode?: string | null;
+  automation_consent_at?: string | null;
+  automation_consent_version?: string | null;
   profiles?: Array<{ google_location_name: string | null }> | null;
 }
 
@@ -136,6 +182,19 @@ export function shopStatus(
           : 'Connected. We had no listing on record for this shop to compare it with, so a person needs to look at it. Nothing is posted to it until someone confirms it.',
         action: 'Compare the name and address with the shop. If it is their shop, press This is right. If not, press Reset connection and ask them to use the Google account for the right shop.',
         buttons: ['confirm_listing', 'reset'] };
+    }
+    // Connected, right listing, verified, access working. Is anything being done for it?
+    if (rules.active && !isActive(user)) {
+      if (user.automation_paused_at) {
+        return { ...base, key: 'paused', label: 'Paused by the shop', connected: true, severity: 3, since: user.automation_paused_at,
+          why: `Connected and ready, but the shop pressed Pause${user.automation_paused_at ? ` on ${onDate(user.automation_paused_at)}` : ''}, so nothing is being posted or replied to. It does not count as live while paused.`,
+          action: 'Ask whether something went wrong, and whether they would like to carry on. They press Resume in Settings. Only the shop can do this.',
+          buttons: [] };
+      }
+      return { ...base, key: 'nothing_on', label: 'Nothing switched on', connected: true, severity: 2, since: retailer.connection_checked_at ?? null,
+        why: 'Connected and ready, but posts and review replies are both switched off, so nothing is being done for this shop. It does not count as live until one is on.',
+        action: 'A short call: ask whether they would like us to look after posts and replies. They choose on their dashboard or in Settings. Only the shop can switch these on.',
+        buttons: [] };
     }
     return { ...base, key: 'live', label: 'Live', live: true, connected: true, needsHelp: false, severity: 3, since: null,
       why: access.ok && access.via === 'manager' ? 'live (manager access)' : 'live', action: '', buttons: ['reset'] };

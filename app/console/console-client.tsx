@@ -79,6 +79,8 @@ export default function ConsoleClient({ view }: { view: 'console' | 'league' | '
         <div style={tile}><div style={big}>{s.shops.notInvited}</div><div style={{ fontSize: 13, color: C.mid }}>not invited yet</div></div>
       </div>
 
+      <p style={{ fontSize: 13, color: C.mid, margin: '-6px 0 16px' }}>A shop is live when it is connected to the right listing, Google has verified that listing, our access to it works, and the shop has posts or review replies switched on.</p>
+
       <div style={card}>
         <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 2 }}>What customers did, across the network</div>
         <p style={{ fontSize: 13, color: C.mid, margin: '0 0 10px' }}>{s.totals.note}</p>
@@ -116,7 +118,7 @@ export default function ConsoleClient({ view }: { view: 'console' | 'league' | '
         </div>
         <div style={{ ...card, flex: '1 1 300px' }}>
           <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 8 }}>Most improved</div>
-          {s.topMovers.length === 0 ? <p style={{ fontSize: 13, color: C.mid, margin: 0 }}>No shop has been connected long enough to rank yet.</p> : s.topMovers.map((m: any, i: number) => (
+          {s.topMovers.length === 0 ? <p style={{ fontSize: 13, color: C.mid, margin: 0 }}>No shop can be ranked yet: each needs four full weeks since joining, and figures from the same weeks last year.</p> : s.topMovers.map((m: any, i: number) => (
             <div key={i} style={{ display: 'flex', justifyContent: 'space-between', gap: 8, padding: '6px 0', borderTop: '1px solid #eee', fontSize: 14 }}><span>{i + 1}. {m.name}{m.town ? <span style={{ color: C.soft }}>, {m.town}</span> : null}</span><span style={{ color: bandColour(m.band), fontWeight: 600, whiteSpace: 'nowrap' }}>{m.band} ({pct(m.actionsChange)})</span></div>
           ))}
           <p style={{ fontSize: 12, margin: '10px 0 0' }}><a href="/console/league" style={{ color: C.mid }}>See the full league</a></p>
@@ -133,7 +135,7 @@ export default function ConsoleClient({ view }: { view: 'console' | 'league' | '
               <tr key={i}><td style={td}>{a.name}{a.town ? <span style={{ color: C.soft }}>, {a.town}</span> : null}</td><td style={td}>{a.from}</td><td style={td}>{a.spend || '–'}</td><td style={{ ...td, color: a.flag ? C.amber : undefined }}><strong>{a.label}</strong><div style={{ fontSize: 12, color: C.mid }}>{a.detail}</div></td></tr>
             ))}</tbody>
           </table>
-          <p style={{ fontSize: 12, color: C.soft, margin: '10px 0 0' }}>The four weeks after the ads started against the same four weeks last year, set against shops with no ads measured the same way. A shop is marked when money was spent and there is no clear change. It shows what changed, not what caused it.</p>
+          <p style={{ fontSize: 12, color: C.soft, margin: '10px 0 0' }}>The four weeks after the ads started against the same four weeks last year (or the four weeks before, where a row says the listing has nothing from last year), set against shops with no ads measured the same way. A shop is marked when money was spent and there is no clear change. It shows what changed, not what caused it.</p>
         </>)}
       </div>
 
@@ -161,7 +163,7 @@ export default function ConsoleClient({ view }: { view: 'console' | 'league' | '
             <td style={{ ...td, color: bandColour(e.band), fontWeight: 600 }}>{e.band}</td><td style={td}>{pct(e.actionsChange)}</td><td style={td}>{pct(e.viewsChange)}</td></tr>
         ))}</tbody>
       </table>
-      {data.league.ranked.length === 0 && <p style={{ fontSize: 13, color: C.mid }}>No shop has been connected long enough to rank yet.</p>}
+      {data.league.ranked.length === 0 && <p style={{ fontSize: 13, color: C.mid }}>No shop can be ranked yet: each needs four full weeks since joining, and figures from the same weeks last year.</p>}
     </div>
     {data.league.excluded.length > 0 && <div style={card}>
       <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 6 }}>Not ranked yet</div>
@@ -189,7 +191,7 @@ export default function ConsoleClient({ view }: { view: 'console' | 'league' | '
           </tr>
         ))}</tbody>
       </table>
-      <p style={{ fontSize: 12, color: C.soft, marginTop: 10 }}>Contact details, review text and anything about shops&apos; customers are not shown here. Scores are shown only for shops that have joined. “Change alongside the ads” compares customer actions (calls, website clicks, direction requests) in the four weeks after the ads started with the same four weeks last year, against shops with no ads measured the same way. It shows what changed, not what caused it.</p>
+      <p style={{ fontSize: 12, color: C.soft, marginTop: 10 }}>Contact details, review text and anything about shops&apos; customers are not shown here. Scores are shown only for shops that have joined. “Change alongside the ads” compares customer actions (calls, website clicks, direction requests) in the four weeks after the ads started with the same four weeks last year (or the four weeks before, where it says so), against shops with no ads measured the same way. It shows what changed, not what caused it.</p>
     </div>
   </>);
 }

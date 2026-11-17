@@ -31,7 +31,7 @@
  * OUTPUT carries percentages and bands, never raw call or view counts.
  */
 import { totalsFor, addDaysIso, lastReportableDate, type MetricRow } from './metrics';
-import { sameWeeksLastYear, mergeRanges, actionsOf, percentOf, movedEnough, MIN_BASE_ACTIONS, type DayRange } from './year-on-year';
+import { sameWeeksLastYear, mergeRanges, actionsOf, percentOf, movedEnough, hasFigures, MIN_BASE_ACTIONS, type DayRange } from './year-on-year';
 
 export const LEAGUE_WINDOW_DAYS = 28;
 export const LEAGUE_MIN_DAYS = 24;
@@ -78,10 +78,11 @@ export function leagueWindows(activatedOn: string, now: Date) {
   };
 }
 
-/** The stored days a shop's league entry needs: last year's weeks, and from before it joined to now. Never overlapping. */
+/** The stored days a shop's league entry needs: last year's weeks, the weeks before it joined, and the latest weeks. Never overlapping. */
 export function leagueRanges(activatedOn: string, now: Date): DayRange[] {
   const w = leagueWindows(activatedOn, now);
-  return mergeRanges([{ from: w.lastYearFrom, to: w.lastYearTo }, { from: w.baselineFrom, to: w.recentTo }]);
+  // Only the three windows that are ever added up. (From before joining right through to now grows with every month a shop stays.)
+  return mergeRanges([{ from: w.lastYearFrom, to: w.lastYearTo }, { from: w.baselineFrom, to: w.baselineTo }, { from: w.recentFrom, to: w.recentTo }]);
 }
 
 const signed = (n: number) => `${n > 0 ? '+' : ''}${n}%`;
@@ -104,13 +105,15 @@ export function buildLeague(shops: LeagueInput[], now: Date = new Date()): { ran
     }
     const actionsAfter = actionsOf(after);
     const lastYear = totalsFor(s.rows, w.lastYearFrom, w.lastYearTo);
-    if (lastYear.daysWithData < LEAGUE_MIN_DAYS) {
+    // Last year's weeks must be there in full, and be real figures: a part window would be compared
+    // with a whole one, and a window of noughts is a listing that did not exist yet.
+    if (!hasFigures(lastYear, LEAGUE_WINDOW_DAYS)) {
       // Nothing from last year. Not ranked; the old comparison is shown beside the name if it can be made.
       const before = totalsFor(s.rows, w.baselineFrom, w.baselineTo);
       const actionsBefore = actionsOf(before);
       if (before.daysWithData >= LEAGUE_MIN_DAYS && actionsBefore >= LEAGUE_MIN_BASE_ACTIONS) {
         const change = percentOf(actionsBefore, actionsAfter);
-        excluded.push({ ...base, reason: `no figures from the same weeks last year, so it is not ranked. Against the four weeks before it joined: ${signed(change)} (that comparison is affected by the time of year)`, beforeJoining: { actionsChange: change, band: bandFor(actionsBefore, actionsAfter) } });
+        excluded.push({ ...base, reason: `no figures from the same weeks last year, so it is not ranked. Against the four weeks before it joined: ${movedEnough(actionsBefore, actionsAfter) ? signed(change) : 'no real change'} (that comparison is affected by the time of year)`, beforeJoining: { actionsChange: change, band: bandFor(actionsBefore, actionsAfter) } });
       } else {
         excluded.push({ ...base, reason: 'no figures from the same weeks last year, so it is not ranked' });
       }

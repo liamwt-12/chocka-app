@@ -25,6 +25,7 @@
  * Pure: takes counts, returns sentences.
  */
 import { MIN_BASE_FOR_PERCENT } from './ad-comparison';
+import { movedEnough } from './year-on-year';
 
 export function plainSummaryEnabled(env: Record<string, string | undefined> = process.env): boolean {
   return (env.MONTHLY_REPORT_PLAIN_SUMMARY || '').trim().toLowerCase() === 'on';
@@ -81,7 +82,8 @@ export function whatChanged(now: Figures | null, before: Figures | null, compare
     const a = now[key];
     if (!before) return `${label}: ${a.toLocaleString('en-GB')}.`;
     const b = before[key];
-    const move = b >= MIN_BASE_FOR_PERCENT ? Math.round(((a - b) / b) * 100) : 0;
+    // A rise or fall is only called one on a base of 20, a move of 10%, and at least three in number.
+    const move = b >= MIN_BASE_FOR_PERCENT && movedEnough(b, a) ? Math.round(((a - b) / b) * 100) : 0;
     if (Math.abs(move) < MIN_MOVE_PERCENT) return a === b ? `${label}: ${a.toLocaleString('en-GB')}, the same as ${w.the}.` : `${label}: ${a.toLocaleString('en-GB')} (${b.toLocaleString('en-GB')} ${w.inThe}).`;
     return `${label}: ${a.toLocaleString('en-GB')}, ${move > 0 ? 'up from' : 'down from'} ${b.toLocaleString('en-GB')} ${w.inThe} (${move > 0 ? '+' : ''}${move}%).`;
   });

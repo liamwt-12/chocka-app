@@ -57,7 +57,7 @@ export default function AutomationChoice({ variant, cardStyle, children, onChang
     if (!j) return;
     setS({ ...s, mode: j.mode, label: j.label, chosen: j.chosen, paused: j.paused, held: j.held, permissionOn: j.permissionOn });
     setChanging(false);
-    setNote({ ok: true, text: j.mode === 'hands_off' ? 'Hands-off is on. Thank you.' : 'Saved. We will ask you first.' });
+    setNote({ ok: true, text: j.mode === 'hands_off' ? 'Hands-off is on. Thank you.' : 'Saved. Posts and replies are off until you turn on the ones you want.' });
     onChanged?.();
   }
   async function pause(paused: boolean) {
@@ -69,6 +69,18 @@ export default function AutomationChoice({ variant, cardStyle, children, onChang
 
   // Off, or could not be loaded: the page as it was. Never a broken card.
   if (failed || !s) return <>{failed ? children : null}</>;
+  // Switch off, but the shop is paused: it must still be able to resume.
+  if (!s.enabled && s.paused) return (
+    <>
+      <div style={cardStyle}>
+        <div style={{ fontSize: 17, fontWeight: 700, fontFamily: sans, color: '#1A1A1A' }}>Paused</div>
+        <p style={{ fontSize: 15, color: '#555', margin: '2px 0 12px', fontFamily: sans }}>Nothing is being posted or replied to. Press Resume when you are ready.</p>
+        <button type="button" disabled={busy} onClick={() => pause(false)} style={{ border: 'none', borderRadius: 10, padding: '13px 18px', fontSize: 16, fontWeight: 600, cursor: 'pointer', fontFamily: sans, background: '#2D7A4F', color: '#fff' }}>Resume</button>
+        {note && <p role="status" style={{ fontSize: 14, margin: '10px 0 0', fontFamily: sans, color: note.ok ? '#2D7A4F' : '#D93025' }}>{note.text}</p>}
+      </div>
+      {children}
+    </>
+  );
   if (!s.enabled) return <>{children}</>;
 
   const C = { text: '#1A1A1A', mid: '#555', soft: '#8A8A8A', card2: '#F5F3EF', border: 'rgba(0,0,0,0.1)', green: '#2D7A4F', red: '#D93025', amberL: '#FFF8E6', amber: '#B8860B' };

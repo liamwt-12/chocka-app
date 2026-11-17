@@ -28,7 +28,7 @@
  *   before     = [start - 28, start - 1]   (the fallback)
  */
 import { totalsFor, addDaysIso, lastReportableDate, type MetricRow, type MetricTotals } from './metrics';
-import { sameWeeksLastYear, mergeRanges, type Basis, type DayRange } from './year-on-year';
+import { sameWeeksLastYear, mergeRanges, hasFigures, type Basis, type DayRange } from './year-on-year';
 
 export const WINDOW_DAYS = 28;
 /** A window needs at least this many days with stored figures to count. */
@@ -100,7 +100,8 @@ export function compareAdPeriod(
   const lastYear = totalsFor(shopRows, w.lastYearFrom, w.lastYearTo);
   const weeksBefore = totalsFor(shopRows, w.beforeFrom, w.beforeTo);
   // Last year's same weeks if the shop has them; otherwise the weeks before; otherwise nothing.
-  const basis: Basis | null = lastYear.daysWithData >= MIN_DAYS_IN_WINDOW ? 'last_year' : weeksBefore.daysWithData >= MIN_DAYS_IN_WINDOW ? 'weeks_before' : null;
+  // Last year's window must be there in full and hold real figures (not a row of noughts from before the listing existed).
+  const basis: Basis | null = hasFigures(lastYear, WINDOW_DAYS) ? 'last_year' : hasFigures(weeksBefore, MIN_DAYS_IN_WINDOW) ? 'weeks_before' : null;
   if (after.daysWithData < MIN_DAYS_IN_WINDOW || !basis) {
     return { status: 'not_enough_history', windows: w, message: `Google doesn't have enough figures for your listing, from the same weeks last year or from the four weeks before ${start}, for us to compare fairly, so we've left this out rather than guess.` };
   }
@@ -110,7 +111,7 @@ export function compareAdPeriod(
   // Shops with no ads, measured on the same basis as this shop.
   const usable = comparisonShops
     .map((rows) => ({ b: totalsFor(rows, baseFrom, baseTo), a: totalsFor(rows, w.afterFrom, w.afterTo) }))
-    .filter(({ b, a }) => b.daysWithData >= MIN_DAYS_IN_WINDOW && a.daysWithData >= MIN_DAYS_IN_WINDOW);
+    .filter(({ b, a }) => hasFigures(b, basis === 'last_year' ? WINDOW_DAYS : MIN_DAYS_IN_WINDOW) && a.daysWithData >= MIN_DAYS_IN_WINDOW);
 
   let network: { shops: number; changes: MetricChange[] } | null = null;
   if (usable.length >= MIN_COMPARISON_SHOPS) {

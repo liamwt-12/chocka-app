@@ -59,6 +59,17 @@ export function sameMonthLastYear(dayInMonth: string): DayRange & { days: number
   return { from: `${y}-${mm}-01`, to: `${y}-${mm}-${String(days).padStart(2, '0')}`, days };
 }
 
+/**
+ * Does a period really hold a listing's figures? Enough stored days is not
+ * enough on its own: Google can hand back a row of noughts for every day
+ * before a listing existed or was verified, and a period of noughts is "no
+ * figures", not "nobody looked". A listing that was really there was seen at
+ * least once in the period.
+ */
+export function hasFigures(t: Pick<MetricTotals, 'daysWithData' | 'views' | 'calls' | 'websiteClicks' | 'directions'>, minDays: number): boolean {
+  return t.daysWithData >= minDays && t.views + t.calls + t.websiteClicks + t.directions > 0;
+}
+
 /** Calls, website clicks and direction requests: what a customer actually did. */
 export const actionsOf = (t: Pick<MetricTotals, 'calls' | 'websiteClicks' | 'directions'>) => t.calls + t.websiteClicks + t.directions;
 

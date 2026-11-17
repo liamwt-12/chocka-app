@@ -14,7 +14,7 @@
  * about a shop's customers, and any score for a shop that has not joined.
  */
 import { pilotStatus, type PilotInvite, type PilotUser } from './pilot';
-import { shopStatus, type StatusInvite } from './shop-status';
+import { shopStatus, STATUS_USER_COLUMNS, type StatusInvite } from './shop-status';
 import { ADMIN_LABELS, type ConnectionStatus } from './ownership';
 import { MANAGER_EMBED } from './managed-access';
 import { loadMetricRows, loadMetricRanges, isoDate, totalsFor, previousMonth, lastReportableDate, type MetricRow } from './metrics';
@@ -75,11 +75,13 @@ export async function loadConsoleData(db: Db, tenantId: string, now: Date = new 
     ? await db.from('retailer_invites').select('id, retailer_id, status, expires_at, created_at, accepted_at, opened_at').in('retailer_id', ids)
     : { data: [] };
   // Tokens are read only to decide whether access works. They never leave this function.
-  const { data: users } = userIds.length
+  const { data: users, error: usersError } = userIds.length
     ? await db.from('users')
-        .select(`id, google_refresh_token, token_status, token_invalid_at, managed_by_user_id, ${MANAGER_EMBED}, profiles ( id, created_at, audit_score, google_location_name, review_rating, review_count, reviews_read, reviews_answered, review_snapshot_at )`)
+        .select(`id, google_refresh_token, token_status, token_invalid_at, managed_by_user_id, ${STATUS_USER_COLUMNS}, ${MANAGER_EMBED}, profiles ( id, created_at, audit_score, google_location_name, review_rating, review_count, reviews_read, reviews_answered, review_snapshot_at )`)
         .in('id', userIds)
-    : { data: [] };
+    : { data: [], error: null };
+  // A failed read is an error, not "nobody has joined": without the accounts every shop would read as not connected.
+  if (usersError) throw new Error(`could not read the accounts: ${usersError.message}`);
   const userById = new Map<string, any>((users || []).map((u: any) => [u.id, u]));
 
   const since30 = new Date(now.getTime() - 30 * 86_400_000).toISOString();
@@ -87,6 +89,7 @@ export async function loadConsoleData(db: Db, tenantId: string, now: Date = new 
   const withProfile: Array<{ shop: ConsoleShop; profileId: string; adStart: string | null; spend: number | null }> = [];
   // Each live shop's review totals, for the network rating. Only ever shown added up.
   const reviewTotals: ShopReviews[] = [];
+  const joined: Array<{ shop: ConsoleShop; profileId: string; joinedOn: string }> = [];
   const shops: ConsoleShop[] = [];
 
   for (const r of rows) {
@@ -110,20 +113,33 @@ export async function loadConsoleData(db: Db, tenantId: string, now: Date = new 
       const joinedOn = isoDate(new Date(profile.created_at));
       shop.joinedOn = joinedOn;
       shop.scoreAtActivation = profile.audit_score ?? null;
-      const { count: posts } = await db.from('scheduled_posts').select('id', { count: 'exact', head: true })
-        .eq('profile_id', profile.id).eq('status', 'published').gte('published_at', since30);
-      const { count: replies } = await db.from('review_replies').select('id, reviews!inner(profile_id)', { count: 'exact', head: true })
-        .eq('reviews.profile_id', profile.id).eq('status', 'published').gte('published_at', since30);
-      shop.postsLast30 = posts ?? 0;
-      shop.repliesLast30 = replies ?? 0;
-      // The latest four weeks, the same four weeks last year, and the weeks before joining (lib/league.ts).
-      const metricRows: MetricRow[] = await loadMetricRanges(db, profile.id, leagueRanges(joinedOn, now));
-      leagueInputs.push({ retailerId: r.id, name: r.name, town: r.town, activatedOn: joinedOn, rows: metricRows });
+      joined.push({ shop, profileId: profile.id, joinedOn });
       withProfile.push({ shop, profileId: profile.id, adStart: r.ad_start_date ?? null, spend: r.ad_spend_pence ?? null });
       reviewTotals.push({ live: full.live, rating: profile.review_rating === null || profile.review_rating === undefined ? null : Number(profile.review_rating), count: profile.review_count, read: profile.reviews_read, answered: profile.reviews_answered, snapshotAt: profile.review_snapshot_at });
     }
     shops.push(shop);
   }
+
+  // Each joined shop's counts and league figures: ten shops at a time, not one
+  // after another, and one shop's failed read leaves that shop's figures blank
+  // instead of taking the page down.
+  await inChunks(joined, 10, async ({ shop, profileId, joinedOn }) => {
+    try {
+      const { count: posts, error: postsError } = await db.from('scheduled_posts').select('id', { count: 'exact', head: true })
+        .eq('profile_id', profileId).eq('status', 'published').gte('published_at', since30);
+      const { count: replies, error: repliesError } = await db.from('review_replies').select('id, reviews!inner(profile_id)', { count: 'exact', head: true })
+        .eq('reviews.profile_id', profileId).eq('status', 'published').gte('published_at', since30);
+      // A count that could not be read is shown as unknown, not as none.
+      shop.postsLast30 = postsError ? null : posts ?? 0;
+      shop.repliesLast30 = repliesError ? null : replies ?? 0;
+      // The latest four weeks, the same four weeks last year, and the weeks before joining (lib/league.ts).
+      const metricRows: MetricRow[] = await loadMetricRanges(db, profileId, leagueRanges(joinedOn, now));
+      leagueInputs.push({ retailerId: shop.retailerId, name: shop.name, town: shop.town, activatedOn: joinedOn, rows: metricRows });
+    } catch (e) {
+      shop.improvement = 'Not worked out: the figures could not be read just now';
+      console.error(`[console] figures failed for ${shop.retailerId}: ${String((e as any)?.message).slice(0, 160)}`);
+    }
+  });
 
   // Change alongside the ads (lib/ad-spend.ts): each shop with an ad start
   // date, against the shops with none over the same weeks. Rows for the
@@ -133,11 +149,8 @@ export async function loadConsoleData(db: Db, tenantId: string, now: Date = new 
   for (const x of withProfile.filter((y) => y.adStart)) {
     try {
       const ranges = comparisonRanges(x.adStart!);
-      if (!noAdsRows.has(x.adStart!)) {
-        const sets: MetricRow[][] = [];
-        for (const n of noAds) sets.push(await loadMetricRanges(db, n.profileId, ranges));
-        noAdsRows.set(x.adStart!, sets);
-      }
+      // Ten at a time, like the monthly report does.
+      if (!noAdsRows.has(x.adStart!)) noAdsRows.set(x.adStart!, await inChunks(noAds, 10, (n) => loadMetricRanges(db, n.profileId, ranges)));
       const v = adVerdict(x.spend, compareAdPeriod(x.adStart!, await loadMetricRanges(db, x.profileId, ranges), noAdsRows.get(x.adStart!)!, now));
       x.shop.adChange = { label: v.label, detail: v.detail, flag: v.flag };
     } catch (e) { console.error(`[console] ad comparison failed for ${x.shop.retailerId}: ${String((e as any)?.message).slice(0, 160)}`); }

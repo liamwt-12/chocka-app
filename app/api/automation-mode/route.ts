@@ -24,6 +24,13 @@ import {
  */
 const MODE_COLUMNS = 'id, auto_post_enabled, auto_reply_enabled, automation_mode, automation_mode_chosen_at, automation_consent_at, automation_consent_version, automation_paused_at, retailers ( connection_status, listing_confirmed_at )';
 
+/** Every listing row for the account. Usually one; never assume so. */
+async function profileIdsOf(userId: string): Promise<string[]> {
+  const { data, error } = await supabaseAdmin.from('profiles').select('id').eq('user_id', userId);
+  if (error) throw new Error(`could not read the listing: ${error.message}`);
+  return (data || []).map((p: any) => p.id);
+}
+
 export async function GET(request: NextRequest) {
   const userId = getSessionUserId(request);
   if (!userId) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
@@ -61,22 +68,33 @@ export async function POST(request: NextRequest) {
       // goes up the moment it resumes, weeks later. (The publisher also checks
       // for a pause itself, in case one is booked in the same second.)
       let dropped = 0;
-      if (body.paused) {
-        const { data: profile } = await supabaseAdmin.from('profiles').select('id').eq('user_id', userId).maybeSingle();
-        if (profile?.id) {
-          const { data: rows, error: dropError } = await supabaseAdmin.from('scheduled_posts')
-            .update({ status: 'cancelled' }).eq('profile_id', profile.id).eq('status', PUBLISHABLE).select('id');
-          if (dropError) console.error(`[automation-mode] could not drop booked posts for user ${userId}: ${dropError.message}`);
-          dropped = rows?.length || 0;
-        }
+      const ids = await profileIdsOf(userId);
+      if (ids.length) {
+        // Pausing drops what is booked. Resuming drops anything booked whose
+        // time passed during the pause (one approved by hand while paused,
+        // or written in the same moment as the pause): nothing old goes up
+        // the moment the shop resumes.
+        const q = supabaseAdmin.from('scheduled_posts').update({ status: 'cancelled' }).in('profile_id', ids).eq('status', PUBLISHABLE);
+        const { data: rows, error: dropError } = await (body.paused ? q : q.lte('scheduled_for', now.toISOString())).select('id');
+        if (dropError) throw new Error(`could not drop booked posts: ${dropError.message}`);
+        dropped = body.paused ? rows?.length || 0 : 0;
       }
       return NextResponse.json({ ok: true, paused: body.paused, dropped, message: body.paused
         ? `Paused. Nothing will be posted or replied to until you press Resume.${dropped ? ' The post that was booked will not go up.' : ''}`
         : 'Resumed. Your next post will be written on Friday.' });
     }
 
-    const plan = planChoice({ mode: body?.mode, wordingVersion: body?.wordingVersion }, now);
+    const { data: current, error: currentError } = await supabaseAdmin.from('users').select('automation_mode').eq('id', userId).single();
+    if (currentError) throw new Error(currentError.message);
+    const wasMode: string | null = (current as any)?.automation_mode ?? null;
+    const plan = planChoice({ mode: body?.mode, wordingVersion: body?.wordingVersion, currentMode: wasMode }, now);
     if (!plan.ok) return NextResponse.json({ error: plan.error }, { status: plan.status });
+    // Permission to post unattended is not recorded on a session that could
+    // have been forged: while the old unsigned cookie is still accepted, the
+    // hands-off choice is refused.
+    if (body?.mode === 'hands_off' && (process.env.SESSION_ACCEPT_LEGACY_COOKIE || '').trim().toLowerCase() !== 'false') {
+      return NextResponse.json({ error: 'This is not available yet.' }, { status: 409 });
+    }
     const { error } = await supabaseAdmin.from('users').update(plan.update).eq('id', userId);
     if (error) throw new Error(error.message);
 
@@ -85,19 +103,28 @@ export async function POST(request: NextRequest) {
     // stopped). One whose date has passed is dropped, not published late: a
     // post written for a week that has gone is not what the shop agreed to.
     let booked = 0;
-    if (plan.update.automation_mode === 'hands_off') {
-      const { data: profile } = await supabaseAdmin.from('profiles').select('id').eq('user_id', userId).maybeSingle();
-      if (profile?.id) {
-        const { data: bookedRows, error: bookError } = await supabaseAdmin.from('scheduled_posts')
-          .update({ status: PUBLISHABLE, approved_at: now.toISOString() })
-          .eq('profile_id', profile.id).eq('status', AWAITING_APPROVAL).gt('scheduled_for', now.toISOString()).select('id');
-        if (bookError) console.error(`[automation-mode] could not book waiting posts for user ${userId}: ${bookError.message}`);
-        booked = bookedRows?.length || 0;
-        const { error: staleError } = await supabaseAdmin.from('scheduled_posts')
-          .update({ status: 'cancelled' })
-          .eq('profile_id', profile.id).eq('status', AWAITING_APPROVAL).lte('scheduled_for', now.toISOString());
-        if (staleError) console.error(`[automation-mode] could not drop out-of-date waiting posts for user ${userId}: ${staleError.message}`);
-      }
+    const ids = await profileIdsOf(userId);
+    if (plan.update.automation_mode === 'hands_off' && ids.length) {
+      // Booked WITHOUT an approval date: these were never approved one by
+      // one, and that is how they are told apart if the shop later changes
+      // its mind (below) or hands-off is switched off (the publisher).
+      const { data: bookedRows, error: bookError } = await supabaseAdmin.from('scheduled_posts')
+        .update({ status: PUBLISHABLE })
+        .in('profile_id', ids).eq('status', AWAITING_APPROVAL).gt('scheduled_for', now.toISOString()).select('id');
+      if (bookError) throw new Error(`could not book waiting posts: ${bookError.message}`);
+      booked = bookedRows?.length || 0;
+      const { error: staleError } = await supabaseAdmin.from('scheduled_posts')
+        .update({ status: 'cancelled' })
+        .in('profile_id', ids).eq('status', AWAITING_APPROVAL).lte('scheduled_for', now.toISOString());
+      if (staleError) throw new Error(`could not drop out-of-date waiting posts: ${staleError.message}`);
+    }
+    // Leaving hands-off: a post that was booked without the shop approving it
+    // itself goes back to waiting for the shop.
+    if (plan.update.automation_mode === 'ask_first' && wasMode === 'hands_off' && ids.length) {
+      const { error: backError } = await supabaseAdmin.from('scheduled_posts')
+        .update({ status: AWAITING_APPROVAL })
+        .in('profile_id', ids).eq('status', PUBLISHABLE).is('approved_at', null);
+      if (backError) throw new Error(`could not put booked posts back to waiting: ${backError.message}`);
     }
     const { data: user } = await supabaseAdmin.from('users').select(MODE_COLUMNS).eq('id', userId).single();
     return NextResponse.json({ ok: true, ...describeMode(user), held: !!automationHeld((user as any)?.retailers), booked });
