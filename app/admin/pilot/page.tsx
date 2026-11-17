@@ -25,7 +25,7 @@ const STATE_LABEL: Record<string, [string, string, string]> = {
 
 type Help = { key: string; label: string; live: boolean; needsHelp: boolean; severity: number; why: string; action: string; since: string | null; buttons: string[] };
 type Change = { id: string; when: string; what: string; before: string; after: string; source: string; status: string; undone: boolean; canUndo: boolean; whyNot: string | null };
-type Row = { working: { mode: string; label: string; paused: boolean; permissionOn: string | null; wordingVersion: string | null; postsOn: boolean; repliesOn: boolean } | null; help: Help; note: string | null; adSpendPence: number | null; adEndDate: string | null; firstLiveOn: string | null; excludedFromCount: boolean; id: string; name: string; town: string | null; contactEmail: string | null; source: string; state: string; detail: string; joinedAt: string | null; delisted: boolean; adStartDate: string | null; connection: { status: string; label: string; detail: string | null; checkedAt: string | null; nextStep: string | null } | null; voice: Voice | null; voiceUpdatedAt: string | null; voiceUpdatedBy: string | null; photos: { pending: number; approved: number } | null; review: { link: string; cardPath: string; source: 'connected' | 'baseline' } | null };
+type Row = { working: { mode: string; label: string; paused: boolean; permissionOn: string | null; wordingVersion: string | null; postsOn: boolean; repliesOn: boolean } | null; help: Help; note: string | null; adSpendPence: number | null; adEndDate: string | null; firstLiveOn: string | null; excludedFromCount: boolean; id: string; name: string; town: string | null; contactEmail: string | null; source: string; state: string; detail: string; joinedAt: string | null; delisted: boolean; adStartDate: string | null; connection: { status: string; label: string; detail: string | null; checkedAt: string | null; nextStep: string | null } | null; voice: Voice | null; voiceUpdatedAt: string | null; voiceUpdatedBy: string | null; photos: { pending: number; approved: number } | null; review: { link: string; cardPath: string; pdfPath: string; source: 'connected' | 'baseline' } | null };
 type Voice = { tone: string | null; about: string | null; specialities: string[]; signOff: string | null; wordsToUse: string[]; wordsToAvoid: string[] };
 type Minted = { retailerId: string; name?: string; ok: boolean; link?: string; expiresAt?: string; error?: string };
 
@@ -197,6 +197,22 @@ export default function PilotAdminPage() {
 
   // Is everything in place to invite shops?
   const [ready, setReady] = useState<any>(null);
+  const [cardsNote, setCardsNote] = useState('');
+  const downloadCards = async (includeUnchecked: boolean) => {
+    setBusy(true); setMsg(''); setCardsNote('');
+    try {
+      const r = await call({ action: 'review_cards', includeUnchecked });
+      const left = [r.leftOut.notConnected.length && `${r.leftOut.notConnected.length} not connected yet`, r.leftOut.noListing.length && `${r.leftOut.noListing.length} with no listing on record`].filter(Boolean).join(', ');
+      if (!r.pdfBase64) { setCardsNote(`No cards to print yet${left ? ` (left out: ${left})` : ''}.`); }
+      else {
+        const bytes = Uint8Array.from(atob(r.pdfBase64), (c) => c.charCodeAt(0));
+        const url = URL.createObjectURL(new Blob([bytes], { type: 'application/pdf' }));
+        const a = document.createElement('a'); a.href = url; a.download = r.fileName; a.click(); URL.revokeObjectURL(url);
+        setCardsNote(`${r.cards} card${r.cards === 1 ? '' : 's'} in the file${r.unchecked ? `, ${r.unchecked} of them for shops not yet connected: scan those before printing` : ''}.${left ? ` Left out: ${left}.` : ''}`);
+      }
+    } catch (e: any) { setMsg(e.message); }
+    setBusy(false);
+  };
   const [emailSample, setEmailSample] = useState<{ subject: string; html: string } | null>(null);
   const showEmail = async (key: string) => { setBusy(true); setMsg(''); try { setEmailSample(await call({ action: 'preview_email', key })); } catch (e: any) { setMsg(e.message); } setBusy(false); };
   const [retention, setRetention] = useState<any>(null);
@@ -348,6 +364,17 @@ export default function PilotAdminPage() {
             </div>
           </div>
         )}
+
+        {/* Every connected shop's review card in one print-ready file. Nothing is sent. */}
+        <div style={card}>
+          <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+            <strong style={{ fontSize: 15 }}>Review cards for the counter</strong>
+            <button onClick={() => downloadCards(false)} disabled={busy} style={btn}>Download all cards (PDF)</button>
+            <button onClick={() => { if (window.confirm('Include shops that have not connected yet?\n\nTheir link comes from the listing matched from the store list, which could be the wrong business. Scan each of those cards before printing.')) downloadCards(true); }} disabled={busy} style={{ ...btn, background: 'transparent', color: C.text, textDecoration: 'underline', padding: '2px 4px' }}>Include shops not yet connected</button>
+          </div>
+          <p style={{ color: C.mid, fontSize: 13, margin: '6px 0 0' }}>One A6 card per page, in name order, with 3 mm of bleed for a printer. Each has the shop&apos;s name, town and a code that opens its Google review page. No customer data and no contact details. Each shop&apos;s own card is under &ldquo;PDF&rdquo; in its row.</p>
+          {cardsNote && <p role="status" style={{ color: C.text, fontSize: 13, margin: '6px 0 0' }}>{cardsNote}</p>}
+        </div>
 
         {/* Emails that are switched off, to read before switching them on. Nothing is sent. */}
         <div style={card}>
@@ -550,6 +577,7 @@ export default function PilotAdminPage() {
                           <>
                             <button onClick={() => copyReviewLink(r)} title={r.review.link} style={{ ...btn, background: 'transparent', color: C.text, padding: '2px 6px', textDecoration: 'underline' }}>Copy link</button>
                             {r.review.cardPath && <a href={r.review.cardPath} target="_blank" rel="noreferrer" style={{ color: C.text, fontSize: 13, fontWeight: 600, padding: '2px 6px' }}>Card</a>}
+                            {r.review.pdfPath && <a href={r.review.pdfPath} title="Print-ready A6 PDF, with bleed, for a printer" style={{ color: C.text, fontSize: 13, fontWeight: 600, padding: '2px 6px' }}>PDF</a>}
                             {r.review.source === 'baseline' && <span title="This shop has not connected its listing yet, so the link uses the listing matched from Tarkett's store list. Scan the card and check it opens the right shop before printing." style={{ color: C.amber, fontSize: 12 }}> check first</span>}
                           </>
                         ) : <span style={{ color: C.soft }} title="No Google place ID on record for this shop yet. It appears once the shop connects its listing.">No listing yet</span>}

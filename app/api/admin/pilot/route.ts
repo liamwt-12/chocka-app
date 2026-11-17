@@ -16,6 +16,7 @@ import { retentionEnabled, retentionCsv } from '@/lib/retention';
 import { loadRetention } from '@/lib/retention-data';
 import { describeMode, handsOffEnabled } from '@/lib/automation-mode';
 import { emailPreview, EMAIL_PREVIEWS } from '@/lib/email-previews';
+import { loadBulkCards, cardsPdfFor } from '@/lib/review-card-data';
 import {
   verifyAdminAuth, validateNewRetailer, pilotStatus, mintInvites, parseAdStartDate,
   PILOT_TENANT_SLUG, MANUAL_SOURCE, type PilotInvite, type PilotUser,
@@ -39,6 +40,7 @@ import {
  * POST { action: 'confirm_listing', retailerId }         a person confirms a "check listing" shop connected the right listing
  * POST { action: 'mark_bounced', retailerId, bounced }   the invitation bounced or went to the wrong person (we never see this ourselves)
  * POST { action: 'set_note', retailerId, note }          a short note from whoever is helping
+ * POST { action: 'review_cards', includeUnchecked? }      every connected shop's review card as one print-ready A6 PDF
  * POST { action: 'preview_email', key? }                  read an email that is switched off, with made-up content; sends nothing
  * POST { action: 'set_voice', retailerId, voice }           save how a shop's posts and replies should sound (lib/voice.ts)
  *
@@ -146,6 +148,16 @@ export async function POST(request: NextRequest) {
         if (!retentionEnabled()) return NextResponse.json({ enabled: false });
         const r = await loadRetention(supabaseAdmin, tenantRow.id);
         return NextResponse.json({ enabled: true, ...r, csv: retentionCsv(r.rows) });
+      }
+
+      case 'review_cards': {
+        // Every connected shop's review card in one print-ready A6 file, one
+        // card per page, in name order. Names, towns and public Google review
+        // links only: no customer data and no contact details. Nothing is sent.
+        const bulk = await loadBulkCards(supabaseAdmin, tenantRow.id, { includeUnchecked: body.includeUnchecked === true });
+        if (!bulk.cards.length) return NextResponse.json({ cards: 0, leftOut: bulk.leftOut, pdfBase64: null });
+        const pdf = cardsPdfFor(getTenantBySlug(PILOT_TENANT_SLUG), bulk.cards, 'Review cards');
+        return NextResponse.json({ cards: bulk.cards.length, unchecked: bulk.cards.filter((c) => c.source === 'baseline').length, leftOut: bulk.leftOut, fileName: `review-cards-${new Date().toISOString().slice(0, 10)}.pdf`, pdfBase64: pdf.toString('base64') });
       }
 
       case 'preview_email': {
@@ -273,6 +285,11 @@ async function profileForRetailer(retailerId: unknown, tenantId: string): Promis
 function safeCardPath(retailerId: string): string {
   try { return reviewCardPath(retailerId); } catch { return ''; }
 }
+/** The same shop's card as a print-ready PDF: the same signed address, under /api. */
+function safeCardPdfPath(retailerId: string): string {
+  const p = safeCardPath(retailerId);
+  return p ? `/api${p}` : '';
+}
 
 async function list(tenantId: string) {
   const { data: retailers, error } = await supabaseAdmin
@@ -343,7 +360,7 @@ async function list(tenantId: string) {
       voiceUpdatedAt: r.voice_updated_at ?? null,
       voiceUpdatedBy: r.voice_updated_by ?? null,
       photos: photoCounts.get(r.id) ?? null,
-      review: reviewLink && place ? { link: reviewLink, cardPath: safeCardPath(r.id), source: place.source } : null,
+      review: reviewLink && place ? { link: reviewLink, cardPath: safeCardPath(r.id), pdfPath: safeCardPdfPath(r.id), source: place.source } : null,
       connection: r.connection_status ? { status: r.connection_status, label: ADMIN_LABELS[r.connection_status as ConnectionStatus] ?? r.connection_status, detail: r.connection_detail, checkedAt: r.connection_checked_at, nextStep: SHOP_MESSAGES[r.connection_status as ConnectionStatus]?.nextStep ?? null } : null,
       state: status.state,
       detail: status.detail,
