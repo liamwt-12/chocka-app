@@ -280,7 +280,10 @@ describe('dummy run on staging', () => {
     await step('readiness', 'the launch check finds every database change in place, and never shows a secret', async () => {
       const r = await admin('admin/pilot', { action: 'readiness' });
       need(r.status === 200, `readiness gave ${r.status}`);
-      const missing = r.data.checks.database.filter((c: any) => c.ok !== true);
+      // A rule that cannot be read back (no column) is listed for a person to confirm, never claimed as checked.
+      const toConfirm = r.data.checks.database.filter((c: any) => String(c.key).startsWith('rule:'));
+      need(toConfirm.length >= 1 && toConfirm.every((c: any) => c.ok === null && /Confirm migration/.test(c.detail)), `rules to confirm by hand: ${JSON.stringify(toConfirm).slice(0, 200)}`);
+      const missing = r.data.checks.database.filter((c: any) => !String(c.key).startsWith('rule:') && c.ok !== true);
       need(missing.length === 0, `not in the staging database: ${missing.map((c: any) => c.detail).join(' | ')}`);
       for (const secret of [process.env.ADMIN_PASSWORD!, process.env.CRON_SECRET!, process.env.SESSION_SECRET!, process.env.SUPABASE_SERVICE_ROLE_KEY!, process.env.SECRET_ENCRYPTION_KEY!]) need(!r.text.includes(secret), 'THE READINESS CHECK PRINTED A SECRET');
       need(r.data.checks.settings.find((c: any) => c.key === 'WELCOME_EMAIL').detail.startsWith('Off'), 'the welcome email is not reported as off');
@@ -414,8 +417,8 @@ describe('dummy run on staging', () => {
     await step('ownership', '/admin/pilot shows the statuses, review links and nothing secret', async () => {
       const r = await admin('admin/pilot', { action: 'list' });
       const by = (k: string) => r.data.retailers.find((x: any) => x.id === shops[k].retailerId);
-      // A has connected the right, verified listing and switched nothing on: connected, NOT live.
-      need(by('a').state === 'connected_not_live' && by('a').help.label === 'Nothing switched on' && by('a').help.needsHelp && by('a').help.buttons.length === 0, `A is ${by('a').state} / ${by('a').help.label}`);
+      // A has connected the right, verified listing and switched nothing on: LIVE (billable), and flagged as quiet.
+      need(by('a').state === 'live' && by('a').help.label === 'Nothing switched on' && by('a').help.needsHelp && by('a').help.buttons.length === 0, `A is ${by('a').state} / ${by('a').help.label}`);
       need(by('g').state === 'invited', `G is ${by('g').state}`);
       // The wrong listing and the unverified listing are connected, and are NOT live.
       need(by('b').state === 'connected_not_live' && by('b').help.label === 'Check listing' && by('b').help.buttons.includes('confirm_listing'), `B is ${by('b').state} / ${by('b').help.label}`);
@@ -486,11 +489,11 @@ describe('dummy run on staging', () => {
       await call('account/delete', 'PATCH', '/api/account/delete', { cookie: A().cookie, body: { phone_number: PHONE } });
       return 'saved; removed; saved again for the later checks';
     });
-    await step('live', 'a shop is live once it has switched posts or replies on, and not before', async () => {
+    await step('live', 'a live shop stops being flagged as quiet once it has switched posts or replies on', async () => {
       const row = (await adminList()).find((x) => x.id === A().retailerId);
       need(row.state === 'live' && !row.help.needsHelp, `with posts and replies on, A is ${row.state} / ${row.help.label}`);
       need(row.working?.postsOn && row.working?.repliesOn && row.working.label === 'Ask me first (not chosen yet)', `how A works, as the admin page shows it: ${JSON.stringify(row.working)}`);
-      return 'A: connected_not_live ("Nothing switched on") until it switched posts and replies on, then live';
+      return 'A was live and flagged "Nothing switched on"; with posts and replies on it is live and no longer flagged';
     });
     await step('hours', 'opening hours are never guessed: with nothing confirmed, nothing is written', async () => {
       for (const bad of [undefined, [], week({})]) {
@@ -809,32 +812,30 @@ describe('dummy run on staging', () => {
       need(bad.status === 400 && ok.status === 200, `bad ${bad.status}, good ${ok.status}`);
       return `ads started ${AD_START}`;
     });
-    await step('live', 'connected shops with nothing switched on are not live or counted; each becomes live when the shop itself switches something on; Pause takes it out again', async () => {
+    await step('live', 'live does not depend on the switches: a shop with nothing on, or paused, is live and billable, and is flagged so it is not invisible', async () => {
       const row = async (k: string) => (await adminList()).find((x) => x.id === shops[k].retailerId);
-      for (const k of ['d', 'e']) { const r = await row(k); need(r.state === 'connected_not_live' && r.help.label === 'Nothing switched on', `${k.toUpperCase()} with nothing on is ${r.state} / ${r.help.label}`); }
-      // B was confirmed by a person, and still has nothing on.
-      need((await row('b')).help.label === 'Nothing switched on', `B is ${(await row('b')).help.label}`);
+      for (const k of ['b', 'd', 'e']) { const r = await row(k); need(r.state === 'live' && r.help.label === 'Nothing switched on' && r.help.needsHelp, `${k.toUpperCase()} with nothing on is ${r.state} / ${r.help.label}`); }
       // No admin action switches anything on for a shop. The shops do it themselves.
       for (const k of ['b', 'c', 'd', 'e']) {
         const r = await call('account/delete', 'PATCH', '/api/account/delete', { cookie: shops[k].cookie, body: { auto_reply_enabled: true } });
         need(r.status === 200, `shop ${k} could not switch replies on (${r.status})`);
       }
-      for (const k of ['b', 'd', 'e']) need((await row(k)).state === 'live', `${k.toUpperCase()} with replies on is ${(await row(k)).state}`);
-      // C has something on, but Google has not verified its listing: the earlier reason still comes first.
-      need((await row('c')).help.label === 'Waiting on Google', `C is ${(await row('c')).help.label}`);
-      // Pause: one tap, works with the hands-off switch off, and the shop is not live while paused.
+      for (const k of ['b', 'd', 'e']) { const r = await row(k); need(r.state === 'live' && !r.help.needsHelp, `${k.toUpperCase()} with replies on is ${r.state} / ${r.help.label}`); }
+      // C has something on, but Google has not verified its listing: that does stop it being live.
+      need((await row('c')).state === 'connected_not_live' && (await row('c')).help.label === 'Waiting on Google', `C is ${(await row('c')).help.label}`);
+      // Pause: one tap, works with the hands-off switch off. The shop is still live: only disconnecting stops that.
       const paused = await call('automation-mode', 'POST', '/api/automation-mode', { cookie: shops.e.cookie, body: { paused: true } });
       need(paused.status === 200 && paused.data.paused === true, `pause gave ${paused.status} ${paused.text.slice(0, 120)}`);
       const p = await row('e');
-      need(p.state === 'connected_not_live' && p.help.label === 'Paused by the shop' && p.working.paused, `paused, E is ${p.state} / ${p.help.label}`);
+      need(p.state === 'live' && p.help.label === 'Paused by the shop' && p.help.needsHelp && p.working.paused, `paused, E is ${p.state} / ${p.help.label}`);
       const resumed = await call('automation-mode', 'POST', '/api/automation-mode', { cookie: shops.e.cookie, body: { paused: false } });
-      need(resumed.data.paused === false && (await row('e')).state === 'live', 'after Resume, E is not live again');
+      need(resumed.data.paused === false && !(await row('e')).help.needsHelp, 'after Resume, E is still flagged');
       // A few reviews from before the shops joined, so the network has a rating to add up later.
       addReview(listingOf('d'), 'rev-d-old-5', 'FIVE', 90, 'Great carpet, thank you.', 'Dora Oldfive', true);
       addReview(listingOf('d'), 'rev-d-old-4', 'FOUR', 80, 'Good job.', 'Dan Oldfour');
       addReview(listingOf('e'), 'rev-e-old-5', 'FIVE', 70, 'Lovely floor.', 'Eve Oldfive', true);
       addReview(listingOf('c'), 'rev-c-old-3', 'THREE', 75, 'LOWSTAR-MARKER-C it was all right in the end', 'Cal Oldthree');
-      return 'B, D, E: "Nothing switched on" and not live; live once each switched replies on itself; C still "Waiting on Google"; paused E is not live until it resumes';
+      return 'B, D, E: live and flagged "Nothing switched on" until each switched replies on itself; C not live while "Waiting on Google"; paused E stays live and is flagged "Paused by the shop"';
     });
     await step('report', 'the other connected shops have their history pulled too', async () => {
       const got: string[] = [];
@@ -855,12 +856,13 @@ describe('dummy run on staging', () => {
       const b = await retailerRow('b');
       need(b.connection_status === 'check_listing' && b.listing_confirmed_at, 'the daily check wiped a person\'s "this is right"');
       // The same run marks today's live shops for the monthly count; a second run the same day adds nothing.
-      // A, B, D and E have something switched on. C is not verified yet at the start of this run, and
-      // F connected and never switched anything on: neither is counted.
-      need(sync.data.liveCount?.live === 4 && sync.data.liveCount.marked === 4, `live count: ${JSON.stringify(sync.data.liveCount)}`);
+      // A, B, D, E and F are connected to verified listings. F never switched anything on and is counted
+      // all the same: what is switched on does not decide it. C is not verified yet at the start of this run.
+      need(sync.data.liveCount?.live === 5 && sync.data.liveCount.marked === 5, `live count: ${JSON.stringify(sync.data.liveCount)}`);
       const monthNow = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/London', year: 'numeric', month: '2-digit' }).format(new Date());
       const { data: counted } = await db.from('live_months').select('retailer_id').eq('month', monthNow);
-      need(!(counted || []).some((m: any) => m.retailer_id === shops.f.retailerId) && (await adminList()).find((x) => x.id === shops.f.retailerId).help.label === 'Nothing switched on', 'F, connected with nothing switched on, was counted as live');
+      const f = (await adminList()).find((x) => x.id === shops.f.retailerId);
+      need((counted || []).some((m: any) => m.retailer_id === shops.f.retailerId) && f.state === 'live' && f.help.label === 'Nothing switched on' && f.help.needsHelp, `F, connected with nothing switched on, should be counted and flagged: ${f.state} / ${f.help.label}`);
       await db.from('profiles').update({ metrics_synced_at: new Date(Date.now() - 2 * DAY).toISOString() }).eq('id', shops.d.profileId);
       // The count is taken at the start of a run, so the next run picks up shop C,
       // which only became live during the first. After that, nobody is marked twice.
@@ -910,6 +912,13 @@ describe('dummy run on staging', () => {
 
     await step('statement', 'the month\'s live shops are listed by name; the cap is money and the credit is worked out from settings, never from code', async () => {
       const month = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/London', year: 'numeric', month: '2-digit' }).format(new Date());
+      // No statement at all until the term dates are set.
+      const none = await admin('admin/pilot', { action: 'statement', month });
+      need(none.status === 409 && none.data.notAvailable === true && /BILLING_TERM_START and BILLING_TERM_END/.test(none.data.error) && !none.data.statement, `with no term set the statement action gave ${none.status} ${none.text.slice(0, 160)}`);
+      process.env.BILLING_TERM_START = iso(new Date(Date.now() - 500 * DAY));
+      const half = await admin('admin/pilot', { action: 'statement', month });
+      need(half.status === 409 && /BILLING_TERM_END is missing/.test(half.data.error), `with one date set: ${half.status} ${half.text.slice(0, 160)}`);
+      process.env.BILLING_TERM_END = iso(new Date(Date.now() + 500 * DAY));
       const plain = await admin('admin/pilot', { action: 'statement', month });
       need(plain.status === 200 && plain.data.statement.money === null, `with no price set the statement should show counts only: ${plain.text.slice(0, 160)}`);
       const names: string[] = plain.data.statement.lines.map((l: any) => l.name);
@@ -917,10 +926,6 @@ describe('dummy run on staging', () => {
       need(plain.data.statement.provisional === true, 'the month in progress should be marked provisional');
       process.env.BILLING_PRICE_PENCE_PER_SHOP = '1000'; process.env.BILLING_MONTHLY_CAP_PENCE = '2500';
       try {
-        // A cap with no term dates is NOT applied, and the statement says so.
-        const noTerm = (await admin('admin/pilot', { action: 'statement', month })).data;
-        need(noTerm.statement.cap.applies === false && noTerm.statement.cap.reason === 'no_term' && noTerm.statement.money.creditPence === 0 && noTerm.statement.money.totalPence === noTerm.statement.liveShops * 1000, `a cap with no term: ${JSON.stringify(noTerm.statement.cap)} ${JSON.stringify(noTerm.statement.money)}`);
-        need(noTerm.csv.includes('the cap has NOT been applied') && !/Credit: above the monthly cap/.test(noTerm.csv), 'the spreadsheet does not say the cap was not applied');
         // A term that ended last month: no cap, no credit line, and it says the term has ended.
         const lastMonthEnd = iso(new Date(Date.UTC(Number(month.slice(0, 4)), Number(month.slice(5, 7)) - 1, 0)));
         process.env.BILLING_TERM_START = iso(new Date(Date.parse(lastMonthEnd) - 400 * DAY)); process.env.BILLING_TERM_END = lastMonthEnd;
@@ -942,7 +947,7 @@ describe('dummy run on staging', () => {
         const ex = await admin('admin/pilot', { action: 'set_excluded', retailerId: shops.e.retailerId, excluded: true });
         need(ex.status === 200, `set_excluded gave ${ex.status}`);
         await admin('admin/pilot', { action: 'set_excluded', retailerId: shops.e.retailerId, excluded: false });
-        return `${n} live shops by name; a cap in money: the excess is one credit line and the total adds up; a shop not live on the deciding day is listed and not counted; the cap is applied only inside its term (not with no term dates, and not after the term has ended); figures and dates here are made-up test settings`;
+        return `${n} live shops by name; a cap in money: the excess is one credit line and the total adds up; a shop not live on the deciding day is listed and not counted; no statement is produced until both term dates are set; the cap is applied only inside its term, and not after it has ended; figures and dates here are made-up test settings`;
       } finally { delete process.env.BILLING_PRICE_PENCE_PER_SHOP; delete process.env.BILLING_MONTHLY_CAP_PENCE; delete process.env.BILLING_TERM_START; delete process.env.BILLING_TERM_END; }
     });
 
@@ -1071,10 +1076,10 @@ describe('dummy run on staging', () => {
       return 'refused until SESSION_ACCEPT_LEGACY_COOKIE=false';
     });
     process.env.SESSION_ACCEPT_LEGACY_COOKIE = 'false';
-    await step('hands-off', 'the shop makes one choice; it is recorded as its permission, with the time and the wording version; out-of-date wording is refused', async () => {
+    await step('hands-off', 'the shop presses one of two buttons; the choice is recorded as its permission, with the time and the wording version; out-of-date wording is refused', async () => {
       const got = await mode('d');
       need(got.data.enabled && got.data.offeredFirst === 'hands_off' && got.data.chosen === false && got.data.mode === 'ask_first', `the choice as offered: ${got.text.slice(0, 200)}`);
-      need(got.data.handsOff.permission.includes('Stellar Local') && /until you tell us to stop/.test(got.data.handsOff.permission) && got.data.handsOff.points.some((x: string) => /Pause and Undo/.test(x)), 'the wording shown does not carry the permission, or pause and undo');
+      need(got.data.handsOff.button === 'Start hands-off' && got.data.askFirst.button === 'Ask me first' && got.data.handsOff.permission.includes('Stellar Local') && /until you tell us to stop/.test(got.data.handsOff.permission) && got.data.handsOff.points.some((x: string) => /Pause and Undo/.test(x)), 'the wording shown does not carry the permission, or pause and undo');
       // Offered first is not chosen: nothing has been switched on for the shop.
       const before = await userRow('d');
       need(before.automation_mode === null && before.auto_post_enabled === false, `hands-off was applied without the shop choosing it: ${JSON.stringify(before)}`);
@@ -1091,7 +1096,7 @@ describe('dummy run on staging', () => {
       need(row.working.label === 'Hands-off' && row.working.permissionOn && row.working.wordingVersion === got.data.wordingVersion && row.state === 'live', `the admin page shows: ${JSON.stringify(row.working)}`);
       // The other shops are untouched: nobody else is in hands-off.
       for (const k of ['a', 'b', 'c', 'e']) need((await userRow(k)).automation_mode === null, `shop ${k} was put into a mode it did not choose`);
-      return `offered first, not applied; recorded with the time and wording version ${u.automation_consent_version}; visible in /admin/pilot; nobody else changed`;
+      return `two buttons, hands-off recommended, nothing chosen until one is pressed; recorded with the time and wording version ${u.automation_consent_version}; visible in /admin/pilot; nobody else changed`;
     });
 
     await step('hands-off', 'the weekly post is booked without waiting for approval, the shop is sent it first, and it goes up at its time', async () => {
@@ -1126,7 +1131,7 @@ describe('dummy run on staging', () => {
       const calls = world.modelCalls.slice(calls0);
       need(calls.length === 1 && !/LOWSTAR/.test(calls[0].user), `model calls: ${calls.length}`);
       const mail = world.emails.slice(em0).filter((e) => e.to === EMAIL('d'));
-      need(mail.length === 1 && /we have replied for you/.test(mail[0].subject) && mail[0].html.includes('Thank you for your feedback, Lola.') && /undo it in Settings/.test(mail[0].html), `the shop was not told (${mail.map((e) => e.subject)})`);
+      need(mail.length === 1 && /we have replied for you/.test(mail[0].subject) && mail[0].html === '' && mail[0].text.includes('Thank you for your feedback, Lola.') && /undo it in Settings/.test(mail[0].text), `the shop was not told (${mail.map((e) => e.subject)})`);
       const { data: stored } = await db.from('review_replies').select('status, reply_content, reviews!inner(profile_id, google_review_id)').eq('reviews.profile_id', shops.d.profileId).eq('reviews.google_review_id', 'rev-d-new-2');
       need(stored?.length === 1 && stored[0].status === 'published', `the holding reply is recorded as ${stored?.map((x: any) => x.status)}`);
       const again = await cron('review-alerts');
@@ -1184,11 +1189,11 @@ describe('dummy run on staging', () => {
       need((await postsOf('d')).length === count && listingOf('d').posts.length === onGoogle, 'A POST WAS WRITTEN OR PUBLISHED FOR A PAUSED SHOP');
       need(!listingOf('d').reviews.find((x) => x.reviewId === 'rev-d-paused-1')!.reviewReply, 'A REPLY WAS POSTED FOR A PAUSED SHOP');
       const row = (await adminList()).find((x) => x.id === shops.d.retailerId);
-      need(row.working.paused && row.help.label === 'Paused by the shop' && row.state === 'connected_not_live', `paused, the admin page shows ${row.help.label}`);
+      need(row.working.paused && row.help.label === 'Paused by the shop' && row.state === 'live' && row.help.needsHelp, `paused, the admin page shows ${row.state} / ${row.help.label}`);
       dropReview('d', 'rev-d-paused-1');
       const resumed = await mode('d', { paused: false });
-      need(resumed.data.paused === false && (await userRow('d')).automation_paused_at === null && (await adminList()).find((x) => x.id === shops.d.retailerId).state === 'live', 'Resume did not clear the pause');
-      return 'booked post dropped; nothing written, published or replied to while paused; shown as paused and not live; Resume clears it';
+      need(resumed.data.paused === false && (await userRow('d')).automation_paused_at === null && !(await adminList()).find((x) => x.id === shops.d.retailerId).help.needsHelp, 'Resume did not clear the pause');
+      return 'booked post dropped; nothing written, published or replied to while paused; still live, and flagged as paused; Resume clears it';
     });
 
     await step('hands-off', 'back to "Ask me first": the next post waits for approval again, and the record of the permission is kept', async () => {
@@ -1207,7 +1212,7 @@ describe('dummy run on staging', () => {
       await cron('post-publisher');
       need(listingOf('d').posts.length === onGoogle, 'A POST WENT UP AFTER THE SHOP CHOSE "ASK ME FIRST"');
       await call('posts/manage', 'POST', '/api/posts/manage', { cookie: shops.d.cookie, body: { id: bookedByMode.id, action: 'skip' } });
-      need((await adminList()).find((x) => x.id === shops.d.retailerId).help.label === 'Nothing switched on', 'after leaving hands-off with nothing switched on, D still reads as live');
+      need((await adminList()).find((x) => x.id === shops.d.retailerId).help.label === 'Nothing switched on', 'after leaving hands-off with nothing switched on, D is not flagged as quiet');
       // The shop then turns posts on itself, as any shop does.
       await call('account/delete', 'PATCH', '/api/account/delete', { cookie: shops.d.cookie, body: { auto_post_enabled: true, auto_reply_enabled: true } });
       u = await userRow('d');
@@ -1217,7 +1222,7 @@ describe('dummy run on staging', () => {
       const latest = (await postsOf('d')).pop();
       need(latest.status === 'awaiting_approval', `in "ask me first" with one post published, D's next post is ${latest.status} (generator: ${JSON.stringify(gen.data)}; D's posts: ${(await postsOf('d')).map((x: any) => `${x.status}@${String(x.scheduled_for).slice(0, 10)}`).join(', ')}; D: ${JSON.stringify(u)})`);
       await call('posts/manage', 'POST', '/api/posts/manage', { cookie: shops.d.cookie, body: { id: latest.id, action: 'skip' } });
-      return 'both switches go off; a post booked under hands-off goes back to waiting and does not go up; the shop is no longer live until it switches something on itself; its next post waits for approval; the earlier permission stays on record';
+      return 'both switches go off; a post booked under hands-off goes back to waiting and does not go up; the shop is flagged "Nothing switched on" until it switches something on itself; its next post waits for approval; the earlier permission stays on record';
     });
     delete process.env.HANDS_OFF_MODE; delete process.env.SESSION_ACCEPT_LEGACY_COOKIE;
 
@@ -1229,11 +1234,11 @@ describe('dummy run on staging', () => {
       const u = await userRow('d');
       need(isHandsOff(u) === false && postNeedsApproval(u, 0, 3) === true, 'a stored hands-off choice still had an effect with the switch off');
       // The switches that choice turned on do not count either: not for posts, replies, or being live.
-      need((await adminList()).find((x) => x.id === shops.d.retailerId).help.label === 'Nothing switched on', 'with hands-off switched off, a shop that only chose hands-off still reads as live');
+      need((await adminList()).find((x) => x.id === shops.d.retailerId).help.label === 'Nothing switched on', 'with hands-off switched off, a shop that only chose hands-off is not flagged as quiet');
       const before = (await postsOf('d')).length; await ageAllPosts('d'); await cron('post-generator');
       need((await postsOf('d')).length === before, 'a post was written on the strength of a hands-off choice that is switched off');
       await db.from('users').update({ automation_mode: 'ask_first' }).eq('id', shops.d.userId);
-      return 'refused; a shop recorded as hands-off is treated as "ask me first", is not live on the strength of it, and has nothing written for it';
+      return 'refused; a shop recorded as hands-off is treated as "ask me first", is flagged as having nothing switched on, and has nothing written for it';
     });
 
     await step('alerts', 'with the switch off, a shop with replies off hears nothing about a new review, as before', async () => {
@@ -1262,7 +1267,7 @@ describe('dummy run on staging', () => {
       addReview(listingOf('e'), 'rev-e-new-5', 'FIVE', 0, 'Brilliant job on the stairs.', 'Gail Goodnews');
       await cron('review-alerts');
       const mail = world.emails.slice(em0).filter((e) => e.to === EMAIL('e'));
-      need(mail.length === 1 && /New 5-star review/.test(mail[0].subject) && mail[0].html.includes('Replies are switched off, so we have not replied.') && mail[0].html.includes('Gail Goodnews'), `E's email: ${mail.map((e) => e.subject)}`);
+      need(mail.length === 1 && /New 5-star review/.test(mail[0].subject) && mail[0].html === '' && mail[0].text.includes('Replies are switched off, so we have not replied.') && mail[0].text.includes('Gail Goodnews'), `E's email: ${mail.map((e) => e.subject)}`);
       need(!listingOf('e').reviews.find((x) => x.reviewId === 'rev-e-new-5')!.reviewReply && !listingOf('e').reviews.find((x) => x.reviewId === 'rev-e-before-5')!.reviewReply, 'A REPLY WAS POSTED FOR A SHOP WITH REPLIES OFF');
       need(world.modelCalls.length === calls0, 'a reply was written for a shop with replies off');
       const again = await cron('review-alerts');
@@ -1275,7 +1280,7 @@ describe('dummy run on staging', () => {
       const em0 = world.emails.length, calls0 = world.modelCalls.length;
       await cron('review-alerts');
       const mail = world.emails.slice(em0).filter((e) => e.to === EMAIL('e'));
-      need(mail.length === 1 && /needs your input/.test(mail[0].subject), `E's email about the low review: ${mail.map((e) => e.subject)}`);
+      need(mail.length === 1 && /needs your input/.test(mail[0].subject) && mail[0].html === '' && /We have NOT replied/.test(mail[0].text) && /action=approve/.test(mail[0].text), `E's email about the low review: ${mail.map((e) => e.subject)}`);
       need(!listingOf('e').reviews.find((x) => x.reviewId === 'rev-e-new-2')!.reviewReply, 'A HOLDING REPLY WAS POSTED WITHOUT APPROVAL');
       need(world.modelCalls.length === calls0, 'the model was called for a low review');
       const dash = await call('dashboard', 'GET', '/api/dashboard', { cookie: shops.e.cookie });
@@ -1288,7 +1293,7 @@ describe('dummy run on staging', () => {
       const em0 = world.emails.length;
       await cron('review-alerts');
       const mine = world.emails.slice(em0).filter((e) => e.to === EMAIL('a'));
-      need(mine.length === 1 && /New 5-star review/.test(mine[0].subject) && mine[0].html.includes('We replied for you:') && la().reviews.find((x) => x.reviewId === 'rev-a-alert-5')!.reviewReply, `A's email: ${mine.map((e) => e.subject)}`);
+      need(mine.length === 1 && /New 5-star review/.test(mine[0].subject) && mine[0].html === '' && mine[0].text.includes('We replied for you:') && la().reviews.find((x) => x.reviewId === 'rev-a-alert-5')!.reviewReply, `A's email: ${mine.map((e) => e.subject)}`);
       need(world.emails.slice(em0).every((e) => [EMAIL('a')].includes(e.to)), `other shops were emailed: ${world.emails.slice(em0).map((e) => e.to)}`);
       return 'the email shows the review and the reply we posted; no other shop was emailed';
     });
@@ -1309,7 +1314,7 @@ describe('dummy run on staging', () => {
       try {
         const on = await cron('post-previews');
         const mail = world.emails.slice(em0).filter((e) => e.to === EMAIL('e'));
-        need(on.data.sent >= 1 && mail.length === 1 && /Approve your Google post/.test(mail[0].subject) && /action=approve/.test(mail[0].html) && /action=skip/.test(mail[0].html) && /If you do nothing, nothing is posted/.test(mail[0].html), `with it on: ${JSON.stringify(on.data)}, ${mail.map((e) => e.subject)}`);
+        need(on.data.sent >= 1 && mail.length === 1 && /Approve your Google post/.test(mail[0].subject) && mail[0].html === '' && /action=approve/.test(mail[0].text) && /action=skip/.test(mail[0].text) && /If you do nothing, nothing is posted/.test(mail[0].text) && !/<[a-z]/i.test(mail[0].text), `with it on: ${JSON.stringify(on.data)}, ${mail.map((e) => e.subject)}`);
         const twice = await cron('post-previews');
         need(world.emails.slice(em0).filter((e) => e.to === EMAIL('e')).length === 1 && twice.status === 200, 'the preview email was sent twice');
         need((await db.from('scheduled_posts').select('status').eq('id', waiting.id).single()).data.status === 'awaiting_approval', 'sending the preview changed the post');
@@ -1325,10 +1330,38 @@ describe('dummy run on staging', () => {
       need(list.data.previews?.length === 5, `previews listed: ${list.text.slice(0, 120)}`);
       for (const p of list.data.previews) {
         const one = await admin('admin/pilot', { action: 'preview_email', key: p.key });
-        need(one.status === 200 && one.data.subject && one.data.html.includes('Example') && !/invalid\.example|ZZ-TEST/.test(one.data.html), `sample ${p.key}: ${one.status}`);
+        need(one.status === 200 && one.data.subject && one.data.text.includes('Example') && !/invalid\.example|ZZ-TEST|<[a-z]/i.test(one.data.text), `sample ${p.key}: ${one.status}`);
       }
       need(world.emails.length === em0, 'reading a sample sent an email');
       return '5 samples, all made-up content, nothing sent';
+    });
+
+    await step('operator rows', 'an account made through an operator account starts with posts and replies off, whatever the insert says; an ordinary account is untouched', async () => {
+      const { randomUUID } = await import('node:crypto');
+      const { data: tenant } = await db.from('tenants').select('id').eq('slug', 'stellar').single();
+      const make = async (key: string, extra: Record<string, unknown>) => {
+        const id = randomUUID();
+        const ins = await db.from('users').insert({ id, email: EMAIL(key), name: `${TEST_PREFIX}Managed ${key}`, referral_code: `zz${id.slice(0, 8)}`, tenant_id: tenant.id, ...extra }).select('auto_post_enabled, auto_reply_enabled').single();
+        need(!ins.error, `could not insert the test account ${key}: ${ins.error?.message}`);
+        return { id, row: ins.data };
+      };
+      // Left to the database's defaults (which are "on"): the rule sets both off.
+      const byDefault = await make('managed-default', { managed_by_user_id: A().userId });
+      need(byDefault.row.auto_post_enabled === false && byDefault.row.auto_reply_enabled === false, `a managed account left to the defaults came out ${JSON.stringify(byDefault.row)}`);
+      // Even if the insert asks for them on.
+      const askedOn = await make('managed-on', { managed_by_user_id: A().userId, auto_post_enabled: true, auto_reply_enabled: true });
+      need(askedOn.row.auto_post_enabled === false && askedOn.row.auto_reply_enabled === false, `a managed account inserted with both on came out ${JSON.stringify(askedOn.row)}`);
+      // An account that is not managed keeps the defaults: the other brand relies on them.
+      const ordinary = await make('ordinary', {});
+      need(ordinary.row.auto_post_enabled === true && ordinary.row.auto_reply_enabled === true, `an ordinary account's defaults changed: ${JSON.stringify(ordinary.row)}`);
+      // After that it is the account's own to change: the rule is for the insert only.
+      const later = await db.from('users').update({ auto_reply_enabled: true }).eq('id', byDefault.id).select('auto_reply_enabled').single();
+      need(later.data?.auto_reply_enabled === true, 'a managed account could not switch replies on afterwards');
+      // And no notice would be addressed to it: the address on it is not known to be the shop's own.
+      const { shopContactEmail } = await mod('lib/shop-notices.ts');
+      need(shopContactEmail({ email: EMAIL('managed-default'), managed_by_user_id: A().userId }) === null && shopContactEmail({ email: EMAIL('a') }) === EMAIL('a'), 'the notice address rule is wrong');
+      await db.from('users').delete().in('id', [byDefault.id, askedOn.id, ordinary.id]);
+      return 'managed account: both switches off on insert, by default and when asked for on; ordinary account unchanged; can be switched on afterwards; never sent a notice';
     });
 
     await step('review card', 'a print-ready A6 PDF per shop at its signed address, and one file of every connected shop; names, towns and public links only', async () => {
@@ -1338,6 +1371,7 @@ describe('dummy run on staging', () => {
       const res = await get(A().retailerId!, reviewCardSignature(A().retailerId!));
       const pdf = Buffer.from(await res.arrayBuffer());
       need(res.status === 200 && res.headers.get('content-type') === 'application/pdf' && pdf.subarray(0, 8).toString('latin1') === '%PDF-1.4' && pdf.toString('latin1').endsWith('%%EOF\n'), `A's card: ${res.status} ${res.headers.get('content-type')}`);
+      need(/\/BaseFont \/Lato-Regular/.test(pdf.toString('latin1')) && /\/BaseFont \/Lato-Bold/.test(pdf.toString('latin1')) && (pdf.toString('latin1').match(/\/FontFile2 \d+ 0 R/g) || []).length === 2 && !/Helvetica/.test(pdf.toString('latin1')), 'the card does not embed Lato Regular and Bold');
       need((pdf.toString('latin1').match(/\/Type \/Page \/Parent/g) || []).length === 1 && /\/TrimBox \[8\.5 8\.5 306\.14 428\.03\]/.test(pdf.toString('latin1')), 'the card is not one A6 page with its trim marked');
       need((await get(A().retailerId!)).status === 404 && (await get(A().retailerId!, 'f'.repeat(32))).status === 404, 'the card was given out without its signature');
       const bulk = await admin('admin/pilot', { action: 'review_cards' });
@@ -1353,7 +1387,7 @@ describe('dummy run on staging', () => {
       need(noAuth.status === 401, `the bulk file without the admin password gave ${noAuth.status}`);
       // Nothing about a customer or a contact can be in it: the loader reads only the name, town and listing id.
       need(!/@|07700/.test(JSON.stringify({ ...bulk.data, pdfBase64: '' })), 'the bulk response carries a contact detail');
-      return `one A6 page with trim and bleed for shop A; refused without the signature; bulk file of ${connected} connected shops, one page each, G left out unless asked for; admin password needed`;
+      return `one A6 page with trim and bleed for shop A, set in embedded Lato; refused without the signature; bulk file of ${connected} connected shops, one page each, G left out unless asked for; admin password needed`;
     });
 
     // ════════ 9b. Google access lost; hours, holiday hours and website from Settings; undo ════════
