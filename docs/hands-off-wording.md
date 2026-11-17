@@ -33,7 +33,7 @@ Button: **Yes, look after it for me**
 
 > Nothing goes on your listing unless you have said yes to it.
 >
-> - Posts and review replies stay off until you turn them on.
+> - Posts and review replies are off until you turn them on.
 > - You approve your first three posts before they go up.
 > - A reply to a 1, 2 or 3 star review always waits for you.
 
@@ -51,6 +51,15 @@ Button: **Ask me first**
 
 The server refuses a hands-off choice that does not name the current wording
 version, so a permission can always be matched to the words that were shown.
+
+## What happens when a shop changes its mind, or the switch is turned off
+
+- **Choosing "Ask me first" after Hands-off** turns posts and replies off again, and a post that was booked without the shop approving it itself goes back to waiting. The shop then turns on what it wants.
+- **Pause** drops any booked post. Nothing is written, published or replied to until Resume, and a review that arrives meanwhile is not answered afterwards.
+- **If `HANDS_OFF_MODE` is switched off**, a shop that chose Hands-off is treated as "Ask me first": the switches that choice turned on do not count, and a booked post among its first three goes back to waiting.
+- **If the wording changes**, give it a new version and decide whether the old version stays on the accepted list (`ACCEPTED_WORDING_VERSIONS`). A permission against a version that is not on the list stops counting, and the shop is asked again.
+- The holding reply is only posted on its own for a review **left after** the permission was given, and only when the rating is plainly 1, 2 or 3 stars.
+- The choice cannot be recorded until the old unsigned sign-in cookie is refused (`SESSION_ACCEPT_LEGACY_COOKIE=false`).
 
 ## Questions for the solicitor
 

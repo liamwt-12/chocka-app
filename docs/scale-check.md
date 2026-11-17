@@ -282,3 +282,22 @@ Unchanged from the table at the top of this document: every job finishes inside 
 - **The old day-by-day welcome sequence still sends nothing.** It is replaced by one welcome email at connection, off unless switched on.
 - **The model's own rate limit is not known.** A busy answer is now retried twice.
 - **What the simulation cannot show:** calls made side by side do not slow each other; the timings are assumed; Google's real limits have not been observed.
+
+## Re-run for the retention build (#64 to #69)
+
+Both were run again on the head of #69: the scale check at 10, 180 and 500 shops (58 pass) and the simulation of 92 shops in one week (38 pass). Run it: the two commands above.
+
+One thing in these PRs adds work to a scheduled job: **the hourly figures job now also reads each listing's reviews once a day**, to note its rating, its review count and how many have a reply (#68). Measured in the simulation at 92 shops, on the same listings before and after:
+
+| | Before | After |
+|---|---|---|
+| Every shop due its daily refresh, one run | 19.3 s | 19.6 s |
+| 92 history pulls that failed at onboarding, retried hourly | done in 9 of the day's 24 runs | done in 11 of 24 |
+| Longest single run | 19.7 s | 19.3 s |
+
+So it fits, with room. The simulated listings have few reviews; a listing with several hundred costs a few more requests on its one run a day, and the job stops on time and carries on at the next run as before.
+
+Two things are **not** measured here:
+
+- **With `REVIEW_ALERT_EMAILS` on, the review job looks at every connected shop**, not only those with replies on. The simulation already runs that job across all 92 shops with replies on (44 runs in the working day, every shop reached), which is the same number of shops looked at, so the cost is the one in the table at the top. It has not been run with the switch on and replies off for most shops.
+- **Opening the console.** The league and the monthly summary now read last year's figures as well as this year's: four reads of stored figures per joined shop where there were two. That is a page a person opens, not a scheduled job, and it has not been timed at 92 or 180 shops.

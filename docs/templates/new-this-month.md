@@ -49,9 +49,9 @@ For the {SHOPS_COMPARED} shops with both months in full, {MONTH} against {EARLIE
 
 These are Google's own figures, added up. They show what happened, not why.
 
-## Against each shop's starting point
+## Against the same weeks last year
 
-{RISING} shops are rising, {STEADY} steady, {FALLING} falling, and {TOO_EARLY} have not been connected long enough to say.
+{RISING} shops are rising, {STEADY} steady, {FALLING} falling, and {TOO_EARLY} cannot be said yet (connected less than four weeks, or no figures from last year).
 
 Most improved this month: {TOP_1}, {TOP_2}, {TOP_3}.
 

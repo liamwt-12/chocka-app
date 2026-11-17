@@ -923,11 +923,11 @@ describe('dummy run on staging', () => {
         need(noTerm.csv.includes('the cap has NOT been applied') && !/Credit: above the monthly cap/.test(noTerm.csv), 'the spreadsheet does not say the cap was not applied');
         // A term that ended last month: no cap, no credit line, and it says the term has ended.
         const lastMonthEnd = iso(new Date(Date.UTC(Number(month.slice(0, 4)), Number(month.slice(5, 7)) - 1, 0)));
-        process.env.BILLING_TERM_START = iso(new Date(Date.parse(lastMonthEnd) - 80 * DAY)); process.env.BILLING_TERM_END = lastMonthEnd;
+        process.env.BILLING_TERM_START = iso(new Date(Date.parse(lastMonthEnd) - 400 * DAY)); process.env.BILLING_TERM_END = lastMonthEnd;
         const ended = (await admin('admin/pilot', { action: 'statement', month })).data;
         need(ended.statement.cap.reason === 'after_term' && ended.statement.money.creditPence === 0 && ended.statement.shopsAboveCap === 0 && /the term ended on/.test(ended.csv), `after the term: ${JSON.stringify(ended.statement.cap)}`);
         // A term this month falls inside: the cap applies, as below.
-        process.env.BILLING_TERM_START = iso(new Date(Date.now() - 20 * DAY)); process.env.BILLING_TERM_END = iso(new Date(Date.now() + 70 * DAY));
+        process.env.BILLING_TERM_START = iso(new Date(Date.now() - 500 * DAY)); process.env.BILLING_TERM_END = iso(new Date(Date.now() + 500 * DAY));
         const r = await admin('admin/pilot', { action: 'statement', month });
         need(r.data.statement.cap.applies === true && r.data.csv.includes('The cap applies for the term,'), `inside the term: ${JSON.stringify(r.data.statement.cap)}`);
         const st = r.data.statement, n = st.liveShops;
@@ -1064,6 +1064,13 @@ describe('dummy run on staging', () => {
 
     process.env.HANDS_OFF_MODE = 'on';
     let handsOffPostId = '';
+    await step('hands-off', 'permission is not recorded while a forgeable sign-in cookie is still accepted', async () => {
+      const got = await mode('d');
+      const tried = await mode('d', { mode: 'hands_off', wordingVersion: got.data.wordingVersion });
+      need(tried.status === 409 && (await userRow('d')).automation_mode === null, `with the old cookie still accepted, the choice gave ${tried.status}`);
+      return 'refused until SESSION_ACCEPT_LEGACY_COOKIE=false';
+    });
+    process.env.SESSION_ACCEPT_LEGACY_COOKIE = 'false';
     await step('hands-off', 'the shop makes one choice; it is recorded as its permission, with the time and the wording version; out-of-date wording is refused', async () => {
       const got = await mode('d');
       need(got.data.enabled && got.data.offeredFirst === 'hands_off' && got.data.chosen === false && got.data.mode === 'ask_first', `the choice as offered: ${got.text.slice(0, 200)}`);
@@ -1185,18 +1192,34 @@ describe('dummy run on staging', () => {
     });
 
     await step('hands-off', 'back to "Ask me first": the next post waits for approval again, and the record of the permission is kept', async () => {
+      // A post booked under hands-off, still to come, when the shop changes its mind.
+      await ageAllPosts('d');
+      await cron('post-generator');
+      const bookedByMode = (await postsOf('d')).find((x: any) => x.status === 'pending_approval');
+      need(bookedByMode && !bookedByMode.approved_at, `no post booked under hands-off before switching back: ${(await postsOf('d')).map((x: any) => x.status)}`);
       const back = await mode('d', { mode: 'ask_first' });
-      const u = await userRow('d');
-      need(back.data.mode === 'ask_first' && u.automation_mode === 'ask_first' && u.automation_consent_at && u.auto_post_enabled === true, `after switching back: ${JSON.stringify(u)}`);
+      let u = await userRow('d');
+      // Leaving hands-off turns off what it turned on, and the booked post waits for the shop again.
+      need(back.data.mode === 'ask_first' && u.automation_mode === 'ask_first' && u.automation_consent_at && u.auto_post_enabled === false && u.auto_reply_enabled === false, `after switching back: ${JSON.stringify(u)}`);
+      need((await db.from('scheduled_posts').select('status').eq('id', bookedByMode.id).single()).data.status === 'awaiting_approval', 'the post booked under hands-off was left to go up after the shop chose "ask me first"');
+      await makeDue(bookedByMode.id);
+      const onGoogle = listingOf('d').posts.length;
+      await cron('post-publisher');
+      need(listingOf('d').posts.length === onGoogle, 'A POST WENT UP AFTER THE SHOP CHOSE "ASK ME FIRST"');
+      await call('posts/manage', 'POST', '/api/posts/manage', { cookie: shops.d.cookie, body: { id: bookedByMode.id, action: 'skip' } });
+      need((await adminList()).find((x) => x.id === shops.d.retailerId).help.label === 'Nothing switched on', 'after leaving hands-off with nothing switched on, D still reads as live');
+      // The shop then turns posts on itself, as any shop does.
+      await call('account/delete', 'PATCH', '/api/account/delete', { cookie: shops.d.cookie, body: { auto_post_enabled: true, auto_reply_enabled: true } });
+      u = await userRow('d');
       await ageAllPosts('d');
       await db.from('scheduled_posts').update({ scheduled_for: new Date(Date.now() - 20 * DAY).toISOString() }).eq('profile_id', shops.d.profileId).eq('status', 'cancelled');
       const gen = await cron('post-generator');
       const latest = (await postsOf('d')).pop();
       need(latest.status === 'awaiting_approval', `in "ask me first" with one post published, D's next post is ${latest.status} (generator: ${JSON.stringify(gen.data)}; D's posts: ${(await postsOf('d')).map((x: any) => `${x.status}@${String(x.scheduled_for).slice(0, 10)}`).join(', ')}; D: ${JSON.stringify(u)})`);
       await call('posts/manage', 'POST', '/api/posts/manage', { cookie: shops.d.cookie, body: { id: latest.id, action: 'skip' } });
-      return 'the next post waits for the shop; the earlier permission stays on record';
+      return 'both switches go off; a post booked under hands-off goes back to waiting and does not go up; the shop is no longer live until it switches something on itself; its next post waits for approval; the earlier permission stays on record';
     });
-    delete process.env.HANDS_OFF_MODE;
+    delete process.env.HANDS_OFF_MODE; delete process.env.SESSION_ACCEPT_LEGACY_COOKIE;
 
     await step('hands-off', 'switched off again, a stored choice has no effect', async () => {
       const got = await mode('d', { mode: 'hands_off', wordingVersion: 'x' });
@@ -1205,8 +1228,12 @@ describe('dummy run on staging', () => {
       const { isHandsOff, postNeedsApproval } = await mod('lib/automation-mode.ts');
       const u = await userRow('d');
       need(isHandsOff(u) === false && postNeedsApproval(u, 0, 3) === true, 'a stored hands-off choice still had an effect with the switch off');
+      // The switches that choice turned on do not count either: not for posts, replies, or being live.
+      need((await adminList()).find((x) => x.id === shops.d.retailerId).help.label === 'Nothing switched on', 'with hands-off switched off, a shop that only chose hands-off still reads as live');
+      const before = (await postsOf('d')).length; await ageAllPosts('d'); await cron('post-generator');
+      need((await postsOf('d')).length === before, 'a post was written on the strength of a hands-off choice that is switched off');
       await db.from('users').update({ automation_mode: 'ask_first' }).eq('id', shops.d.userId);
-      return 'refused; a shop recorded as hands-off is treated as "ask me first"';
+      return 'refused; a shop recorded as hands-off is treated as "ask me first", is not live on the strength of it, and has nothing written for it';
     });
 
     await step('alerts', 'with the switch off, a shop with replies off hears nothing about a new review, as before', async () => {
