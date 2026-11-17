@@ -49,6 +49,7 @@ export function settingChecks(env: Env = process.env): Check[] {
   out.push({ key: 'CRON_ACCEPT_QUERY_SECRET', label: 'Job secret only accepted in a header', ok: querySecret ? null : true, detail: querySecret ? 'The secret is still accepted in the address as well. Set CRON_ACCEPT_QUERY_SECRET=false once the schedulers use the header.' : 'Header only.' });
   out.push({ key: 'WELCOME_EMAIL', label: 'Welcome email (one, after a shop connects)', ok: null, detail: isOn(env, 'WELCOME_EMAIL') ? 'ON. Each shop gets one email when it connects.' : 'Off. Set WELCOME_EMAIL=on to send it.' });
   out.push({ key: 'EARLY_POST_PREVIEW_EMAILS', label: 'Preview email for posts waiting for approval', ok: null, detail: isOn(env, 'EARLY_POST_PREVIEW_EMAILS') ? 'ON. Shops are emailed about posts waiting for approval.' : 'Off. Shops approve posts on their dashboard.' });
+  out.push({ key: 'HANDS_OFF_MODE', label: 'Hands-off mode (the shop chooses: we post and reply without asking each time)', ok: null, detail: isOn(env, 'HANDS_OFF_MODE') ? 'ON. A shop that connects is offered Hands-off or Ask me first, and for a shop that chose Hands-off posts and replies go out without further approval. Check the wording was reviewed first.' : 'Off. Every shop is asked first, as before. Set HANDS_OFF_MODE=on once the wording has been reviewed.' });
   out.push({ key: 'SHOP_PHOTOS', label: 'Photos', ok: null, detail: isOn(env, 'SHOP_PHOTOS') ? `ON${isOn(env, 'SHOP_PHOTOS_TO_LISTING') ? ', and photos can be added to the listing itself' : ''}.` : 'Off.' });
   out.push({ key: 'RETENTION_VIEW', label: 'Retention view (which shops are drifting)', ok: null, detail: isOn(env, 'RETENTION_VIEW') ? 'ON. Admin can see it, and the app records when each shop last opened its dashboard.' : 'Off. Set RETENTION_VIEW=on to use it.' });
   out.push({ key: 'MONTHLY_REPORT_PLAIN_SUMMARY', label: 'Monthly report: "what we did, what changed" in words', ok: null, detail: isOn(env, 'MONTHLY_REPORT_PLAIN_SUMMARY') ? 'ON. The monthly report opens with a plain summary.' : 'Off. The monthly report is as it was.' });
@@ -80,6 +81,7 @@ export const SCHEMA_PROBES: Array<{ migration: string; label: string; table: str
   { migration: '20261117110000_ad_spend_and_live_months', label: 'Ad spend and first-live date', table: 'retailers', columns: 'ad_spend_pence, ad_end_date, first_live_on, exclude_from_count' },
   { migration: '20261117110000_ad_spend_and_live_months', label: 'Monthly count of live shops', table: 'live_months', columns: 'month, retailer_id, live_days' },
   { migration: '20261118090000_user_last_seen', label: 'When a shop last opened its dashboard', table: 'users', columns: 'last_seen_at' },
+  { migration: '20261119090000_automation_mode', label: 'Hands-off or ask me first, and Pause', table: 'users', columns: 'automation_mode, automation_mode_chosen_at, automation_consent_at, automation_consent_version, automation_paused_at' },
 ];
 
 export interface ReadinessDb { from(table: string): any }

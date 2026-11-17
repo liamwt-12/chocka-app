@@ -72,6 +72,14 @@ export interface Tenant {
   fundedBy?: string;
 
   /**
+   * Which option the "how should we work?" choice offers first
+   * (lib/automation-mode.ts). It is the option shown selected on the screen,
+   * nothing more: a shop is only ever in hands-off because it chose it.
+   * Unset means ask me first.
+   */
+  defaultAutomationMode?: 'hands_off' | 'ask_first';
+
+  /**
    * Where this tenant's retailer records came from, when they were NOT collected
    * from the retailer themselves.
    *
@@ -213,6 +221,7 @@ const STELLAR_BASE: Omit<Tenant, 'appUrl' | 'appHost' | 'emailFrom'> = {
   priceMonthlyPence: 0,
   proofLocation: 'UK',
   fundedBy: 'Tarkett',
+  defaultAutomationMode: 'hands_off',
   // The 180 retailer records behind the Stellar pilot were taken from Tarkett's
   // public store locator on 2026-06-21, not collected from the retailers. 105 of
   // the captured email addresses have non-generic local parts and are therefore

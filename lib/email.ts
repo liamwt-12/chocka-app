@@ -258,3 +258,45 @@ export function postApprovalEmail(params: {
     <p style="font-size: 13px; color: #777; margin: 20px 0 0; line-height: 1.6;"><strong>If you do nothing, nothing is posted.</strong> ${after}</p>
   `, t);
 }
+
+const escHtml = (v: string) => String(v ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' } as Record<string, string>)[c]);
+
+/**
+ * Hands-off only (lib/automation-mode.ts): a 1 to 3 star review came in and
+ * the fixed holding reply has ALREADY been posted, as the shop agreed. This
+ * tells the shop what was said, and that it can undo it or reply itself.
+ */
+export function holdingReplyPostedEmail(params: {
+  businessName: string;
+  reviewerName: string;
+  rating: number;
+  comment: string;
+  reply: string;
+  settingsUrl: string;
+  tenant?: Tenant;
+}): string {
+  const t = params.tenant ?? getTenant();
+  const brand = t.palette.brandStrong;
+  const stars = '★'.repeat(params.rating) + '☆'.repeat(Math.max(0, 5 - params.rating));
+  return emailWrapper(`
+    <p style="font-size: 15px; line-height: 1.6; margin: 0 0 6px;">Hello,</p>
+    <p style="font-size: 15px; line-height: 1.6; margin: 0 0 24px; color: #555;">${escHtml(params.businessName)} has a new ${params.rating}-star review. You asked us to look after replies for you, so we have posted a short, polite reply that asks the customer to contact you. Nothing else has been said on your behalf.</p>
+
+    <div style="background: #F0EDE8; border-radius: 12px; padding: 18px; margin-bottom: 20px;">
+      <div style="margin-bottom: 8px;">
+        <span style="font-weight: 600; font-size: 14px;">${escHtml(params.reviewerName)}</span>
+        <span style="color: #B8860B; font-size: 14px; margin-left: 8px;">${stars}</span>
+      </div>
+      <p style="font-size: 14px; color: #555; line-height: 1.55; margin: 0;">${escHtml(params.comment) || '(no comment left)'}</p>
+    </div>
+
+    <p style="font-size: 13px; color: #999; margin: 0 0 8px;">The reply we posted:</p>
+    <div style="background: #FFF0EB; border-left: 3px solid ${brand}; border-radius: 0 12px 12px 0; padding: 16px 16px 16px 14px; margin-bottom: 24px;">
+      <p style="font-size: 14px; color: #1A1A1A; line-height: 1.55; margin: 0;">${escHtml(params.reply)}</p>
+    </div>
+
+    <p style="font-size: 14px; color: #555; margin: 0 0 20px; line-height: 1.6;">You may want to get in touch with this customer yourself. If you would rather the reply was not there, or want to write your own, you can undo it in Settings.</p>
+    <a href="${params.settingsUrl}" style="display: inline-block; background: #1A1A1A; color: #fff; padding: 12px 20px; border-radius: 8px; text-decoration: none; font-size: 14px; font-weight: 600;">Open Settings</a>
+    <p style="font-size: 13px; color: #777; margin: 20px 0 0; line-height: 1.6;">To have these wait for you instead, choose &ldquo;Ask me first&rdquo; in Settings. You can also pause everything there.</p>
+  `, t);
+}

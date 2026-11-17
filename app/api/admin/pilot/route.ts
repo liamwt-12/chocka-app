@@ -14,6 +14,7 @@ import { describeChange, undoChange } from '@/lib/revert';
 import { settingChecks, schemaChecks, dataChecks, summary } from '@/lib/readiness';
 import { retentionEnabled, retentionCsv } from '@/lib/retention';
 import { loadRetention } from '@/lib/retention-data';
+import { describeMode, handsOffEnabled } from '@/lib/automation-mode';
 import {
   verifyAdminAuth, validateNewRetailer, pilotStatus, mintInvites, parseAdStartDate,
   PILOT_TENANT_SLUG, MANUAL_SOURCE, type PilotInvite, type PilotUser,
@@ -282,7 +283,7 @@ async function list(tenantId: string) {
   const { data: users } = userIds.length
     ? await supabaseAdmin
         .from('users')
-        .select(`id, created_at, onboarding_step, google_refresh_token, token_status, token_invalid_at, managed_by_user_id, ${MANAGER_EMBED}, profiles ( google_location_name, google_place_id )`)
+        .select(`id, created_at, onboarding_step, auto_post_enabled, auto_reply_enabled, automation_mode, automation_consent_at, automation_consent_version, automation_paused_at, google_refresh_token, token_status, token_invalid_at, managed_by_user_id, ${MANAGER_EMBED}, profiles ( google_location_name, google_place_id )`)
         .in('id', userIds)
     : { data: [] as any[] };
   const userById = new Map<string, PilotUser>((users || []).map((u: any) => [u.id, u]));
@@ -341,10 +342,12 @@ async function list(tenantId: string) {
       connectedListing: user?.profiles?.[0]?.google_location_name ? { placeId: user?.profiles?.[0]?.google_place_id ?? null } : null,
       joinedAt: user?.created_at ?? null,
       accessVia: user ? (resolveAccess(user).via ?? null) : null,
+      // Hands-off or ask me first, as in force (lib/automation-mode.ts), and what is switched on.
+      working: user ? { ...describeMode(user as any), postsOn: !!(user as any).auto_post_enabled, repliesOn: !!(user as any).auto_reply_enabled } : null,
     };
   });
 
   const counts = out.reduce((acc: Record<string, number>, r: any) => { acc[r.state] = (acc[r.state] || 0) + 1; return acc; }, {});
   const needsHelp = out.filter((r: any) => r.help.needsHelp).length;
-  return { retailers: out, counts, needsHelp, liveRules: rules, photosEnabled };
+  return { retailers: out, counts, needsHelp, liveRules: rules, photosEnabled, handsOffEnabled: handsOffEnabled() };
 }

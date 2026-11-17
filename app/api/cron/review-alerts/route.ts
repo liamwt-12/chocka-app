@@ -6,13 +6,14 @@ import { loggedReplyToReview } from '@/lib/change-log';
 import { generateReviewReply } from '@/lib/ai';
 import { loadVoiceForUser } from '@/lib/voice';
 import { sendSMS, logSMS } from '@/lib/twilio';
-import { sendEmail, reviewAlertEmail } from '@/lib/email';
+import { sendEmail, reviewAlertEmail, holdingReplyPostedEmail } from '@/lib/email';
 import { getTenantForRow } from '@/lib/tenant';
 import { decryptSecret, userTokenAad } from '@/lib/secrets';
 import { resolveAccess } from '@/lib/managed-access';
 import { splitNewReviews, reviewKey, BACKLOG_DAYS, REVIEWS_CONFLICT_TARGET } from '@/lib/review-intake';
 import { holdingReply } from '@/lib/safe-automation';
 import { startBudget, rotateForRun, runIndex, selectAll } from '@/lib/cron-budget';
+import { holdingReplyGoesOut, isPaused } from '@/lib/automation-mode';
 
 /**
  * How far the starting point moves each run. Coverage depends on every run
@@ -48,7 +49,7 @@ export async function GET(request: NextRequest) {
     // rest never. Checking a shop twice is harmless: a review already seen is
     // skipped.
     const budget = startBudget(BUDGET_MS);
-    const eligible = rotateForRun<any>(users.filter((u: any) => u.auto_reply_enabled && u.profiles?.[0]), runIndex(EVERY_MINUTES), STRIDE);
+    const eligible = rotateForRun<any>(users.filter((u: any) => u.auto_reply_enabled && !isPaused(u) && u.profiles?.[0]), runIndex(EVERY_MINUTES), STRIDE);
     let checked = 0;
 
     for (const user of eligible) {
@@ -193,6 +194,11 @@ export async function GET(request: NextRequest) {
                 status: 'pending',
               });
             }
+          } else if (holdingReplyGoesOut(user) && await postHoldingReply({ user, profile, accessToken, review, newReview, replyContent, reviewerName, rating, comment, t })) {
+            // Hands-off (lib/automation-mode.ts): the fixed holding reply has
+            // gone out, as the shop agreed, and the shop has been told. If it
+            // could not be posted, the branch below runs instead and the reply
+            // waits for the shop exactly as it would in "ask me first".
           } else {
             // Store as pending for 1-3 star reviews — needs manual approval
             await supabaseAdmin.from('review_replies').insert({
@@ -248,4 +254,42 @@ export async function GET(request: NextRequest) {
     console.error('Review alerts cron failed:', err);
     return NextResponse.json({ error: 'Cron failed' }, { status: 500 });
   }
+}
+
+/**
+ * Hands-off: publish the fixed holding reply to a low-star review and tell the
+ * shop. Returns false, having stored nothing, if Google would not take it, so
+ * the caller can leave the reply waiting for the shop instead.
+ *
+ * The wording is holdingReply() and nothing else: no AI text is ever written
+ * for a low-star review, in any mode.
+ */
+async function postHoldingReply(x: { user: any; profile: any; accessToken: string; review: any; newReview: any; replyContent: string; reviewerName: string; rating: number; comment: string; t: ReturnType<typeof getTenantForRow> }): Promise<boolean> {
+  try {
+    await loggedReplyToReview(
+      { db: supabaseAdmin, source: 'review-alerts', userId: x.user.id, profileId: x.profile.id },
+      x.accessToken, x.review.name, x.replyContent, x.review.reviewReply?.comment ?? null,
+    );
+  } catch (err) {
+    console.error(`[cron:review-alerts] hands-off holding reply could not be posted for review ${x.newReview.id}; left waiting for the shop:`, String((err as any)?.message).slice(0, 200));
+    return false;
+  }
+  const { error } = await supabaseAdmin.from('review_replies').insert({
+    review_id: x.newReview.id, reply_content: x.replyContent, status: 'published', published_at: new Date().toISOString(),
+  });
+  if (error) console.error(`[cron:review-alerts] holding reply posted but not recorded for review ${x.newReview.id}: ${error.message}`);
+  // Told, every time. A failed email is logged loudly: the reply is public and
+  // the shop does not yet know about it.
+  if (x.user.email) {
+    const ok = await sendEmail({
+      to: x.user.email,
+      subject: `${x.rating}-star review for ${x.profile.business_name}: we have replied for you`,
+      html: holdingReplyPostedEmail({ businessName: x.profile.business_name, reviewerName: x.reviewerName, rating: x.rating, comment: x.comment, reply: x.replyContent, settingsUrl: `${x.t.appUrl}/settings`, tenant: x.t }),
+      tenant: x.t,
+    });
+    if (!ok) console.error(`[cron:review-alerts] HOLDING REPLY POSTED BUT THE SHOP WAS NOT TOLD (email failed) for user ${x.user.id}, review ${x.newReview.id}`);
+  } else {
+    console.error(`[cron:review-alerts] HOLDING REPLY POSTED BUT THE SHOP HAS NO EMAIL ADDRESS to be told at: user ${x.user.id}, review ${x.newReview.id}`);
+  }
+  return true;
 }

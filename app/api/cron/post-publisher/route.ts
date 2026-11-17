@@ -10,6 +10,7 @@ import { decryptSecret, userTokenAad } from '@/lib/secrets';
 import { resolveAccess, MANAGER_EMBED } from '@/lib/managed-access';
 import { photoUrlForPost } from '@/lib/shop-photos';
 import { startBudget } from '@/lib/cron-budget';
+import { isPaused } from '@/lib/automation-mode';
 
 /**
  * Most posts this route will publish in a single invocation.
@@ -72,6 +73,9 @@ export async function GET(request: NextRequest) {
       // The post is left exactly as it is and goes out once the hold lifts.
       const hold = automationHeld(user.retailers);
       if (hold) { console.log(`[cron:post-publisher] post ${post.id} held: ${hold}`); continue; }
+      // Paused by the shop (lib/automation-mode.ts): the post stays booked and
+      // goes out on the first run after the shop presses Resume.
+      if (isPaused(user)) { console.log(`[cron:post-publisher] post ${post.id} not published: the shop has paused`); continue; }
 
       // Per post, not per run — one pass serves every tenant.
       const t = getTenantForRow(user);
