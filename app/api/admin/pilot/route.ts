@@ -15,6 +15,7 @@ import { settingChecks, schemaChecks, dataChecks, summary } from '@/lib/readines
 import { retentionEnabled, retentionCsv } from '@/lib/retention';
 import { loadRetention } from '@/lib/retention-data';
 import { describeMode, handsOffEnabled } from '@/lib/automation-mode';
+import { emailPreview, EMAIL_PREVIEWS } from '@/lib/email-previews';
 import {
   verifyAdminAuth, validateNewRetailer, pilotStatus, mintInvites, parseAdStartDate,
   PILOT_TENANT_SLUG, MANUAL_SOURCE, type PilotInvite, type PilotUser,
@@ -38,6 +39,7 @@ import {
  * POST { action: 'confirm_listing', retailerId }         a person confirms a "check listing" shop connected the right listing
  * POST { action: 'mark_bounced', retailerId, bounced }   the invitation bounced or went to the wrong person (we never see this ourselves)
  * POST { action: 'set_note', retailerId, note }          a short note from whoever is helping
+ * POST { action: 'preview_email', key? }                  read an email that is switched off, with made-up content; sends nothing
  * POST { action: 'set_voice', retailerId, voice }           save how a shop's posts and replies should sound (lib/voice.ts)
  *
  * There is deliberately no 'send' action. Tarkett makes first contact.
@@ -144,6 +146,15 @@ export async function POST(request: NextRequest) {
         if (!retentionEnabled()) return NextResponse.json({ enabled: false });
         const r = await loadRetention(supabaseAdmin, tenantRow.id);
         return NextResponse.json({ enabled: true, ...r, csv: retentionCsv(r.rows) });
+      }
+
+      case 'preview_email': {
+        // Read an email that is switched off, with made-up content, before
+        // deciding to switch it on. Returns HTML; sends nothing.
+        if (!body.key) return NextResponse.json({ previews: EMAIL_PREVIEWS });
+        const preview = emailPreview(String(body.key), getTenantBySlug(PILOT_TENANT_SLUG));
+        if (!preview) return NextResponse.json({ error: 'No such email' }, { status: 404 });
+        return NextResponse.json(preview);
       }
 
       case 'readiness': {

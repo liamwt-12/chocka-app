@@ -6,7 +6,7 @@ import { loggedReplyToReview } from '@/lib/change-log';
 import { generateReviewReply } from '@/lib/ai';
 import { loadVoiceForUser } from '@/lib/voice';
 import { sendSMS, logSMS } from '@/lib/twilio';
-import { sendEmail, reviewAlertEmail, holdingReplyPostedEmail } from '@/lib/email';
+import { sendEmail, reviewAlertEmail, holdingReplyPostedEmail, newReviewEmail } from '@/lib/email';
 import { getTenantForRow } from '@/lib/tenant';
 import { decryptSecret, userTokenAad } from '@/lib/secrets';
 import { resolveAccess } from '@/lib/managed-access';
@@ -14,6 +14,7 @@ import { splitNewReviews, reviewKey, BACKLOG_DAYS, REVIEWS_CONFLICT_TARGET } fro
 import { holdingReply } from '@/lib/safe-automation';
 import { startBudget, rotateForRun, runIndex, selectAll } from '@/lib/cron-budget';
 import { holdingReplyGoesOut, isPaused } from '@/lib/automation-mode';
+import { reviewAlertEmailsEnabled, planForReview, shopsToCheck, leftSinceJoining } from '@/lib/review-alerts';
 
 /**
  * How far the starting point moves each run. Coverage depends on every run
@@ -49,7 +50,11 @@ export async function GET(request: NextRequest) {
     // rest never. Checking a shop twice is harmless: a review already seen is
     // skipped.
     const budget = startBudget(BUDGET_MS);
-    const eligible = rotateForRun<any>(users.filter((u: any) => u.auto_reply_enabled && !isPaused(u) && u.profiles?.[0]), runIndex(EVERY_MINUTES), STRIDE);
+    // With REVIEW_ALERT_EMAILS off: only shops with replies on, as before.
+    // With it on: every connected shop, so each hears about its new reviews
+    // (lib/review-alerts.ts). What is replied to does not change.
+    const alertsOn = reviewAlertEmailsEnabled();
+    const eligible = rotateForRun<any>(shopsToCheck(users, alertsOn), runIndex(EVERY_MINUTES), STRIDE);
     let checked = 0;
 
     for (const user of eligible) {
@@ -140,24 +145,39 @@ export async function GET(request: NextRequest) {
 
           if (!newReview) continue;
 
-          // 4 and 5 stars: an AI reply, checked by the validator (lib/ai.ts),
-          // published automatically. 1 to 3 stars: never AI. The fixed holding
-          // reply (lib/safe-automation.ts) is stored for the shop to approve,
-          // and is published only when they do.
-          const replyContent = rating >= 4
-            ? await generateReviewReply({
-                businessName: profile.business_name,
-                category: profile.category || 'tradesperson',
-                reviewerName,
-                rating,
-                comment,
-                // Voice applies to 4 and 5 star replies only. The holding reply
-                // below is fixed wording for every shop, on purpose.
-                voice: await loadVoiceForUser(supabaseAdmin, user.id),
-              })
-            : holdingReply(reviewerName);
+          // What to do, decided in one place (lib/review-alerts.ts):
+          //   4 and 5 stars, replies on: an AI reply, checked by the validator
+          //     (lib/ai.ts), published automatically
+          //   1 to 3 stars: never AI. The fixed holding reply
+          //     (lib/safe-automation.ts) is stored for the shop to approve, or,
+          //     for a shop in hands-off, published and the shop told
+          //   replies off or paused: nothing is written. With
+          //     REVIEW_ALERT_EMAILS on the shop is still told about the review
+          const plan = planForReview({
+            rating, repliesOn: !!user.auto_reply_enabled, paused: isPaused(user), handsOff: holdingReplyGoesOut(user),
+            alertsOn, sinceJoining: leftSinceJoining(review.createTime, profile.created_at),
+          });
+          const goodAlert = async (replyState: 'posted' | 'waiting' | 'none', reply: string | null) => {
+            if (plan.alert !== 'good' || !user.email) return;
+            await sendEmail({
+              to: user.email,
+              subject: `New ${rating}-star review for ${profile.business_name}`,
+              html: newReviewEmail({ businessName: profile.business_name, reviewerName, rating, comment, replyState, reply, paused: isPaused(user), dashboardUrl: `${t.appUrl}/dashboard`, settingsUrl: `${t.appUrl}/settings`, tenant: t }),
+              tenant: t,
+            });
+          };
 
-          if (rating >= 4) {
+          if (plan.reply === 'ai_publish') {
+            const replyContent = await generateReviewReply({
+              businessName: profile.business_name,
+              category: profile.category || 'tradesperson',
+              reviewerName,
+              rating,
+              comment,
+              // Voice applies to 4 and 5 star replies only. The holding reply
+              // is fixed wording for every shop, on purpose.
+              voice: await loadVoiceForUser(supabaseAdmin, user.id),
+            });
             // Auto-publish for 4-5 star reviews
             try {
               await loggedReplyToReview(
@@ -185,6 +205,7 @@ export async function GET(request: NextRequest) {
                 const sid = await sendSMS({ to: user.phone_number, body: smsBody });
                 await logSMS(supabaseAdmin, user.id, user.phone_number, 'review_positive', smsBody, sid);
               }
+              await goodAlert('posted', replyContent);
             } catch (replyErr) {
               console.error('Failed to publish review reply:', replyErr);
               // Store as pending if publish fails
@@ -193,14 +214,21 @@ export async function GET(request: NextRequest) {
                 reply_content: replyContent,
                 status: 'pending',
               });
+              await goodAlert('waiting', replyContent);
             }
-          } else if (holdingReplyGoesOut(user) && await postHoldingReply({ user, profile, accessToken, review, newReview, replyContent, reviewerName, rating, comment, t })) {
+          } else if (plan.reply === 'none') {
+            // Replies are off, or the shop has paused: nothing is written or
+            // drafted. The shop is told about a good review if the switch is on.
+            await goodAlert('none', null);
+          } else if (plan.reply === 'holding_publish' && await postHoldingReply({ user, profile, accessToken, review, newReview, replyContent: holdingReply(reviewerName), reviewerName, rating, comment, t })) {
             // Hands-off (lib/automation-mode.ts): the fixed holding reply has
             // gone out, as the shop agreed, and the shop has been told. If it
             // could not be posted, the branch below runs instead and the reply
             // waits for the shop exactly as it would in "ask me first".
           } else {
-            // Store as pending for 1-3 star reviews — needs manual approval
+            // 1 to 3 stars: the fixed holding reply, never AI wording, stored
+            // as pending. It needs the shop's approval.
+            const replyContent = holdingReply(reviewerName);
             await supabaseAdmin.from('review_replies').insert({
               review_id: newReview.id,
               reply_content: replyContent,

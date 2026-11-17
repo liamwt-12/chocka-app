@@ -12,6 +12,7 @@ const mono = "'DM Mono',monospace";
 const C = { bg: '#F0EDE8', card: '#FAFAF8', text: '#1A1A1A', mid: '#555', soft: '#999', green: '#2D7A4F', greenL: '#E8F5EE', amber: '#B8860B', amberL: '#FFF8E6', red: '#D93025', redL: '#FDECEA' };
 const card: React.CSSProperties = { background: C.card, borderRadius: 14, padding: 16, boxShadow: '0 2px 12px rgba(0,0,0,0.06)', marginBottom: 16 };
 const input: React.CSSProperties = { background: C.bg, border: 'none', borderRadius: 8, padding: '9px 12px', fontSize: 14, fontFamily: sans, outline: 'none', boxSizing: 'border-box' };
+const EMAIL_SAMPLES: Array<[string, string]> = [['post_waiting', 'Post waiting for approval'], ['good_review_replied', 'Good review, replied'], ['good_review_not_replied', 'Good review, replies off'], ['low_review_needs_input', 'Low review, needs the shop'], ['low_review_replied', 'Low review, hands-off']];
 const btn: React.CSSProperties = { background: C.text, color: '#fff', border: 'none', borderRadius: 8, padding: '9px 14px', fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: sans };
 
 const STATE_LABEL: Record<string, [string, string, string]> = {
@@ -196,6 +197,8 @@ export default function PilotAdminPage() {
 
   // Is everything in place to invite shops?
   const [ready, setReady] = useState<any>(null);
+  const [emailSample, setEmailSample] = useState<{ subject: string; html: string } | null>(null);
+  const showEmail = async (key: string) => { setBusy(true); setMsg(''); try { setEmailSample(await call({ action: 'preview_email', key })); } catch (e: any) { setMsg(e.message); } setBusy(false); };
   const [retention, setRetention] = useState<any>(null);
   const loadRetention = async () => { setBusy(true); setMsg(''); try { setRetention(await call({ action: 'retention' })); } catch (e: any) { setMsg(e.message); } setBusy(false); };
   const downloadRetention = () => {
@@ -345,6 +348,22 @@ export default function PilotAdminPage() {
             </div>
           </div>
         )}
+
+        {/* Emails that are switched off, to read before switching them on. Nothing is sent. */}
+        <div style={card}>
+          <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+            <strong style={{ fontSize: 15 }}>Read the emails that are switched off</strong>
+            {EMAIL_SAMPLES.map(([key, label]) => <button key={key} onClick={() => showEmail(key)} disabled={busy} style={{ ...btn, background: 'transparent', color: C.text, textDecoration: 'underline', padding: '2px 4px' }}>{label}</button>)}
+          </div>
+          <p style={{ color: C.mid, fontSize: 13, margin: '6px 0 0' }}>Each opens with made-up content. Nothing is sent to anyone. The switches are EARLY_POST_PREVIEW_EMAILS, REVIEW_ALERT_EMAILS and HANDS_OFF_MODE.</p>
+          {emailSample && (
+            <div style={{ marginTop: 10 }}>
+              <div style={{ fontSize: 13, color: C.mid, marginBottom: 6 }}>Subject: <strong style={{ color: C.text }}>{emailSample.subject}</strong> <button onClick={() => setEmailSample(null)} style={{ ...btn, background: 'transparent', color: C.mid, textDecoration: 'underline', padding: '2px 4px' }}>Close</button></div>
+              {/* sandbox with no permissions: the sample cannot run scripts or follow its links. */}
+              <iframe title="Email sample" sandbox="" srcDoc={emailSample.html} style={{ width: '100%', maxWidth: 560, height: 560, border: '1px solid #ddd', borderRadius: 8, background: '#fff' }} />
+            </div>
+          )}
+        </div>
 
         {/* Which shops are drifting. Off unless RETENTION_VIEW=on. */}
         <div style={card}>

@@ -87,9 +87,10 @@ describe('what hands-off changes, and what it does not', () => {
   it('the reply that goes out is the fixed wording, which breaks none of the reply rules', () => {
     expect(replyBreaksRules(holdingReply('Sam Jones'))).toBeNull();
     const route = readFileSync(new URL('../app/api/cron/review-alerts/route.ts', import.meta.url), 'utf8');
-    // AI wording is only ever written for 4 and 5 stars; the low-star text is holdingReply().
-    expect(route).toMatch(/rating >= 4\s*\?\s*await generateReviewReply\([\s\S]*?:\s*holdingReply\(reviewerName\)/);
-    expect(route).toMatch(/holdingReplyGoesOut\(user\) && await postHoldingReply\(/);
+    // AI wording is written in one place, for 4 and 5 stars with replies on; the low-star text is holdingReply().
+    expect(route.match(/generateReviewReply\(/g)).toHaveLength(1);
+    expect(route).toMatch(/if \(plan\.reply === 'ai_publish'\) \{\s*const replyContent = await generateReviewReply\(/);
+    expect(route).toMatch(/plan\.reply === 'holding_publish' && await postHoldingReply\(\{[^}]*replyContent: holdingReply\(reviewerName\)/);
   });
   it('pause is honoured even with the switch off', () => {
     expect(isPaused({ automation_paused_at: '2026-12-02T09:00:00Z' })).toBe(true);

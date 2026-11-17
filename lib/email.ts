@@ -300,3 +300,49 @@ export function holdingReplyPostedEmail(params: {
     <p style="font-size: 13px; color: #777; margin: 20px 0 0; line-height: 1.6;">To have these wait for you instead, choose &ldquo;Ask me first&rdquo; in Settings. You can also pause everything there.</p>
   `, t);
 }
+
+/**
+ * "You have a new 4 or 5 star review." Sent only when REVIEW_ALERT_EMAILS=on
+ * (lib/review-alerts.ts). Says plainly what we did about it:
+ *   posted   we replied, and this is what we said
+ *   waiting  we wrote a reply but could not post it; it is on the dashboard
+ *   none     replies are off (or paused), so nothing was replied
+ */
+export function newReviewEmail(params: {
+  businessName: string;
+  reviewerName: string;
+  rating: number;
+  comment: string;
+  replyState: 'posted' | 'waiting' | 'none';
+  reply?: string | null;
+  paused?: boolean;
+  dashboardUrl: string;
+  settingsUrl: string;
+  tenant?: Tenant;
+}): string {
+  const t = params.tenant ?? getTenant();
+  const brand = t.palette.brandStrong;
+  const stars = '★'.repeat(params.rating) + '☆'.repeat(Math.max(0, 5 - params.rating));
+  const replyBlock = (label: string) => `
+    <p style="font-size: 13px; color: #999; margin: 0 0 8px;">${label}</p>
+    <div style="background: #FFF0EB; border-left: 3px solid ${brand}; border-radius: 0 12px 12px 0; padding: 16px 16px 16px 14px; margin-bottom: 24px;">
+      <p style="font-size: 14px; color: #1A1A1A; line-height: 1.55; margin: 0;">${escHtml(params.reply || '')}</p>
+    </div>`;
+  const what = params.replyState === 'posted' ? replyBlock('We replied for you:') + `<p style="font-size: 13px; color: #777; margin: 0 0 20px; line-height: 1.6;">If you would rather it said something else, you can undo our reply in <a href="${params.settingsUrl}" style="color: #777;">Settings</a>.</p>`
+    : params.replyState === 'waiting' ? replyBlock('We wrote this reply but could not post it just now. It is waiting on your dashboard:')
+    : `<p style="font-size: 14px; color: #555; margin: 0 0 20px; line-height: 1.6;">${params.paused ? 'You have paused us, so we have not replied.' : 'Replies are switched off, so we have not replied.'} You can reply on Google yourself, or ${params.paused ? 'press Resume' : 'turn on replies to good reviews'} in <a href="${params.settingsUrl}" style="color: #555;">Settings</a> and we will answer the next one for you.</p>`;
+  return emailWrapper(`
+    <p style="font-size: 15px; line-height: 1.6; margin: 0 0 6px;">Hello,</p>
+    <p style="font-size: 15px; line-height: 1.6; margin: 0 0 24px; color: #555;">${escHtml(params.businessName)} has a new ${params.rating}-star review on Google.</p>
+
+    <div style="background: #F0EDE8; border-radius: 12px; padding: 18px; margin-bottom: 20px;">
+      <div style="margin-bottom: 8px;">
+        <span style="font-weight: 600; font-size: 14px;">${escHtml(params.reviewerName)}</span>
+        <span style="color: ${brand}; font-size: 14px; margin-left: 8px;">${stars}</span>
+      </div>
+      <p style="font-size: 14px; color: #555; line-height: 1.55; margin: 0;">${escHtml(params.comment) || '(no comment left)'}</p>
+    </div>
+    ${what}
+    <a href="${params.dashboardUrl}" style="display: inline-block; background: #1A1A1A; color: #fff; padding: 12px 20px; border-radius: 8px; text-decoration: none; font-size: 14px; font-weight: 600;">Open my dashboard</a>
+  `, t);
+}
