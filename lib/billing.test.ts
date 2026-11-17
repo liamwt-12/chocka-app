@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
-import { billingSettingsFromEnv, planLiveMarks, buildStatement, statementCsv, recordLiveToday, ukDay, monthOf, countsForMonth, lastDayOfMonth, capForMonth, type LiveMonthRow } from './billing';
+import { billingSettingsFromEnv, planLiveMarks, buildStatement, statementCsv, recordLiveToday, ukDay, monthOf, countsForMonth, lastDayOfMonth, capForMonth, termProblem, loadStatement, StatementNotAvailable, type LiveMonthRow } from './billing';
 
 const row = (id: string, o: Partial<LiveMonthRow> = {}): LiveMonthRow => ({ month: '2026-12', retailer_id: id, tenant_id: 't', name: `Shop ${id}`, town: 'Town', live_days: 10, first_live_on: '2026-12-01', last_live_on: '2026-12-10', ...o });
 const shop = (id: string, name = `Shop ${id}`) => ({ retailerId: id, tenantId: 't', name, town: 'Town' });
@@ -222,6 +222,31 @@ describe('the cap belongs to a term, and stops applying after it', () => {
     const src = readFileSync(new URL('./billing.ts', import.meta.url), 'utf8');
     expect(src.match(/capForMonth\(settings, month\)/g)).toHaveLength(1);
     expect(src).toMatch(/const capPence = cap\.applies \? settings\.capPence : null;/);
+  });
+});
+
+describe('no statement until the term is set', () => {
+  const T = { pricePence: 1000, capPence: null };
+  it('both dates, real days, in order: or there is no statement, and it says which is missing', () => {
+    expect(termProblem({ ...T })).toMatch(/until the term is set: BILLING_TERM_START and BILLING_TERM_END/);
+    expect(termProblem({ ...T, termStart: '2030-02-10' })).toMatch(/BILLING_TERM_END is missing, or is not a real day/);
+    expect(termProblem({ ...T, termEnd: '2030-11-09' })).toMatch(/BILLING_TERM_START is missing/);
+    expect(termProblem({ ...T, termStart: '2030-02-10', termEnd: '2030-02-30' })).toMatch(/BILLING_TERM_END is missing, or is not a real day/);
+    expect(termProblem({ ...T, termStart: '2030-11-09', termEnd: '2030-02-10' })).toMatch(/ends before it starts/);
+    expect(termProblem({ ...T, termStart: '2030-02-10', termEnd: '2030-11-09' })).toBeNull();
+  });
+  it('applies whether or not a cap is set, and nothing reads the database first', async () => {
+    let read = false;
+    const db = { from: () => { read = true; return {}; } } as any;
+    await expect(loadStatement(db, 't', '2030-06', { pricePence: null, capPence: null })).rejects.toBeInstanceOf(StatementNotAvailable);
+    await expect(loadStatement(db, 't', '2030-06', { pricePence: 1000, capPence: 2500, termStart: '2030-02-10' })).rejects.toThrow(/BILLING_TERM_END/);
+    expect(read).toBe(false);
+  });
+  it('the admin page is told so plainly, before anything is loaded; there is no default term anywhere', () => {
+    const route = readFileSync(new URL('../app/api/admin/pilot/route.ts', import.meta.url), 'utf8');
+    expect(route).toMatch(/const notYet = termProblem\(billingSettingsFromEnv\(\)\);\s+if \(notYet\) return NextResponse\.json\(\{ error: notYet, notAvailable: true \}, \{ status: 409 \}\);\s+const statement = await loadStatement/);
+    const src = readFileSync(new URL('./billing.ts', import.meta.url), 'utf8');
+    expect(src).toMatch(/termStart: dayOrNull\(env\.BILLING_TERM_START\),\s+termEnd: dayOrNull\(env\.BILLING_TERM_END\),/);
   });
 });
 

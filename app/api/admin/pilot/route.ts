@@ -9,7 +9,7 @@ import { parseVoiceProfile, readStoredVoice, isEmptyVoice } from '@/lib/voice';
 import { resetConnection } from '@/lib/connection-reset';
 import { shopStatus, liveRulesFromEnv, STATUS_USER_COLUMNS } from '@/lib/shop-status';
 import { parseSpendPounds, adDatesProblem } from '@/lib/ad-spend';
-import { loadStatement, statementCsv, billingSettingsFromEnv } from '@/lib/billing';
+import { loadStatement, statementCsv, billingSettingsFromEnv, termProblem } from '@/lib/billing';
 import { describeChange, undoChange } from '@/lib/revert';
 import { settingChecks, schemaChecks, dataChecks, summary } from '@/lib/readiness';
 import { retentionEnabled, retentionCsv } from '@/lib/retention';
@@ -207,6 +207,9 @@ export async function POST(request: NextRequest) {
         // A statement to check, not an invoice: nothing is charged or sent.
         const month = typeof body.month === 'string' ? body.month : '';
         if (!/^\d{4}-\d{2}$/.test(month)) return NextResponse.json({ error: 'Use a month like 2026-12' }, { status: 400 });
+        // No statement until the term it belongs to is set. Said plainly, not as a failure.
+        const notYet = termProblem(billingSettingsFromEnv());
+        if (notYet) return NextResponse.json({ error: notYet, notAvailable: true }, { status: 409 });
         const statement = await loadStatement(supabaseAdmin, tenantRow.id, month, billingSettingsFromEnv());
         return NextResponse.json({ statement, csv: statementCsv(statement) });
       }

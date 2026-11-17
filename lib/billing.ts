@@ -33,6 +33,10 @@
  * applied, and the statement says so in words: a cap that quietly applied for
  * ever would become the price.
  *
+ * NO STATEMENT WITHOUT THE TERM. Until both term dates are set, no statement
+ * is produced at all (termProblem), and the launch check shows a cross. The
+ * daily record of who is live is still kept, so nothing is lost meanwhile.
+ *
  * NO PRICE, NO CAP AND NO DATE IS WRITTEN IN THIS CODE. The repository is
  * public. All four are settings, with no defaults:
  *     BILLING_PRICE_PENCE_PER_SHOP   whole pence. Unset = counts only, no money shown
@@ -71,6 +75,21 @@ export function billingSettingsFromEnv(env: Record<string, string | undefined> =
     termStart: dayOrNull(env.BILLING_TERM_START),
     termEnd: dayOrNull(env.BILLING_TERM_END),
   };
+}
+
+/**
+ * Why no statement can be produced yet, or null if one can. A statement needs
+ * the term it belongs to: BILLING_TERM_START and BILLING_TERM_END, both real
+ * days, in order. There are no defaults. Until they are set there is no
+ * statement at all, so that one cannot be produced, and used, on a guess
+ * about when the term runs.
+ */
+export function termProblem(settings: BillingSettings): string | null {
+  const start = dayOrNull(settings.termStart), end = dayOrNull(settings.termEnd);
+  if (!start && !end) return 'No statement can be produced until the term is set: BILLING_TERM_START and BILLING_TERM_END, each a day written YYYY-MM-DD.';
+  if (!start || !end) return `No statement can be produced until both ends of the term are set: ${!start ? 'BILLING_TERM_START' : 'BILLING_TERM_END'} is missing, or is not a real day written YYYY-MM-DD.`;
+  if (end < start) return 'No statement can be produced: the term ends before it starts (BILLING_TERM_START and BILLING_TERM_END).';
+  return null;
 }
 
 export type CapReason = 'no_cap' | 'in_term' | 'no_term' | 'bad_term' | 'before_term' | 'after_term';
@@ -289,8 +308,13 @@ export function statementCsv(s: Statement): string {
   return rows.map((r) => r.map(csvCell).join(',')).join('\n') + '\n';
 }
 
+/** Thrown instead of a statement when the term has not been set. Not a fault: something to set. */
+export class StatementNotAvailable extends Error {}
+
 export async function loadStatement(db: BillingDb, tenantId: string, month: string, settings: BillingSettings = billingSettingsFromEnv()): Promise<Statement> {
   if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(month)) throw new Error('Use a month like 2026-12');
+  const problem = termProblem(settings);
+  if (problem) throw new StatementNotAvailable(problem);
   const { data, error } = await db.from('live_months').select('*').eq('tenant_id', tenantId).eq('month', month);
   if (error) throw new Error(error.message);
   return buildStatement(month, data || [], settings, ukDay());

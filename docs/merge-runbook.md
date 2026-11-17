@@ -690,7 +690,7 @@ To take them one at a time instead, merge `origin/retention/1-hands-off`, then `
 
 1. **Live, and so billable, is: connected, the right listing, verified by Google, access working.** It does **not** depend on what the shop has switched on, and pressing Pause does not stop it; only disconnecting (or losing access) does. (Decided 20 November. An earlier version of #69 made a shop with nothing on "not live"; that was reversed before release.)
 2. **A live shop with nothing switched on is still shown.** It is listed under Needs help as **Nothing switched on** (or **Paused by the shop**), with what to say to it, and the console's monthly summary counts "live, with nothing switched on" separately. Nothing in the app, and no button in `/admin/pilot`, switches anything on for a shop. `LIVE_REQUIRES` keeps its three words; leave it unset.
-3. **The cap is only applied inside its term.** With `BILLING_MONTHLY_CAP_PENCE` set and no term dates, **the cap is not applied**, the statement says so in red, and "Ready to invite shops?" shows a cross. Set `BILLING_TERM_START` and `BILLING_TERM_END` (below) before the first statement.
+3. **No statement is produced until the term is set.** `BILLING_TERM_START` and `BILLING_TERM_END` have no defaults. Until both are set, "Live shops in a month" says so instead of showing a statement, and "Ready to invite shops?" shows a cross. The daily record of who is live is kept all the same. Once set, the cap and its credit line apply only to months that **end** inside the term.
 4. **Every comparison is now with the same weeks last year**: the league, the ad view in the console and in the shop's monthly email, the network summary, and the plain-words monthly report (if that switch is on). A listing with nothing from last year falls back to the old comparison and says so. The league does not rank such a shop.
 5. **A rise or a fall needs at least three more (or fewer) customer actions**, as well as ten in the earlier period. Ten to eleven is no longer a "clear rise".
 6. **The hourly figures job also notes each listing's review totals** (rating, count, how many answered). One more read of the listing's reviews per shop per day. No review text is stored.
@@ -702,7 +702,7 @@ To take them one at a time instead, merge `origin/retention/1-hands-off`, then `
 | `HANDS_OFF_MODE` | Leave unset | **Only after the solicitor has seen `docs/hands-off-wording.md`, and after your own test** | `on` offers each connecting shop the choice of Hands-off or Ask me first, and for a shop that chose Hands-off, posts and replies go out without further approval (#64). Unset: every shop is asked first, as now |
 | `REVIEW_ALERT_EMAILS` | Leave unset | **After your own test, below** | `on` emails every connected shop about each new review, whether or not replies are on (#65). Unset: as now |
 | `EARLY_POST_PREVIEW_EMAILS` | Leave unset | **After your own test, below** | Already existed (#35). `on` emails a shop 24 hours before a post that is waiting for its approval |
-| `BILLING_TERM_START` | The first day of the term, like `2027-01-31` | Before the first statement, if a cap is set | The cap and its credit line apply only to months that **end** on or between the two dates (#69). Not in the code: the repository is public |
+| `BILLING_TERM_START` | The first day of the term, like `2027-01-31` | **Before the first statement: without both there is no statement** | The cap and its credit line apply only to months that **end** on or between the two dates (#69). Not in the code: the repository is public |
 | `BILLING_TERM_END` | The last day of the term | With the one above | After it, the statement has no cap and no credit line, and says the term has ended |
 
 **Verify:**
@@ -710,7 +710,7 @@ To take them one at a time instead, merge `origin/retention/1-hands-off`, then `
 1. `/admin/pilot`, **Ready to invite shops? → Check now.** "Hands-off or ask me first, and Pause" and "Review totals per listing" both have a tick. "Hands-off mode" and "Email every shop about every new review" both say **Off**. "Monthly statement" says whether the term is set.
 2. The shop table has a **How we work** column. Every connected shop reads "Ask me first (not chosen yet)" with what it has switched on.
 3. **Needs help**: any live shop with nothing on is listed as **Nothing switched on**. It is still **Live** in the shop table and still on the statement.
-4. **Live shops in a month**: with a cap and a term set, "The cap applies for the term ...". With a cap and no term, a red line saying the cap has not been applied.
+4. **Live shops in a month**: before the term dates are set, a message that no statement can be produced until they are. Once set, the statement, and with a cap, "The cap applies for the term ...".
 5. **Review cards for the counter → Download all cards (PDF)**: a file with one A6 page per connected shop. Scan one with a phone.
 6. **Read the emails that are switched off**: each of the five opens with made-up content.
 7. Sign in as a shop: Settings looks as it did (the "How we work" card only appears with `HANDS_OFF_MODE=on`).

@@ -10,7 +10,7 @@
  * leaves the server. It reads; it changes nothing.
  */
 import { parseLiveRequires } from './shop-status';
-import { billingSettingsFromEnv } from './billing';
+import { billingSettingsFromEnv, termProblem } from './billing';
 
 export interface Check {
   key: string;
@@ -62,10 +62,9 @@ export function settingChecks(env: Env = process.env): Check[] {
   // Relaxing what counts as live changes what is billed, so it is a cross, not a note.
   out.push({ key: 'LIVE_REQUIRES', label: 'What counts as live', ok: parsed.problem || relaxed.length ? false : null, detail: parsed.problem ? parsed.problem : relaxed.length ? `RELAXED: a shop counts as live, and is counted on the statement, without ${relaxed.join(', ')}. Remove LIVE_REQUIRES unless that is intended.` : 'Connected, right listing, verified by Google, access not lost. It does not depend on what the shop has switched on: a live shop with nothing on is listed under Needs help.' });
   const b = billingSettingsFromEnv(env);
-  const term = b.termStart && b.termEnd ? (b.termEnd < b.termStart ? 'set, but it ends before it starts' : 'set') : b.termStart || b.termEnd ? 'only one of its two dates is set' : 'not set';
-  // A cap with no usable term is never applied, so it is flagged rather than left to be discovered on a statement.
-  const capWithoutTerm = b.capPence !== null && term !== 'set';
-  out.push({ key: 'BILLING', label: 'Monthly statement', ok: capWithoutTerm ? false : null, detail: `Price per shop ${b.pricePence === null ? 'not set (the statement shows counts only)' : 'set'}; monthly cap ${b.capPence === null ? 'not set' : 'set'}; the term the cap belongs to ${term}${capWithoutTerm ? '. THE CAP WILL NOT BE APPLIED until BILLING_TERM_START and BILLING_TERM_END are both set, as days like 2027-01-31' : ''}. The cap, and its credit line, apply only to months that end inside the term. A shop counts for a month if it is live on the month's last day.` });
+  // No statement is produced until the term is set, so a missing term is a cross.
+  const noStatement = termProblem(b);
+  out.push({ key: 'BILLING', label: 'Monthly statement', ok: noStatement ? false : null, detail: `${noStatement ? `${noStatement} ` : `The term is set. `}Price per shop ${b.pricePence === null ? 'not set (a statement shows counts only)' : 'set'}; monthly cap ${b.capPence === null ? 'not set' : 'set'}. The cap, and its credit line, apply only to months that end inside the term. A shop counts for a month if it is live on the month's last day.` });
   return out;
 }
 
@@ -91,6 +90,15 @@ export const SCHEMA_PROBES: Array<{ migration: string; label: string; table: str
   { migration: '20261119090000_automation_mode', label: 'Hands-off or ask me first, and Pause', table: 'users', columns: 'automation_mode, automation_mode_chosen_at, automation_consent_at, automation_consent_version, automation_paused_at' },
 ];
 
+/**
+ * Migrations that add a database rule and no column, so a read cannot show
+ * whether they have been applied. The launch check lists them to be confirmed
+ * by hand instead of pretending to have checked.
+ */
+export const NOT_PROBEABLE: Array<{ migration: string; label: string }> = [
+  { migration: '20261120090000_operator_rows_start_off', label: 'An account made through an operator account starts with posts and replies off' },
+];
+
 export interface ReadinessDb { from(table: string): any }
 
 export async function schemaChecks(db: ReadinessDb): Promise<Check[]> {
@@ -103,6 +111,7 @@ export async function schemaChecks(db: ReadinessDb): Promise<Check[]> {
       out.push({ key: `${p.table}:${p.columns}`, label: p.label, ok: false, detail: `Could not check (${String((e as any)?.message).slice(0, 80)}).` });
     }
   }
+  for (const m of NOT_PROBEABLE) out.push({ key: `rule:${m.migration}`, label: m.label, ok: null, detail: `This cannot be checked from here (it is a database rule, not a column). Confirm migration ${m.migration} was applied.` });
   return out;
 }
 
