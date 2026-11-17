@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { compareAdPeriod, adWindows, percentChange, adComparisonEmailSection, MIN_BASE_FOR_PERCENT } from './ad-comparison';
+import { compareAdPeriod, adWindows, comparisonRanges, percentChange, adComparisonEmailSection, MIN_BASE_FOR_PERCENT } from './ad-comparison';
 import { addDaysIso, type MetricRow } from './metrics';
 import { parseAdStartDate } from './pilot';
 
@@ -21,7 +21,53 @@ const flat = () => series(addDaysIso(START, -28), 56, { BUSINESS_IMPRESSIONS_MOB
 
 describe('adWindows', () => {
   it('uses four whole weeks either side of the start', () => {
-    expect(adWindows(START)).toEqual({ start: START, beforeFrom: '2026-09-07', beforeTo: '2026-10-04', afterFrom: START, afterTo: '2026-11-01' });
+    expect(adWindows(START)).toEqual({ start: START, beforeFrom: '2026-09-07', beforeTo: '2026-10-04', afterFrom: START, afterTo: '2026-11-01', lastYearFrom: '2025-10-06', lastYearTo: '2025-11-02' });
+  });
+  it('last year\'s window is the same weekdays, 52 weeks earlier', () => {
+    const w = adWindows(START);
+    const dow = (d: string) => new Date(`${d}T00:00:00Z`).getUTCDay();
+    expect(dow(w.lastYearFrom)).toBe(dow(w.afterFrom));
+    expect(dow(w.lastYearTo)).toBe(dow(w.afterTo));
+  });
+  it('the rows to load never overlap, so no day is counted twice', () => {
+    expect(comparisonRanges(START)).toEqual([{ from: '2025-10-06', to: '2025-11-02' }, { from: '2026-09-07', to: '2026-11-01' }]);
+  });
+});
+
+/** The same four weeks a year earlier, at a steady daily value. */
+const lastYear = (v: Record<string, number>): MetricRow[] => series('2025-10-06', 28, v, v);
+
+describe('compareAdPeriod: against the same weeks last year', () => {
+  // This year: 1 call a day before the ads, 2 a day after. Last year, the same weeks: 2 a day.
+  // Against the weeks before that is +100%. Against last year it is no change at all.
+  const withHistory = [...lastYear({ BUSINESS_IMPRESSIONS_MOBILE_SEARCH: 15, CALL_CLICKS: 2, WEBSITE_CLICKS: 2 }), ...shopRows];
+  const flatWithHistory = () => [...lastYear({ BUSINESS_IMPRESSIONS_MOBILE_SEARCH: 10, CALL_CLICKS: 1 }), ...flat()];
+
+  it('uses last year\'s same weeks when the shop has them, which takes the season out', () => {
+    const c = compareAdPeriod(START, withHistory, [], NOW);
+    expect(c.status).toBe('ok');
+    if (c.status !== 'ok') return;
+    expect(c.basis).toBe('last_year');
+    expect(c.shop.find((m) => m.key === 'calls')).toMatchObject({ before: 56, after: 56, percent: 0 });
+  });
+  it('measures the shops with no ads the same way, and leaves out any without last year', () => {
+    const c = compareAdPeriod(START, withHistory, [flatWithHistory(), flatWithHistory(), flatWithHistory(), flat()], NOW);
+    expect(c.status === 'ok' && c.network?.shops).toBe(3);
+    if (c.status !== 'ok') return;
+    // 10 a day last year, 11 a day now.
+    expect(c.network!.changes.find((m) => m.key === 'views')).toMatchObject({ before: 840, after: 924, percent: 10 });
+  });
+  it('falls back to the weeks before, and says so, when there is nothing from last year', () => {
+    const c = compareAdPeriod(START, shopRows, [flat(), flat(), flat()], NOW);
+    expect(c.status === 'ok' && c.basis).toBe('weeks_before');
+    const html = adComparisonEmailSection(c);
+    expect(html).toContain('We have no figures for your listing from the same weeks last year.');
+    expect(adComparisonEmailSection(compareAdPeriod(START, withHistory, [], NOW))).toContain('The same four weeks last year compared with the four weeks from 2026-10-05.');
+  });
+  it('a few days of last year are not enough: it falls back rather than compare with a part period', () => {
+    const thin = [...lastYear({ CALL_CLICKS: 9 }).filter((r) => r.date < '2025-10-16'), ...shopRows];
+    const c = compareAdPeriod(START, thin, [], NOW);
+    expect(c.status === 'ok' && c.basis).toBe('weeks_before');
   });
 });
 
@@ -43,7 +89,7 @@ describe('compareAdPeriod', () => {
     if (c.status === 'too_early') expect(c.readyOn).toBe('2026-12-03');
   });
 
-  it('says there is not enough history when the weeks before are missing', () => {
+  it('says there is not enough history when last year and the weeks before are both missing', () => {
     const onlyAfter = shopRows.filter((r) => r.date >= START);
     const c = compareAdPeriod(START, onlyAfter, [], NOW);
     expect(c.status).toBe('not_enough_history');

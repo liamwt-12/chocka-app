@@ -7,8 +7,9 @@
  *   everyone:            name, town (Tarkett's own published data), where they are
  *                        in the pilot, and their Google connection status
  *   participating shops: presence score at activation, posts and replies in the
- *                        last 30 days, change in customer actions and views since
- *                        joining (percentages, as in the league), ad start date
+ *                        last 30 days, change in customer actions and views against
+ *                        the same weeks last year (percentages, as in the league),
+ *                        ad start date
  * WHAT IS NEVER SHOWN: contact details, phone numbers, review text, anything
  * about a shop's customers, and any score for a shop that has not joined.
  */
@@ -16,11 +17,12 @@ import { pilotStatus, type PilotInvite, type PilotUser } from './pilot';
 import { shopStatus, type StatusInvite } from './shop-status';
 import { ADMIN_LABELS, type ConnectionStatus } from './ownership';
 import { MANAGER_EMBED } from './managed-access';
-import { loadMetricRows, isoDate, totalsFor, previousMonth, lastReportableDate, type MetricRow } from './metrics';
+import { loadMetricRows, loadMetricRanges, isoDate, totalsFor, previousMonth, lastReportableDate, type MetricRow } from './metrics';
+import { sameMonthLastYear } from './year-on-year';
 import { inChunks } from './monthly-report';
 import { buildNetworkSummary, type NetworkSummary, type ShopMonth } from './network-summary';
-import { buildLeague, leagueWindows, type LeagueEntry, type LeagueExcluded } from './league';
-import { compareAdPeriod, comparisonRange } from './ad-comparison';
+import { buildLeague, leagueRanges, type LeagueEntry, type LeagueExcluded } from './league';
+import { compareAdPeriod, comparisonRanges } from './ad-comparison';
 import { adVerdict, formatPounds } from './ad-spend';
 
 export interface ConsoleShop {
@@ -111,8 +113,8 @@ export async function loadConsoleData(db: Db, tenantId: string, now: Date = new 
         .eq('reviews.profile_id', profile.id).eq('status', 'published').gte('published_at', since30);
       shop.postsLast30 = posts ?? 0;
       shop.repliesLast30 = replies ?? 0;
-      const w = leagueWindows(joinedOn, now);
-      const metricRows: MetricRow[] = await loadMetricRows(db, profile.id, w.baselineFrom, w.recentTo);
+      // The latest four weeks, the same four weeks last year, and the weeks before joining (lib/league.ts).
+      const metricRows: MetricRow[] = await loadMetricRanges(db, profile.id, leagueRanges(joinedOn, now));
       leagueInputs.push({ retailerId: r.id, name: r.name, town: r.town, activatedOn: joinedOn, rows: metricRows });
       withProfile.push({ shop, profileId: profile.id, adStart: r.ad_start_date ?? null, spend: r.ad_spend_pence ?? null });
     }
@@ -126,13 +128,13 @@ export async function loadConsoleData(db: Db, tenantId: string, now: Date = new 
   const noAdsRows = new Map<string, MetricRow[][]>();
   for (const x of withProfile.filter((y) => y.adStart)) {
     try {
-      const { from, to } = comparisonRange(x.adStart!);
+      const ranges = comparisonRanges(x.adStart!);
       if (!noAdsRows.has(x.adStart!)) {
         const sets: MetricRow[][] = [];
-        for (const n of noAds) sets.push(await loadMetricRows(db, n.profileId, from, to));
+        for (const n of noAds) sets.push(await loadMetricRanges(db, n.profileId, ranges));
         noAdsRows.set(x.adStart!, sets);
       }
-      const v = adVerdict(x.spend, compareAdPeriod(x.adStart!, await loadMetricRows(db, x.profileId, from, to), noAdsRows.get(x.adStart!)!, now));
+      const v = adVerdict(x.spend, compareAdPeriod(x.adStart!, await loadMetricRanges(db, x.profileId, ranges), noAdsRows.get(x.adStart!)!, now));
       x.shop.adChange = { label: v.label, detail: v.detail, flag: v.flag };
     } catch (e) { console.error(`[console] ad comparison failed for ${x.shop.retailerId}: ${String((e as any)?.message).slice(0, 160)}`); }
   }
@@ -144,25 +146,29 @@ export async function loadConsoleData(db: Db, tenantId: string, now: Date = new 
   }
   for (const e of league.excluded) {
     const s = shops.find((x) => x.retailerId === e.retailerId)!;
-    s.improvement = `Too early: ${e.reason}`;
+    s.improvement = `Not ranked: ${e.reason}`;
   }
 
-  // The last complete month and the one before, per shop, for the network
-  // totals. One read per shop covering both months.
+  // The last complete month, the same month a year earlier, and the month
+  // before, per shop, for the network totals. Two reads per shop.
   const month = previousMonth(now);
   const before = previousMonth(new Date(`${month.from}T12:00:00Z`));
+  const lastYear = sameMonthLastYear(month.from);
   const months: ShopMonth[] = [];
   // Ten at a time, not one after another: at 180 shops this is 18 short waits.
   await inChunks(withProfile, 10, async (x) => {
     try {
       const rows = await loadMetricRows(db, x.profileId, before.from, month.to);
-      months.push({ retailerId: x.shop.retailerId, thisMonth: totalsFor(rows, month.from, month.to), lastMonth: totalsFor(rows, before.from, before.to) });
+      const earlier = await loadMetricRows(db, x.profileId, lastYear.from, lastYear.to);
+      months.push({ retailerId: x.shop.retailerId, thisMonth: totalsFor(rows, month.from, month.to), lastMonth: totalsFor(rows, before.from, before.to), sameMonthLastYear: totalsFor(earlier, lastYear.from, lastYear.to) });
     } catch (e) { console.error(`[console] month figures failed for ${x.shop.retailerId}: ${String((e as any)?.message).slice(0, 160)}`); }
   });
   const dayOf = (iso: string) => Number(iso.slice(8, 10));
+  const monthName = (from: string) => new Date(`${from}T12:00:00Z`).toLocaleString('en-GB', { month: 'long', year: 'numeric', timeZone: 'UTC' });
   const summary = buildNetworkSummary(shops, league, months, {
-    label: new Date(`${month.from}T12:00:00Z`).toLocaleString('en-GB', { month: 'long', year: 'numeric', timeZone: 'UTC' }),
+    label: monthName(month.from),
     days: dayOf(month.to), daysBefore: dayOf(before.to),
+    lastYearLabel: monthName(lastYear.from), daysLastYear: lastYear.days,
     // Google's last few days arrive late. Until they are in, last month is understated.
     complete: lastReportableDate(now) >= month.to,
   });

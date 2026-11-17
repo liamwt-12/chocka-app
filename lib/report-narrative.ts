@@ -14,9 +14,12 @@
  *   published posts; if there were none, it says so.
  * - A change to the listing is one the shop approved (it ticked it, or typed
  *   it), and is described that way: "You approved changes to...".
- * - "What changed" gives this month's number and last month's. It says "up"
- *   or "down", with a percentage, only on a base of 20 or more and a move of
- *   10% or more; anything less is just the two numbers. It never says why.
+ * - "What changed" gives this month's number and the same month last year's
+ *   (lib/year-on-year.ts), so the time of year is not counted as a change.
+ *   For a listing with no figures from last year it uses last month instead,
+ *   and says "last month". It says "up" or "down", with a percentage, only on
+ *   a base of 20 or more and a move of 10% or more; anything less is just the
+ *   two numbers. It never says why.
  * - No money. Nothing about ads beyond the existing section. Nothing about spend.
  *
  * Pure: takes counts, returns sentences.
@@ -62,29 +65,50 @@ export const MIN_MOVE_PERCENT = 10;
 
 export interface Figures { views: number; calls: number; websiteClicks: number; directions: number }
 
-/** One line per figure: this month, last month, and how they compare, in words. */
-export function whatChanged(now: Figures | null, before: Figures | null): string[] {
+/** What the month is compared with, as it reads in a sentence. */
+export type ComparedWith = 'last_year' | 'last_month';
+const EARLIER: Record<ComparedWith, { the: string; inThe: string }> = {
+  last_year: { the: 'the same month last year', inThe: 'in the same month last year' },
+  last_month: { the: 'last month', inThe: 'last month' },
+};
+
+/** One line per figure: this month, the earlier month, and how they compare, in words. */
+export function whatChanged(now: Figures | null, before: Figures | null, comparedWith: ComparedWith = 'last_month'): string[] {
   if (!now) return [];
+  const w = EARLIER[comparedWith];
   const LINES: Array<[keyof Figures, string, string]> = [['calls', 'Calls from your listing', 'calls'], ['websiteClicks', 'Website clicks', 'clicks'], ['directions', 'Requests for directions', 'requests'], ['views', 'Times you were seen on Google', 'times']];
   return LINES.map(([key, label]) => {
     const a = now[key];
     if (!before) return `${label}: ${a.toLocaleString('en-GB')}.`;
     const b = before[key];
     const move = b >= MIN_BASE_FOR_PERCENT ? Math.round(((a - b) / b) * 100) : 0;
-    if (Math.abs(move) < MIN_MOVE_PERCENT) return a === b ? `${label}: ${a.toLocaleString('en-GB')}, the same as last month.` : `${label}: ${a.toLocaleString('en-GB')} (${b.toLocaleString('en-GB')} last month).`;
-    return `${label}: ${a.toLocaleString('en-GB')}, ${move > 0 ? 'up from' : 'down from'} ${b.toLocaleString('en-GB')} last month (${move > 0 ? '+' : ''}${move}%).`;
+    if (Math.abs(move) < MIN_MOVE_PERCENT) return a === b ? `${label}: ${a.toLocaleString('en-GB')}, the same as ${w.the}.` : `${label}: ${a.toLocaleString('en-GB')} (${b.toLocaleString('en-GB')} ${w.inThe}).`;
+    return `${label}: ${a.toLocaleString('en-GB')}, ${move > 0 ? 'up from' : 'down from'} ${b.toLocaleString('en-GB')} ${w.inThe} (${move > 0 ? '+' : ''}${move}%).`;
   });
+}
+
+/**
+ * Which earlier month to compare with. Last year's same month if it is
+ * (nearly) all there; otherwise last month, if that is; otherwise nothing.
+ * `nowComplete` is whether this month is itself nearly all there: a part month
+ * against a whole one is not a change.
+ */
+export function chooseComparison<T>(nowComplete: boolean, lastYear: { complete: boolean; figures: T }, lastMonth: { complete: boolean; figures: T }): { comparedWith: ComparedWith; before: T } | null {
+  if (!nowComplete) return null;
+  if (lastYear.complete) return { comparedWith: 'last_year', before: lastYear.figures };
+  if (lastMonth.complete) return { comparedWith: 'last_month', before: lastMonth.figures };
+  return null;
 }
 
 const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' } as Record<string, string>)[c]);
 
 /** The two lists as a block for the top of the email. Empty when there is nothing to say. */
-export function narrativeHtml(did: string[], changed: string[], hasLastMonth: boolean): string {
+export function narrativeHtml(did: string[], changed: string[], hasComparison: boolean): string {
   if (!did.length && !changed.length) return '';
   const ul = (items: string[]) => `<ul style="margin:0 0 4px;padding-left:20px;font-size:15px;line-height:1.6;color:#333;">${items.map((i) => `<li>${esc(i)}</li>`).join('')}</ul>`;
   const h = (t: string) => `<h3 style="font-size:15px;margin:14px 0 6px;color:#1A1A1A;">${t}</h3>`;
   return `<div style="background:#FAFAF8;border:1px solid #E8E4DC;border-radius:12px;padding:6px 18px 14px;margin:0 0 24px;">
     ${did.length ? h('What we did') + ul(did) : ''}
-    ${changed.length ? h(hasLastMonth ? 'What changed' : 'Your figures this month') + ul(changed) + `<p style="font-size:12px;color:#999;margin:8px 0 0;">These are Google's own figures for your listing. They go up and down for many reasons.</p>` : ''}
+    ${changed.length ? h(hasComparison ? 'What changed' : 'Your figures this month') + ul(changed) + `<p style="font-size:12px;color:#999;margin:8px 0 0;">These are Google's own figures for your listing. They go up and down for many reasons.</p>` : ''}
   </div>`;
 }

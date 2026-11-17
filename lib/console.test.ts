@@ -34,7 +34,7 @@ import { GET as dataGET } from '@/app/api/console/data/route';
 import { readFileSync } from 'node:fs';
 import { createFunderSession, verifyFunderSession, hashLoginToken, FUNDER_COOKIE, consoleEnabled } from './funder-auth';
 import { createSessionValue } from './session';
-import { buildLeague, improvementBand } from './league';
+import { buildLeague, improvementBand, bandFor, leagueWindows, leagueRanges } from './league';
 import { FORBIDDEN_CONSOLE_FIELDS } from './console-data';
 import { addDaysIso, type MetricRow } from './metrics';
 
@@ -167,35 +167,91 @@ describe('flag ON', () => {
   });
 });
 
-describe('league ranks improvement, not size', () => {
-  const NOW = new Date('2026-11-14T12:00:00Z');
-  function shop(id: string, activatedOn: string, before: number, after: number, viewsBefore = 100, viewsAfter = 100): any {
+describe('league ranks improvement on last year, not size', () => {
+  const NOW = new Date('2026-11-14T12:00:00Z'); // latest four weeks: 2026-10-13 to 2026-11-09; last year: 2025-10-14 to 2025-11-10
+  /** Calls per day: in the same weeks last year, in the weeks before joining, and since. */
+  function shop(id: string, activatedOn: string, lastYear: number | null, before: number, after: number, viewsLastYear = 100, viewsAfter = 100): any {
     const rows: MetricRow[] = [];
     for (let i = -28; i < 80; i++) {
       const date = addDaysIso(activatedOn, i);
       const pre = i < 0;
       rows.push({ date, metric: 'CALL_CLICKS', value: pre ? before : after });
-      rows.push({ date, metric: 'BUSINESS_IMPRESSIONS_MOBILE_SEARCH', value: pre ? viewsBefore : viewsAfter });
+      rows.push({ date, metric: 'BUSINESS_IMPRESSIONS_MOBILE_SEARCH', value: pre ? 100 : viewsAfter });
+    }
+    if (lastYear !== null) for (let i = 0; i < 28; i++) {
+      const date = addDaysIso('2025-10-14', i);
+      rows.push({ date, metric: 'CALL_CLICKS', value: lastYear });
+      rows.push({ date, metric: 'BUSINESS_IMPRESSIONS_MOBILE_SEARCH', value: viewsLastYear });
     }
     return { retailerId: id, name: id, town: null, activatedOn, rows };
   }
 
-  it('a small shop that grew beats a big shop that stood still', () => {
-    const { ranked } = buildLeague([shop('Big', '2026-09-01', 50, 50), shop('Small', '2026-09-01', 2, 4)], NOW);
+  it('a small shop that grew on last year beats a big shop that stood still', () => {
+    const { ranked } = buildLeague([shop('Big', '2026-09-01', 50, 50, 50), shop('Small', '2026-09-01', 2, 2, 4)], NOW);
     expect(ranked.map((r) => r.name)).toEqual(['Small', 'Big']);
     expect(ranked[0]).toMatchObject({ actionsChange: 100, band: 'Strong rise' });
     expect(ranked[1]).toMatchObject({ actionsChange: 0, band: 'Steady' });
   });
 
+  it('the time of year is not a rise: double the weeks before joining, but the same as last year, is Steady', () => {
+    // 2 calls a day before joining, 4 a day since: +100% on the old basis. Last year it was 4 a day too.
+    const { ranked } = buildLeague([shop('Seasonal', '2026-09-01', 4, 2, 4)], NOW);
+    expect(ranked[0]).toMatchObject({ actionsChange: 0, band: 'Steady' });
+    // And the other way round: flat since joining, but well down on last year, is a fall.
+    expect(buildLeague([shop('Down', '2026-09-01', 8, 4, 4)], NOW).ranked[0]).toMatchObject({ actionsChange: -50, band: 'Falling' });
+  });
+
+  it('the windows are the same weekdays, 52 weeks apart, and are read without overlap', () => {
+    const w = leagueWindows('2026-09-01', NOW);
+    expect(w).toMatchObject({ recentFrom: '2026-10-13', recentTo: '2026-11-09', lastYearFrom: '2025-10-14', lastYearTo: '2025-11-10' });
+    const dow = (d: string) => new Date(`${d}T00:00:00Z`).getUTCDay();
+    expect(dow(w.lastYearFrom)).toBe(dow(w.recentFrom));
+    expect(leagueRanges('2026-09-01', NOW)).toEqual([{ from: '2025-10-14', to: '2025-11-10' }, { from: '2026-08-04', to: '2026-11-09' }]);
+    // A shop that joined a year ago: the weeks before it joined run into last year's weeks. One range, nothing read twice.
+    expect(leagueRanges('2025-11-01', NOW)).toEqual([{ from: '2025-10-04', to: '2026-11-09' }]);
+  });
+
   it('carries no raw counts', () => {
-    const { ranked } = buildLeague([shop('A', '2026-09-01', 5, 6)], NOW);
+    const { ranked } = buildLeague([shop('A', '2026-09-01', 5, 5, 6)], NOW);
     expect(Object.keys(ranked[0]).sort()).toEqual(['actionsChange', 'band', 'name', 'rank', 'retailerId', 'town', 'viewsChange']);
   });
 
+  it('with nothing from last year a shop is not ranked; its change against the weeks before joining is shown, labelled', () => {
+    const { ranked, excluded } = buildLeague([shop('NewListing', '2026-09-01', null, 2, 4), shop('Ranked', '2026-09-01', 3, 3, 3)], NOW);
+    expect(ranked.map((r) => r.name)).toEqual(['Ranked']);
+    expect(excluded).toHaveLength(1);
+    expect(excluded[0].reason).toMatch(/no figures from the same weeks last year, so it is not ranked\. Against the four weeks before it joined: \+100% \(that comparison is affected by the time of year\)/);
+    expect(excluded[0].beforeJoining).toEqual({ actionsChange: 100, band: 'Strong rise' });
+    // No raw counts there either.
+    expect(JSON.stringify(excluded[0])).not.toMatch(/"calls"|"views"/);
+  });
+
+  it('with nothing from last year and too little from before joining, it just says so', () => {
+    const { excluded } = buildLeague([shop('Thin', '2026-09-01', null, 0, 1)], NOW);
+    expect(excluded[0].reason).toBe('no figures from the same weeks last year, so it is not ranked');
+    expect(excluded[0].beforeJoining).toBeUndefined();
+  });
+
+  it('needs ten customer actions in last year\'s weeks, and a move of at least three to be called a rise', () => {
+    // 9 in four weeks last year: too few. (A third of a call a day is not expressible, so build it by hand.)
+    const few = shop('Few', '2026-09-01', 0, 1, 1);
+    few.rows.push(...Array.from({ length: 9 }, (_, i) => ({ date: addDaysIso('2025-10-14', i), metric: 'WEBSITE_CLICKS', value: 1 })));
+    expect(buildLeague([few], NOW).excluded[0].reason).toMatch(/too few customer actions in the same weeks last year/);
+    const ten = shop('Ten', '2026-09-01', 0, 1, 0);
+    ten.rows.push(...Array.from({ length: 10 }, (_, i) => ({ date: addDaysIso('2025-10-14', i), metric: 'WEBSITE_CLICKS', value: 1 })));
+    ten.rows.push(...Array.from({ length: 12 }, (_, i) => ({ date: addDaysIso('2026-10-13', i), metric: 'WEBSITE_CLICKS', value: 1 })));
+    // 10 to 12 is +20%, which would be "Rising", but it is two actions: Steady.
+    expect(buildLeague([ten], NOW).ranked[0]).toMatchObject({ actionsChange: 20, band: 'Steady' });
+    expect(bandFor(10, 13)).toBe('Strong rise');
+    expect(bandFor(40, 43)).toBe('Rising');
+    expect(bandFor(10, 8)).toBe('Steady');
+    expect(bandFor(10, 7)).toBe('Falling');
+  });
+
   it('lists shops that joined too recently or have too little data, without ranking them', () => {
-    const recent = shop('New', '2026-11-01', 5, 6);
-    const tiny = shop('Tiny', '2026-09-01', 0, 1);
-    const gappy = { ...shop('Gappy', '2026-09-01', 5, 6), rows: [] };
+    const recent = shop('New', '2026-11-01', 5, 5, 6);
+    const tiny = shop('Tiny', '2026-09-01', 0, 0, 1);
+    const gappy = { ...shop('Gappy', '2026-09-01', 5, 5, 6), rows: [] };
     const { ranked, excluded } = buildLeague([recent, tiny, gappy], NOW);
     expect(ranked).toEqual([]);
     expect(excluded.map((e) => e.name).sort()).toEqual(['Gappy', 'New', 'Tiny']);
