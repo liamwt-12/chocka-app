@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
 import { verifyCronSecret, unauthorizedResponse, getActiveUsersWithProfiles } from '@/lib/cron';
-import { refreshAccessToken, fetchDailyMetrics, getManageableListings, isDeadGrant } from '@/lib/google';
+import { refreshAccessToken, fetchDailyMetrics, getManageableListings, isDeadGrant, getReviews, parseStarRating } from '@/lib/google';
+import { snapshotFrom, snapshotColumns } from '@/lib/review-snapshot';
 import { decryptSecret, userTokenAad } from '@/lib/secrets';
 import { resolveAccess } from '@/lib/managed-access';
 import { syncDailyMetrics, pickProfilesToSync, markSyncAttemptFailed } from '@/lib/metrics';
@@ -10,7 +11,9 @@ import { recordLiveToday } from '@/lib/billing';
 
 // Hourly. For each shop that is due (about once a day):
 //   1. fetch Google's daily figures (lib/metrics.ts)
-//   2. look again at the connection: right listing, verified, still accessible
+//   2. note the listing's review totals: rating, count, how many answered
+//      (lib/review-snapshot.ts)
+//   3. look again at the connection: right listing, verified, still accessible
 //      (lib/connection-check.ts)
 // and, first, once a day: mark which shops are live for the monthly count.
 // and if Google says our permission is gone for good, record that, so the shop
@@ -38,7 +41,7 @@ export async function GET(request: NextRequest) {
       : { data: [] as any[] };
     const retailerFor = new Map<string, any>((retailers || []).map((r: any) => [r.user_id, r]));
 
-    let synced = 0, failed = 0, rechecked = 0, lost = 0;
+    let synced = 0, failed = 0, rechecked = 0, lost = 0, reviewNotes = 0;
     for (const { user, profile } of queue) {
       if (Date.now() - started > TIME_BUDGET_MS) break;
       const access = resolveAccess(user);
@@ -73,6 +76,19 @@ export async function GET(request: NextRequest) {
         await markSyncAttemptFailed(supabaseAdmin, profile.id);
       }
 
+      // A note of the listing's review totals (lib/review-snapshot.ts): rating,
+      // count, and how many have a reply. Totals only, no review text. A
+      // failure here is logged and nothing else: the figures above are already
+      // stored, and yesterday's note stays.
+      try {
+        const snapshot = snapshotFrom(await getReviews(token, profile.google_location_name, profile.google_account_id), parseStarRating);
+        const { error } = await supabaseAdmin.from('profiles').update(snapshotColumns(snapshot, new Date())).eq('id', profile.id);
+        if (error) console.error(`[cron:metrics-sync] profile ${profile.id}: review totals not stored: ${error.message}`);
+        else reviewNotes++;
+      } catch (e: any) {
+        console.error(`[cron:metrics-sync] profile ${profile.id}: review totals not read: ${String(e?.message).slice(0, 200)}`);
+      }
+
       // The daily connection check. Only for a shop we invited (it has a record),
       // and only for a sign-in the shop gave itself: an operator account's list
       // of listings says nothing about one shop's.
@@ -82,7 +98,7 @@ export async function GET(request: NextRequest) {
         if (result) rechecked++;
       }
     }
-    return NextResponse.json({ success: true, queued: queue.length, synced, failed, rechecked, lostAccess: lost, liveCount });
+    return NextResponse.json({ success: true, queued: queue.length, synced, failed, rechecked, lostAccess: lost, reviewNotes, liveCount });
   } catch (err) {
     console.error('Metrics sync cron failed:', err);
     return NextResponse.json({ error: 'Cron failed' }, { status: 500 });

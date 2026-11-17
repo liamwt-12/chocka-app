@@ -82,6 +82,7 @@ export const SCHEMA_PROBES: Array<{ migration: string; label: string; table: str
   { migration: '20261117110000_ad_spend_and_live_months', label: 'Ad spend and first-live date', table: 'retailers', columns: 'ad_spend_pence, ad_end_date, first_live_on, exclude_from_count' },
   { migration: '20261117110000_ad_spend_and_live_months', label: 'Monthly count of live shops', table: 'live_months', columns: 'month, retailer_id, live_days' },
   { migration: '20261118090000_user_last_seen', label: 'When a shop last opened its dashboard', table: 'users', columns: 'last_seen_at' },
+  { migration: '20261119100000_review_snapshot', label: 'Review totals per listing (network rating)', table: 'profiles', columns: 'review_rating, review_count, reviews_read, reviews_answered, review_snapshot_at' },
   { migration: '20261119090000_automation_mode', label: 'Hands-off or ask me first, and Pause', table: 'users', columns: 'automation_mode, automation_mode_chosen_at, automation_consent_at, automation_consent_version, automation_paused_at' },
 ];
 

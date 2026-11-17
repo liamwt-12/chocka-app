@@ -21,6 +21,7 @@ import { loadMetricRows, loadMetricRanges, isoDate, totalsFor, previousMonth, la
 import { sameMonthLastYear } from './year-on-year';
 import { inChunks } from './monthly-report';
 import { buildNetworkSummary, type NetworkSummary, type ShopMonth } from './network-summary';
+import type { ShopReviews } from './review-snapshot';
 import { buildLeague, leagueRanges, type LeagueEntry, type LeagueExcluded } from './league';
 import { compareAdPeriod, comparisonRanges } from './ad-comparison';
 import { adVerdict, formatPounds } from './ad-spend';
@@ -76,7 +77,7 @@ export async function loadConsoleData(db: Db, tenantId: string, now: Date = new 
   // Tokens are read only to decide whether access works. They never leave this function.
   const { data: users } = userIds.length
     ? await db.from('users')
-        .select(`id, google_refresh_token, token_status, token_invalid_at, managed_by_user_id, ${MANAGER_EMBED}, profiles ( id, created_at, audit_score, google_location_name )`)
+        .select(`id, google_refresh_token, token_status, token_invalid_at, managed_by_user_id, ${MANAGER_EMBED}, profiles ( id, created_at, audit_score, google_location_name, review_rating, review_count, reviews_read, reviews_answered, review_snapshot_at )`)
         .in('id', userIds)
     : { data: [] };
   const userById = new Map<string, any>((users || []).map((u: any) => [u.id, u]));
@@ -84,6 +85,8 @@ export async function loadConsoleData(db: Db, tenantId: string, now: Date = new 
   const since30 = new Date(now.getTime() - 30 * 86_400_000).toISOString();
   const leagueInputs: Parameters<typeof buildLeague>[0] = [];
   const withProfile: Array<{ shop: ConsoleShop; profileId: string; adStart: string | null; spend: number | null }> = [];
+  // Each live shop's review totals, for the network rating. Only ever shown added up.
+  const reviewTotals: ShopReviews[] = [];
   const shops: ConsoleShop[] = [];
 
   for (const r of rows) {
@@ -117,6 +120,7 @@ export async function loadConsoleData(db: Db, tenantId: string, now: Date = new 
       const metricRows: MetricRow[] = await loadMetricRanges(db, profile.id, leagueRanges(joinedOn, now));
       leagueInputs.push({ retailerId: r.id, name: r.name, town: r.town, activatedOn: joinedOn, rows: metricRows });
       withProfile.push({ shop, profileId: profile.id, adStart: r.ad_start_date ?? null, spend: r.ad_spend_pence ?? null });
+      reviewTotals.push({ live: full.live, rating: profile.review_rating === null || profile.review_rating === undefined ? null : Number(profile.review_rating), count: profile.review_count, read: profile.reviews_read, answered: profile.reviews_answered, snapshotAt: profile.review_snapshot_at });
     }
     shops.push(shop);
   }
@@ -171,7 +175,7 @@ export async function loadConsoleData(db: Db, tenantId: string, now: Date = new 
     lastYearLabel: monthName(lastYear.from), daysLastYear: lastYear.days,
     // Google's last few days arrive late. Until they are in, last month is understated.
     complete: lastReportableDate(now) >= month.to,
-  });
+  }, reviewTotals, now);
 
   const counts = shops.reduce((acc: Record<string, number>, s) => { acc[s.pilotState] = (acc[s.pilotState] || 0) + 1; return acc; }, {});
   return { generatedAt: now.toISOString(), counts, shops, league, summary };

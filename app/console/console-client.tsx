@@ -93,6 +93,18 @@ export default function ConsoleClient({ view }: { view: 'console' | 'league' | '
         <p style={{ fontSize: 12, color: C.soft, margin: '10px 0 0' }}>These are Google&apos;s own figures for each listing, added up. They show what happened, not what caused it.</p>
       </div>
 
+      <div style={card}>
+        <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 2 }}>Reviews, across the network</div>
+        <p style={{ fontSize: 13, color: C.mid, margin: '0 0 10px' }}>{s.reviews.note}</p>
+        {(s.reviews.rating !== null || s.reviews.shareAnswered !== null) && (
+          <div style={{ display: 'flex', gap: 28, flexWrap: 'wrap' }}>
+            {s.reviews.rating !== null && <div><div style={big}>{s.reviews.rating.toFixed(1)} <span style={{ fontSize: 16, fontWeight: 400, color: C.mid }}>out of 5</span></div><div style={{ fontSize: 13, color: C.mid }}>network rating, from {num(s.reviews.totalReviews)} reviews</div></div>}
+            {s.reviews.shareAnswered !== null && <div><div style={big}>{s.reviews.shareAnswered}%</div><div style={{ fontSize: 13, color: C.mid }}>of reviews have a reply from the shop</div></div>}
+          </div>
+        )}
+        <p style={{ fontSize: 12, color: C.soft, margin: '10px 0 0' }}>Live shops only. Google&apos;s own rating and review count for each listing, added up. No review text and no single shop&apos;s figures are shown.</p>
+      </div>
+
       <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
         <div style={{ ...card, flex: '1 1 300px' }}>
           <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 2 }}>Against the same weeks last year</div>

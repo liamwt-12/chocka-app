@@ -8,6 +8,7 @@ The console and league are built behind `TARKETT_CONSOLE_ENABLED`, which is off.
 |---|---|---|
 | Every shop in Tarkett's network on Stellar | Name and town (Tarkett's own published data), where it is in the pilot (invited, connected, live), Google connection status | Contact details, phone, any score |
 | Shops that have joined | Presence score at activation, posts and replies in the last 30 days, change in customer actions and views against the same weeks last year (as percentages), improvement band, ad start date, league position | Contact details, phone, review text, raw view or call counts, anything about the shop's customers |
+| The network as a whole (monthly summary) | Totals added up across shops: times seen, calls, website clicks, direction requests; the network's rating and how many reviews it is from; the share of reviews with a reply from the shop. Review figures are from live shops only, and none is ever shown from fewer than three shops | Any single shop's rating or review count, review text, reviewers' names |
 
 ## What must change before the flag goes on
 

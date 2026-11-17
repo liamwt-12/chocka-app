@@ -26,6 +26,7 @@ import { MIN_BASE_FOR_PERCENT } from './ad-comparison';
 import type { MetricTotals } from './metrics';
 import type { ConsoleShop } from './console-data';
 import type { LeagueEntry } from './league';
+import { networkReviews, type NetworkReviews, type ShopReviews } from './review-snapshot';
 
 /** A month's figures only count for a shop with at least this many days of data in it. */
 export const MIN_DAYS_IN_MONTH = 20;
@@ -64,6 +65,8 @@ export interface NetworkSummary {
   /** Shops with ads: spend (as text) and what changed alongside. */
   ads: { shops: Array<{ name: string; town: string | null; from: string; spend: string | null; label: string; detail: string; flag: boolean }>; withSpend: number; clearRise: number; noClearChange: number; tooEarlyOrFew: number; flagged: number };
   topMovers: Array<{ name: string; town: string | null; band: string; actionsChange: number | null }>;
+  /** The network's rating and the share of its reviews answered, from live shops, never fewer than three (lib/review-snapshot.ts). */
+  reviews: NetworkReviews;
   /** Shops that are invited or connected and not live, by reason. No contact details. */
   notLive: { total: number; byReason: Array<{ label: string; count: number }> };
 }
@@ -79,6 +82,8 @@ export function buildNetworkSummary(
   league: { ranked: LeagueEntry[] },
   months: ShopMonth[],
   span: MonthSpan | string,
+  reviews: ShopReviews[] = [],
+  now: Date = new Date(),
 ): NetworkSummary {
   const m: MonthSpan = typeof span === 'string' ? { label: span, days: 30, daysBefore: 30, complete: true } : span;
   const monthLabel = m.label;
@@ -151,6 +156,7 @@ export function buildNetworkSummary(
       tooEarlyOrFew: adShops.filter((a) => ['Too early to say', 'Not enough history', 'Too few to say', 'Not worked out'].includes(a.label)).length,
       flagged: adShops.filter((a) => a.flag).length,
     },
+    reviews: networkReviews(reviews, now),
     topMovers: league.ranked.slice(0, 5).map((e) => ({ name: e.name, town: e.town, band: e.band, actionsChange: e.actionsChange })),
     notLive: { total: Array.from(reasons.values()).reduce((a, b) => a + b, 0), byReason: Array.from(reasons.entries()).map(([label, n]) => ({ label, count: n })).sort((a, b) => b.count - a.count || a.label.localeCompare(b.label)) },
   };
