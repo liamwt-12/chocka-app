@@ -1,7 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { reviewAlertEmailsEnabled, planForReview, shopsToCheck, leftSinceJoining, type ReviewFacts } from './review-alerts';
-import { newReviewEmail, postApprovalEmail, reviewAlertEmail } from './email';
 import { earlyPreviewEmailsEnabled } from './safe-automation';
 import { getTenantBySlug } from './tenant';
 import { emailPreview, EMAIL_PREVIEWS } from './email-previews';
@@ -129,53 +128,12 @@ describe('the job', () => {
     expect(route).toMatch(/shopsToCheck\(users\.map\(\(u: any\) => \(\{ \.\.\.u, auto_reply_enabled: switchesInForce\(u\)\.replies \}\)\), alertsOn\)/);
     expect(route).toMatch(/repliesOn: switchesInForce\(user\)\.replies/);
     expect(route).toMatch(/const plan = planForReview\(/);
-    expect(route).toMatch(/if \(plan\.alert !== 'good' \|\| !user\.email\) return;/);
-    expect(route.match(/newReviewEmail\(/g)).toHaveLength(1);
+    expect(route).toMatch(/if \(plan\.alert !== 'good'\) return;/);
+    expect(route.match(/newReviewNotice\(/g)).toHaveLength(1);
   });
   it('still leaves held listings out: it takes its shops from the gate that removes them', () => {
     expect(route).toMatch(/getActiveUsersWithProfiles\(supabaseAdmin, 'review-alerts'\)/);
     expect(route).not.toMatch(/includeHeld/);
-  });
-});
-
-describe('the emails', () => {
-  const tenant = getTenantBySlug('stellar');
-  const common = { businessName: 'Bare Carpets', reviewerName: 'Jo <i>Bloggs</i>', rating: 5, comment: 'Lovely <b>job</b> & quick', dashboardUrl: 'https://example.test/dashboard', settingsUrl: 'https://example.test/settings', tenant };
-  it('says what we replied, when we did', () => {
-    const html = newReviewEmail({ ...common, replyState: 'posted', reply: 'Thanks so much, Jo.' });
-    expect(html).toContain('We replied for you:');
-    expect(html).toContain('Thanks so much, Jo.');
-    expect(html).toContain('undo our reply');
-  });
-  it('says plainly that nothing was replied when replies are off, and how to turn them on', () => {
-    const html = newReviewEmail({ ...common, replyState: 'none' });
-    expect(html).toContain('Replies are switched off, so we have not replied.');
-    expect(html).toContain('turn on replies to good reviews');
-    expect(html).not.toContain('We replied for you');
-  });
-  it('says paused when the shop has paused', () => {
-    expect(newReviewEmail({ ...common, replyState: 'none', paused: true })).toContain('You have paused us, so we have not replied.');
-  });
-  it('says when a reply is waiting on the dashboard', () => {
-    expect(newReviewEmail({ ...common, replyState: 'waiting', reply: 'Thanks.' })).toContain('could not post it just now');
-  });
-  it('escapes what the customer wrote', () => {
-    const html = newReviewEmail({ ...common, replyState: 'none' });
-    expect(html).not.toMatch(/<b>job<\/b>|<i>Bloggs/);
-    expect(html).toContain('Lovely &lt;b&gt;job&lt;/b&gt; &amp; quick');
-  });
-  it('the early-post preview email says nothing is posted unless approved', () => {
-    const html = postApprovalEmail({ businessName: 'Bare Carpets', postContent: 'A post.', scheduledFor: '2026-12-07T10:00:00Z', approveUrl: 'https://example.test/a', skipUrl: 'https://example.test/s', approvalsLeft: 3, tenant });
-    expect(html).toContain('If you do nothing, nothing is posted.');
-  });
-});
-
-describe('the existing "needs your input" email, now sent to more shops, escapes what the customer wrote', () => {
-  it('a reviewer\'s name or comment cannot put markup beside the Publish button', () => {
-    const html = reviewAlertEmail({ businessName: '<b>Bare</b> Carpets', reviewerName: '<a href="https://evil.example">click</a>', rating: 2, comment: '<img src=x onerror=alert(1)> & more', suggestedReply: 'Thank you <for> your feedback.', approveUrl: 'https://example.test/a', rejectUrl: 'https://example.test/r', tenant: getTenantBySlug('stellar') });
-    expect(html).not.toMatch(/<a href="https:\/\/evil|<img src=x|<b>Bare|<for>/);
-    expect(html).toContain('&lt;img src=x onerror=alert(1)&gt; &amp; more');
-    expect(html).toContain('https://example.test/a');
   });
 });
 
@@ -186,8 +144,9 @@ describe('reading the switched-off emails in the admin page', () => {
       const e = emailPreview(p.key, tenant, new Date('2026-12-01T10:00:00Z'));
       expect(e, p.key).not.toBeNull();
       expect(e!.subject.length).toBeGreaterThan(5);
-      expect(e!.html).toContain('Example');
-      expect(e!.html).not.toMatch(/href="https?:\/\/[^"]*\/api\//);
+      expect(e!.text).toContain('Example Flooring');
+      expect(e!.text).not.toMatch(/https?:\/\//);          // a sample carries no working link
+      expect(e!.text).not.toMatch(/<[a-z!\/]/i);            // and no markup: it is plain text
     }
     expect(emailPreview('nope', tenant)).toBeNull();
   });

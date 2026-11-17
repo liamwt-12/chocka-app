@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
 import { verifyCronSecret, unauthorizedResponse, generatePostActionHash } from '@/lib/cron';
-import { sendEmail, postApprovalEmail } from '@/lib/email';
+import { sendEmail } from '@/lib/email';
+import { shopContactEmail, postWaitingNotice } from '@/lib/shop-notices';
 import { getTenantForRow } from '@/lib/tenant';
 import { isPaused } from '@/lib/automation-mode';
 import { automationHeld } from '@/lib/shop-status';
@@ -20,7 +21,7 @@ export async function GET(request: NextRequest) {
     const now = new Date();
     const { data: posts, error } = await supabaseAdmin
       .from('scheduled_posts')
-      .select('id, content, scheduled_for, status, preview_sent_at, profile_id, profiles!inner(id, business_name, users:user_id(id, email, automation_paused_at, tenants ( slug ), retailers ( connection_status, listing_confirmed_at )))')
+      .select('id, content, scheduled_for, status, preview_sent_at, profile_id, profiles!inner(id, business_name, users:user_id(id, email, managed_by_user_id, automation_paused_at, tenants ( slug ), retailers ( connection_status, listing_confirmed_at )))')
       .eq('status', AWAITING_APPROVAL)
       .is('preview_sent_at', null)
       .gt('scheduled_for', now.toISOString());
@@ -36,7 +37,9 @@ export async function GET(request: NextRequest) {
     for (const post of due as any[]) {
       const profile = post.profiles;
       const user = profile?.users;
-      if (!user?.email) continue;
+      // Plain text, to the shop's own address only: never a rep's or an operator's (lib/shop-notices.ts).
+      const to = shopContactEmail(user);
+      if (!to) continue;
       // Not while the shop has paused, or its listing is held: nothing could go up anyway.
       if (isPaused(user) || automationHeld(user.retailers)) continue;
       const t = getTenantForRow(user);
@@ -44,15 +47,11 @@ export async function GET(request: NextRequest) {
         .from('scheduled_posts').select('id', { count: 'exact', head: true })
         .eq('profile_id', profile.id).eq('status', 'published');
       const link = (action: 'approve' | 'skip') => `${t.appUrl}/api/posts/approve?id=${post.id}&action=${action}&hash=${generatePostActionHash(post.id, action)}`;
-      const ok = await sendEmail({
-        to: user.email,
-        subject: `Approve your Google post: ${profile.business_name}`,
-        html: postApprovalEmail({
-          businessName: profile.business_name, postContent: post.content, scheduledFor: post.scheduled_for,
-          approveUrl: link('approve'), skipUrl: link('skip'), approvalsLeft: approvalsRemaining(published || 0), tenant: t,
-        }),
-        tenant: t,
+      const n = postWaitingNotice({
+        businessName: profile.business_name, postContent: post.content, scheduledFor: post.scheduled_for,
+        approveUrl: link('approve'), skipUrl: link('skip'), approvalsLeft: approvalsRemaining(published || 0), tenant: t,
       });
+      const ok = await sendEmail({ to, subject: n.subject, text: n.text, tenant: t });
       if (ok) {
         await supabaseAdmin.from('scheduled_posts').update({ preview_sent_at: now.toISOString() }).eq('id', post.id);
         sent++;

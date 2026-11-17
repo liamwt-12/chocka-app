@@ -6,7 +6,8 @@ import { loggedReplyToReview } from '@/lib/change-log';
 import { generateReviewReply } from '@/lib/ai';
 import { loadVoiceForUser } from '@/lib/voice';
 import { sendSMS, logSMS } from '@/lib/twilio';
-import { sendEmail, reviewAlertEmail, holdingReplyPostedEmail, newReviewEmail } from '@/lib/email';
+import { sendEmail } from '@/lib/email';
+import { shopContactEmail, newReviewNotice, lowReviewNotice, holdingReplyPostedNotice } from '@/lib/shop-notices';
 import { getTenantForRow } from '@/lib/tenant';
 import { decryptSecret, userTokenAad } from '@/lib/secrets';
 import { resolveAccess } from '@/lib/managed-access';
@@ -157,14 +158,14 @@ export async function GET(request: NextRequest) {
             rating, repliesOn: switchesInForce(user).replies, paused: isPaused(user), handsOff: holdingReplyGoesOut(user),
             alertsOn, sinceJoining: leftSinceJoining(review.createTime, profile.created_at), sincePermission: leftSincePermission(review.createTime, user),
           });
+          // Notices are plain text and go to the shop's own address only, never a
+          // rep's or an operator's (lib/shop-notices.ts).
+          const noticeTo = shopContactEmail(user);
           const goodAlert = async (replyState: 'posted' | 'waiting' | 'none', reply: string | null) => {
-            if (plan.alert !== 'good' || !user.email) return;
-            await sendEmail({
-              to: user.email,
-              subject: `New ${rating}-star review for ${profile.business_name}`,
-              html: newReviewEmail({ businessName: profile.business_name, reviewerName, rating, comment, replyState, reply, paused: isPaused(user), dashboardUrl: `${t.appUrl}/dashboard`, settingsUrl: `${t.appUrl}/settings`, tenant: t }),
-              tenant: t,
-            });
+            if (plan.alert !== 'good') return;
+            if (!noticeTo) { console.log(`[cron:review-alerts] no notice sent for review ${newReview.id}: no address that is the shop's own`); return; }
+            const n = newReviewNotice({ businessName: profile.business_name, reviewerName, rating, comment, replyState, reply, paused: isPaused(user), dashboardUrl: `${t.appUrl}/dashboard`, settingsUrl: `${t.appUrl}/settings`, tenant: t });
+            await sendEmail({ to: noticeTo, subject: n.subject, text: n.text, tenant: t });
           };
 
           if (plan.reply === 'ai_publish') {
@@ -249,23 +250,12 @@ export async function GET(request: NextRequest) {
               await logSMS(supabaseAdmin, user.id, user.phone_number, 'review_negative', smsBody, sid);
             }
 
-            // Email with approve/reject buttons
-            if (user.email) {
-              await sendEmail({
-                to: user.email,
-                subject: `${rating}-star review for ${profile.business_name} — needs your input`,
-                html: reviewAlertEmail({
-                  businessName: profile.business_name,
-                  reviewerName,
-                  rating,
-                  comment,
-                  suggestedReply: replyContent,
-                  approveUrl,
-                  rejectUrl,
-                  tenant: t,
-                }),
-                tenant: t,
-              });
+            // The shop is told, in plain text, with a link to post the reply and one to handle it itself.
+            if (noticeTo) {
+              const n = lowReviewNotice({ businessName: profile.business_name, reviewerName, rating, comment, suggestedReply: replyContent, approveUrl, rejectUrl, tenant: t });
+              await sendEmail({ to: noticeTo, subject: n.subject, text: n.text, tenant: t });
+            } else {
+              console.log(`[cron:review-alerts] no notice sent for review ${newReview.id}: no address that is the shop's own. The reply is waiting on the dashboard.`);
             }
           }
 
@@ -307,18 +297,15 @@ async function postHoldingReply(x: { user: any; profile: any; accessToken: strin
     review_id: x.newReview.id, reply_content: x.replyContent, status: 'published', published_at: new Date().toISOString(),
   });
   if (error) console.error(`[cron:review-alerts] holding reply posted but not recorded for review ${x.newReview.id}: ${error.message}`);
-  // Told, every time. A failed email is logged loudly: the reply is public and
-  // the shop does not yet know about it.
-  if (x.user.email) {
-    const ok = await sendEmail({
-      to: x.user.email,
-      subject: `${x.rating}-star review for ${x.profile.business_name}: we have replied for you`,
-      html: holdingReplyPostedEmail({ businessName: x.profile.business_name, reviewerName: x.reviewerName, rating: x.rating, comment: x.comment, reply: x.replyContent, settingsUrl: `${x.t.appUrl}/settings`, tenant: x.t }),
-      tenant: x.t,
-    });
+  // Told, every time, at the shop's own address. A failed notice is logged
+  // loudly: the reply is public and the shop does not yet know about it.
+  const to = shopContactEmail(x.user);
+  if (to) {
+    const n = holdingReplyPostedNotice({ businessName: x.profile.business_name, reviewerName: x.reviewerName, rating: x.rating, comment: x.comment, reply: x.replyContent, settingsUrl: `${x.t.appUrl}/settings`, tenant: x.t });
+    const ok = await sendEmail({ to, subject: n.subject, text: n.text, tenant: x.t });
     if (!ok) console.error(`[cron:review-alerts] HOLDING REPLY POSTED BUT THE SHOP WAS NOT TOLD (email failed) for user ${x.user.id}, review ${x.newReview.id}`);
   } else {
-    console.error(`[cron:review-alerts] HOLDING REPLY POSTED BUT THE SHOP HAS NO EMAIL ADDRESS to be told at: user ${x.user.id}, review ${x.newReview.id}`);
+    console.error(`[cron:review-alerts] HOLDING REPLY POSTED BUT THERE IS NO ADDRESS OF THE SHOP'S OWN to tell it at: user ${x.user.id}, review ${x.newReview.id}`);
   }
   return true;
 }

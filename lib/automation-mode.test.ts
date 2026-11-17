@@ -7,7 +7,6 @@ import {
 } from './automation-mode';
 import { APPROVAL_REQUIRED_POSTS, holdingReply, replyBreaksRules } from './safe-automation';
 import { getTenantBySlug } from './tenant';
-import { holdingReplyPostedEmail } from './email';
 
 const ON = { HANDS_OFF_MODE: 'on' };
 const OFF = {};
@@ -156,13 +155,6 @@ describe('the wording', () => {
     expect(all).toMatch(/we tell you straight away/);
     expect(all).toMatch(/until you tell us to stop/);
     expect(all).not.toMatch(/guarantee|more customers|rank|£/i);
-  });
-  it('the email that tells the shop escapes what the customer wrote', () => {
-    const html = holdingReplyPostedEmail({ businessName: 'Bare <b>Carpets</b>', reviewerName: 'A <script>', rating: 2, comment: 'bad & "slow" <img>', reply: holdingReply('A'), settingsUrl: 'https://example.test/settings', tenant: getTenantBySlug('stellar') });
-    expect(html).not.toMatch(/<script>|<img>|<b>Carpets/);
-    expect(html).toContain('bad &amp; &quot;slow&quot; &lt;img&gt;');
-    expect(html).toContain('we have posted a short, polite reply');
-    expect(html).toContain('https://example.test/settings');
   });
 });
 

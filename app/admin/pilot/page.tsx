@@ -213,7 +213,7 @@ export default function PilotAdminPage() {
     } catch (e: any) { setMsg(e.message); }
     setBusy(false);
   };
-  const [emailSample, setEmailSample] = useState<{ subject: string; html: string } | null>(null);
+  const [emailSample, setEmailSample] = useState<{ subject: string; text: string } | null>(null);
   const showEmail = async (key: string) => { setBusy(true); setMsg(''); try { setEmailSample(await call({ action: 'preview_email', key })); } catch (e: any) { setMsg(e.message); } setBusy(false); };
   const [retention, setRetention] = useState<any>(null);
   const loadRetention = async () => { setBusy(true); setMsg(''); try { setRetention(await call({ action: 'retention' })); } catch (e: any) { setMsg(e.message); } setBusy(false); };
@@ -382,12 +382,12 @@ export default function PilotAdminPage() {
             <strong style={{ fontSize: 15 }}>Read the emails that are switched off</strong>
             {EMAIL_SAMPLES.map(([key, label]) => <button key={key} onClick={() => showEmail(key)} disabled={busy} style={{ ...btn, background: 'transparent', color: C.text, textDecoration: 'underline', padding: '2px 4px' }}>{label}</button>)}
           </div>
-          <p style={{ color: C.mid, fontSize: 13, margin: '6px 0 0' }}>Each opens with made-up content. Nothing is sent to anyone. The switches are EARLY_POST_PREVIEW_EMAILS, REVIEW_ALERT_EMAILS and HANDS_OFF_MODE.</p>
+          <p style={{ color: C.mid, fontSize: 13, margin: '6px 0 0' }}>Each opens with made-up content, in plain text as the shop would get it, and goes only to the shop's own address. Nothing is sent to anyone. The switches are EARLY_POST_PREVIEW_EMAILS, REVIEW_ALERT_EMAILS and HANDS_OFF_MODE.</p>
           {emailSample && (
             <div style={{ marginTop: 10 }}>
               <div style={{ fontSize: 13, color: C.mid, marginBottom: 6 }}>Subject: <strong style={{ color: C.text }}>{emailSample.subject}</strong> <button onClick={() => setEmailSample(null)} style={{ ...btn, background: 'transparent', color: C.mid, textDecoration: 'underline', padding: '2px 4px' }}>Close</button></div>
-              {/* sandbox with no permissions: the sample cannot run scripts or follow its links. */}
-              <iframe title="Email sample" sandbox="" srcDoc={emailSample.html} style={{ width: '100%', maxWidth: 560, height: 560, border: '1px solid #ddd', borderRadius: 8, background: '#fff' }} />
+              {/* Plain text, shown as the shop gets it. */}
+              <pre style={{ whiteSpace: 'pre-wrap', fontFamily: 'ui-monospace, Menlo, monospace', fontSize: 13, lineHeight: 1.5, background: '#fff', border: '1px solid #ddd', borderRadius: 8, padding: 14, maxWidth: 620, margin: 0 }}>{emailSample.text}</pre>
             </div>
           )}
         </div>

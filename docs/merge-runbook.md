@@ -718,12 +718,14 @@ To take them one at a time instead, merge `origin/retention/1-hands-off`, then `
 
 ### Switching on the two "silence" emails, after your own test
 
+Both are **plain text**, and go only to the address on the account the shop itself signed in with. A shop set up through an operator account is never sent one: the address on that account is not known to be the shop's own. The invitation and the monthly report stay as designed emails.
+
 Both are off. **Do not switch either on until you have done this once, on your own listing** (the one from `docs/test-listing-runbook.md`), with no other shop connected or with the other shops' owners warned.
 
 1. **Read them.** `/admin/pilot` → **Read the emails that are switched off**. Read all five. If any wording is wrong, stop here.
-2. **The preview email.** Set `EARLY_POST_PREVIEW_EMAILS=on` and redeploy. On your test shop, switch posts on and wait for a post to be written (Friday morning), or use one that is already waiting. Within an hour of the post being less than 24 hours away you should get **one** email, "Approve your Google post", with two buttons. Press Approve: the page asks you to confirm, and only the confirm button approves. Check you get the email once, not hourly.
+2. **The preview email.** Set `EARLY_POST_PREVIEW_EMAILS=on` and redeploy. On your test shop, switch posts on and wait for a post to be written (Friday morning), or use one that is already waiting. Within an hour of the post being less than 24 hours away you should get **one** plain-text email, "Approve your Google post", with two links. Open the approve link: the page asks you to confirm, and only the confirm button approves. Check you get the email once, not hourly.
 3. **The review alert.** Set `REVIEW_ALERT_EMAILS=on` and redeploy. With replies **off** on your test shop, leave a review on your own listing from another Google account. Within 15 minutes (working hours) you should get **one** email saying there is a new review and that nothing was replied. Check on Google that nothing was replied. Then switch replies on and leave another: the email should show the reply we posted, and it should be on Google.
-4. **A low review.** Leave a 2-star review with replies off. You should get the "needs your input" email with the holding reply and two buttons, and **nothing on Google** until you press Publish.
+4. **A low review.** Leave a 2-star review with replies off. You should get the "needs your input" email, in plain text, with the holding reply and two links, and **nothing on Google** until you open the first link and confirm.
 5. If all of that is right, leave both on. If anything is not, set the variable back to unset and redeploy: nothing else changes.
 
 What switching `REVIEW_ALERT_EMAILS` on does to the review job: it now looks at **every** connected shop every 15 minutes, not only those with replies on. At 92 shops that is within what the job can cover in a day (see `docs/scale-check.md`). Watch its log on the first day for "checked N of M shops this run".

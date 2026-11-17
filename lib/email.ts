@@ -20,13 +20,17 @@ const RESEND_API = 'https://api.resend.com/emails';
 interface SendEmailParams {
   to: string;
   subject: string;
-  html: string;
+  /** A designed email. Give this or `text`. */
+  html?: string;
+  /** A plain-text email (lib/shop-notices.ts). Sent with no HTML part at all. */
+  text?: string;
   /** Sender identity. Defaults to the primary tenant. */
   tenant?: Tenant;
 }
 
-export async function sendEmail({ to, subject, html, tenant }: SendEmailParams): Promise<boolean> {
+export async function sendEmail({ to, subject, html, text, tenant }: SendEmailParams): Promise<boolean> {
   try {
+    if (!html && !text) { console.error('Email not sent: it had no content'); return false; }
     const res = await fetch(RESEND_API, {
       method: 'POST',
       headers: {
@@ -37,7 +41,7 @@ export async function sendEmail({ to, subject, html, tenant }: SendEmailParams):
         from: (tenant ?? getTenant()).emailFrom,
         to,
         subject,
-        html,
+        ...(text ? { text } : { html }),
       }),
     });
     if (!res.ok) {
@@ -90,46 +94,6 @@ export function postPreviewEmail(
     <a href="${cancelUrl}" style="display: inline-block; background: #1A1A1A; color: #fff; padding: 12px 22px; border-radius: 8px; text-decoration: none; font-size: 14px; font-weight: 600;">Cancel This Post</a>
 
     <p style="font-size: 13px; color: #bbb; margin: 20px 0 0;">If you do nothing, it goes up automatically. Sorted.</p>
-  `, t);
-}
-
-export function reviewAlertEmail(params: {
-  businessName: string;
-  reviewerName: string;
-  rating: number;
-  comment: string;
-  suggestedReply: string;
-  approveUrl: string;
-  rejectUrl: string;
-  tenant?: Tenant;
-}): string {
-  const t = params.tenant ?? getTenant();
-  const brand = t.palette.brandStrong;
-  const stars = '★'.repeat(params.rating) + '☆'.repeat(5 - params.rating);
-  const firstName = escHtml(params.businessName.split(' ')[0]);
-  const isPositive = params.rating >= 4;
-
-  return emailWrapper(`
-    <p style="font-size: 15px; line-height: 1.6; margin: 0 0 6px;">Hi ${firstName},</p>
-    <p style="font-size: 15px; line-height: 1.6; margin: 0 0 24px; color: #555;">
-      ${isPositive ? "A new review just came in &mdash; a good one." : "You've got a new review. Not a great one, but we've drafted a reply."}
-    </p>
-
-    <div style="background: #F0EDE8; border-radius: 12px; padding: 18px; margin-bottom: 20px;">
-      <div style="margin-bottom: 8px;">
-        <span style="font-weight: 600; font-size: 14px;">${escHtml(params.reviewerName)}</span>
-        <span style="color: ${isPositive ? brand : '#B8860B'}; font-size: 14px; margin-left: 8px;">${stars}</span>
-      </div>
-      <p style="font-size: 14px; color: #555; line-height: 1.55; margin: 0;">${escHtml(params.comment) || '(no comment left)'}</p>
-    </div>
-
-    <p style="font-size: 13px; color: #999; margin: 0 0 8px;">Our suggested reply:</p>
-    <div style="background: #FFF0EB; border-left: 3px solid ${brand}; border-radius: 0 12px 12px 0; padding: 16px 16px 16px 14px; margin-bottom: 28px;">
-      <p style="font-size: 14px; color: #1A1A1A; line-height: 1.55; margin: 0;">${escHtml(params.suggestedReply)}</p>
-    </div>
-
-    <a href="${params.approveUrl}" style="display: inline-block; background: ${brand}; color: #fff; padding: 12px 20px; border-radius: 8px; text-decoration: none; font-size: 14px; font-weight: 600; margin-right: 8px;">Publish This Reply</a>
-    <a href="${params.rejectUrl}" style="display: inline-block; background: #1A1A1A; color: #fff; padding: 12px 20px; border-radius: 8px; text-decoration: none; font-size: 14px; font-weight: 600;">I'll Handle It</a>
   `, t);
 }
 
@@ -219,130 +183,5 @@ ${params.adComparisonHtml ?? ''}
 ${notYet}
 
     <p style="font-size: 14px; color: #555; line-height: 1.6; margin: 0;">All handled automatically. No effort from you. That's the point.</p>
-  `, t);
-}
-
-/**
- * The 24-hour preview for a post awaiting approval (a shop's first three). Sent
- * only by /api/cron/post-previews, and only when EARLY_POST_PREVIEW_EMAILS=on.
- * Unlike postPreviewEmail, nothing happens if the shop does nothing.
- */
-export function postApprovalEmail(params: {
-  businessName: string;
-  postContent: string;
-  scheduledFor: string;
-  approveUrl: string;
-  skipUrl: string;
-  approvalsLeft: number;
-  tenant?: Tenant;
-}): string {
-  const t = params.tenant ?? getTenant();
-  const brand = t.palette.brandStrong;
-  const firstName = params.businessName.split(' ')[0];
-  const when = new Date(params.scheduledFor).toLocaleString('en-GB', { timeZone: 'Europe/London', weekday: 'long', day: 'numeric', month: 'long', hour: 'numeric', minute: '2-digit' });
-  const after = params.approvalsLeft > 1
-    ? `This is one of your first ${params.approvalsLeft === 3 ? 'three' : params.approvalsLeft === 2 ? 'two' : ''} posts, so it only goes up if you approve it.`
-    : 'This is the last post we will ask you to approve. After this one, we will email each post in advance and it goes up unless you cancel it.';
-  return emailWrapper(`
-    <p style="font-size: 15px; line-height: 1.6; margin: 0 0 6px;">Hi ${firstName},</p>
-    <p style="font-size: 15px; line-height: 1.6; margin: 0 0 24px; color: #555;">Here's the Google post we've written for ${params.businessName}. If you approve it, it goes up on ${when}.</p>
-
-    <div style="background: #F0EDE8; border-left: 3px solid ${brand}; border-radius: 0 12px 12px 0; padding: 20px 20px 20px 18px; margin-bottom: 24px;">
-      <div style="font-size: 11px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: ${brand}; margin-bottom: 10px;">Your Google Post</div>
-      <p style="font-size: 15px; line-height: 1.65; margin: 0; color: #1A1A1A;">${params.postContent}</p>
-    </div>
-
-    <a href="${params.approveUrl}" style="display: inline-block; background: ${brand}; color: #fff; padding: 12px 20px; border-radius: 8px; text-decoration: none; font-size: 14px; font-weight: 600; margin-right: 8px;">Approve this post</a>
-    <a href="${params.skipUrl}" style="display: inline-block; background: #1A1A1A; color: #fff; padding: 12px 20px; border-radius: 8px; text-decoration: none; font-size: 14px; font-weight: 600;">Skip this week</a>
-
-    <p style="font-size: 13px; color: #777; margin: 20px 0 0; line-height: 1.6;"><strong>If you do nothing, nothing is posted.</strong> ${after}</p>
-  `, t);
-}
-
-function escHtml(v: string): string { return String(v ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' } as Record<string, string>)[c]); }
-
-/**
- * Hands-off only (lib/automation-mode.ts): a 1 to 3 star review came in and
- * the fixed holding reply has ALREADY been posted, as the shop agreed. This
- * tells the shop what was said, and that it can undo it or reply itself.
- */
-export function holdingReplyPostedEmail(params: {
-  businessName: string;
-  reviewerName: string;
-  rating: number;
-  comment: string;
-  reply: string;
-  settingsUrl: string;
-  tenant?: Tenant;
-}): string {
-  const t = params.tenant ?? getTenant();
-  const brand = t.palette.brandStrong;
-  const stars = '★'.repeat(params.rating) + '☆'.repeat(Math.max(0, 5 - params.rating));
-  return emailWrapper(`
-    <p style="font-size: 15px; line-height: 1.6; margin: 0 0 6px;">Hello,</p>
-    <p style="font-size: 15px; line-height: 1.6; margin: 0 0 24px; color: #555;">${escHtml(params.businessName)} has a new ${params.rating}-star review. You asked us to look after replies for you, so we have posted a short, polite reply that asks the customer to contact you. Nothing else has been said on your behalf.</p>
-
-    <div style="background: #F0EDE8; border-radius: 12px; padding: 18px; margin-bottom: 20px;">
-      <div style="margin-bottom: 8px;">
-        <span style="font-weight: 600; font-size: 14px;">${escHtml(params.reviewerName)}</span>
-        <span style="color: #B8860B; font-size: 14px; margin-left: 8px;">${stars}</span>
-      </div>
-      <p style="font-size: 14px; color: #555; line-height: 1.55; margin: 0;">${escHtml(params.comment) || '(no comment left)'}</p>
-    </div>
-
-    <p style="font-size: 13px; color: #999; margin: 0 0 8px;">The reply we posted:</p>
-    <div style="background: #FFF0EB; border-left: 3px solid ${brand}; border-radius: 0 12px 12px 0; padding: 16px 16px 16px 14px; margin-bottom: 24px;">
-      <p style="font-size: 14px; color: #1A1A1A; line-height: 1.55; margin: 0;">${escHtml(params.reply)}</p>
-    </div>
-
-    <p style="font-size: 14px; color: #555; margin: 0 0 20px; line-height: 1.6;">You may want to get in touch with this customer yourself. If you would rather the reply was not there, or want to write your own, you can undo it in Settings.</p>
-    <a href="${params.settingsUrl}" style="display: inline-block; background: #1A1A1A; color: #fff; padding: 12px 20px; border-radius: 8px; text-decoration: none; font-size: 14px; font-weight: 600;">Open Settings</a>
-    <p style="font-size: 13px; color: #777; margin: 20px 0 0; line-height: 1.6;">To have these wait for you instead, choose &ldquo;Ask me first&rdquo; in Settings. You can also pause everything there.</p>
-  `, t);
-}
-
-/**
- * "You have a new 4 or 5 star review." Sent only when REVIEW_ALERT_EMAILS=on
- * (lib/review-alerts.ts). Says plainly what we did about it:
- *   posted   we replied, and this is what we said
- *   waiting  we wrote a reply but could not post it; it is on the dashboard
- *   none     replies are off (or paused), so nothing was replied
- */
-export function newReviewEmail(params: {
-  businessName: string;
-  reviewerName: string;
-  rating: number;
-  comment: string;
-  replyState: 'posted' | 'waiting' | 'none';
-  reply?: string | null;
-  paused?: boolean;
-  dashboardUrl: string;
-  settingsUrl: string;
-  tenant?: Tenant;
-}): string {
-  const t = params.tenant ?? getTenant();
-  const brand = t.palette.brandStrong;
-  const stars = '★'.repeat(params.rating) + '☆'.repeat(Math.max(0, 5 - params.rating));
-  const replyBlock = (label: string) => `
-    <p style="font-size: 13px; color: #999; margin: 0 0 8px;">${label}</p>
-    <div style="background: #FFF0EB; border-left: 3px solid ${brand}; border-radius: 0 12px 12px 0; padding: 16px 16px 16px 14px; margin-bottom: 24px;">
-      <p style="font-size: 14px; color: #1A1A1A; line-height: 1.55; margin: 0;">${escHtml(params.reply || '')}</p>
-    </div>`;
-  const what = params.replyState === 'posted' ? replyBlock('We replied for you:') + `<p style="font-size: 13px; color: #777; margin: 0 0 20px; line-height: 1.6;">If you would rather it said something else, you can undo our reply in <a href="${params.settingsUrl}" style="color: #777;">Settings</a>.</p>`
-    : params.replyState === 'waiting' ? replyBlock('We wrote this reply but could not post it just now. It is waiting on your dashboard:')
-    : `<p style="font-size: 14px; color: #555; margin: 0 0 20px; line-height: 1.6;">${params.paused ? 'You have paused us, so we have not replied.' : 'Replies are switched off, so we have not replied.'} You can reply on Google yourself, or ${params.paused ? 'press Resume' : 'turn on replies to good reviews'} in <a href="${params.settingsUrl}" style="color: #555;">Settings</a> and we will answer the next one for you.</p>`;
-  return emailWrapper(`
-    <p style="font-size: 15px; line-height: 1.6; margin: 0 0 6px;">Hello,</p>
-    <p style="font-size: 15px; line-height: 1.6; margin: 0 0 24px; color: #555;">${escHtml(params.businessName)} has a new ${params.rating}-star review on Google.</p>
-
-    <div style="background: #F0EDE8; border-radius: 12px; padding: 18px; margin-bottom: 20px;">
-      <div style="margin-bottom: 8px;">
-        <span style="font-weight: 600; font-size: 14px;">${escHtml(params.reviewerName)}</span>
-        <span style="color: ${brand}; font-size: 14px; margin-left: 8px;">${stars}</span>
-      </div>
-      <p style="font-size: 14px; color: #555; line-height: 1.55; margin: 0;">${escHtml(params.comment) || '(no comment left)'}</p>
-    </div>
-    ${what}
-    <a href="${params.dashboardUrl}" style="display: inline-block; background: #1A1A1A; color: #fff; padding: 12px 20px; border-radius: 8px; text-decoration: none; font-size: 14px; font-weight: 600;">Open my dashboard</a>
   `, t);
 }
