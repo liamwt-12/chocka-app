@@ -8,7 +8,7 @@ Updated for the retention build, #64 to #69 (stage 13), which sits **on top of**
 
 **33 code PRs in 12 stages, 14 database migrations, 3 documents, and 2 legal PRs that wait for the solicitor.** Or: one PR, #63, that contains all of the code and the three documents.
 
-**Then stage 13: six more PRs (#64 to #69) and 2 more migrations**, for 16 in all.
+**Then stage 13: six more PRs (#64 to #69) and 3 more migrations**, for 17 in all.
 
 Every step of both paths was rehearsed on throwaway local branches that were never pushed (`rehearsal/final-2026-11-16`, `-17` and `-18` for the staged path; `rehearsal/single-merge-2026-11-18` for the single merge), with typecheck and the full test suite. Both results are file-for-file identical to the head of #62, which is the tree that passed the staging dummy run (54 of 54), the scale check (58) and the 92-shop simulation (38).
 
@@ -40,7 +40,7 @@ Either way: **all new switches stay off**, and **run the test-listing session (#
 
 1. **Not on the 1st or 2nd of a month. Not a Friday or Monday morning.** (Reasons under "Before you start".)
 2. Do "Before you start" below: new `ADMIN_PASSWORD`, `SESSION_SECRET`, the tag.
-3. **Apply the first 14 migrations, in the order in "All sixteen migrations"**, each with a dry run first. Expect the "still differ" warning on every one of them, the fourteenth included: staging also has the two for stage 13, and the warning after the fourteenth lists only those new columns on `users` and `profiles`. The old code keeps running normally throughout.
+3. **Apply the first 14 migrations, in the order in "All seventeen migrations"**, each with a dry run first. Expect the "still differ" warning on every one of them, the fourteenth included: staging also has the two for stage 13, and the warning after the fourteenth lists only those new columns on `users` and `profiles`. The old code keeps running normally throughout.
 4. Merge:
 
 ```bash
@@ -122,9 +122,9 @@ All three must pass. `rm -rf .next` matters: without it, typecheck reports false
 
 Never paste migration SQL into the Supabase editor. It jams this script afterwards.
 
-### The "still differ" warning: expect it on the first fifteen
+### The "still differ" warning: expect it on the first sixteen
 
-Staging already has all sixteen migrations (the fourteen for #63 and the two for stage 13). So after **each of the first fifteen**, the script:
+Staging already has all seventeen migrations (the fourteen for #63 and the three for stage 13). So after **each of the first sixteen**, the script:
 
 1. prints `applied and recorded`,
 2. then prints `WARNING: production and staging still differ after applying:` followed by a list,
@@ -132,7 +132,7 @@ Staging already has all sixteen migrations (the fourteen for #63 and the two for
 
 **That is expected, every time.** The migration has been applied and recorded. The list is simply what staging still has that production does not. What to check is that the list **gets shorter each time** and contains only things from later migrations.
 
-Only the sixteenth (`20261119100000_review_snapshot`) ends with `identical across every probe`. If you stop early, the last one you apply still warns. **This has changed three times:** the tenth used to end cleanly, then the thirteenth, then the fourteenth. Now that staging also has the two for stage 13, **the fourteenth warns too**, listing only the new columns on `users` and `profiles` (five each). That is expected if you merge #63 before stage 13.
+Only the seventeenth (`20261120090000_operator_rows_start_off`) ends with `identical across every probe`. If you stop early, the last one you apply still warns. **This has changed three times:** the tenth used to end cleanly, then the thirteenth, then the fourteenth. Now that staging also has the two for stage 13, **the fourteenth warns too**, listing only the new columns on `users` and `profiles` (five each). That is expected if you merge #63 before stage 13.
 
 **A different message means stop.** If it says `REFUSED: production has objects staging does not. They have diverged`, do not continue. Nothing has been applied. Tell me what it listed.
 
@@ -657,16 +657,18 @@ Six PRs, stacked in this order, each on top of the one before and the first on t
 | #68 | Network rating and share of reviews answered in the monthly summary | Comes with the console switch | `20261119100000_review_snapshot` |
 | #69 | Live shops with nothing switched on are flagged; the cap belongs to a term; the proof run and review fixes | No switch | none |
 
-**Two migrations first** (both only add empty columns, both are on staging):
+**Three migrations first** (two only add empty columns, the third adds one database rule; all are on staging):
 
 ```bash
 /usr/local/bin/python3.14 scripts/apply-migration-to-production.py 20261119090000_automation_mode.sql
 /usr/local/bin/python3.14 scripts/apply-migration-to-production.py 20261119090000_automation_mode.sql --confirm
 /usr/local/bin/python3.14 scripts/apply-migration-to-production.py 20261119100000_review_snapshot.sql
 /usr/local/bin/python3.14 scripts/apply-migration-to-production.py 20261119100000_review_snapshot.sql --confirm
+/usr/local/bin/python3.14 scripts/apply-migration-to-production.py 20261120090000_operator_rows_start_off.sql
+/usr/local/bin/python3.14 scripts/apply-migration-to-production.py 20261120090000_operator_rows_start_off.sql --confirm
 ```
 
-Expected: the first warns that staging and production "still differ" (the second is still to come); the second **ends with `identical across every probe`** and a tick. The code that is live before this stage runs normally on both.
+Expected: the first two warn that staging and production "still differ" (later ones are still to come); the third **ends with `identical across every probe`** and a tick. The code that is live before this stage runs normally on both.
 
 **Then merge.** After #63 (or stage 12) is on `main`:
 
@@ -682,7 +684,7 @@ git push origin main
 
 To take them one at a time instead, merge `origin/retention/1-hands-off`, then `2-stop-silence`, `3-last-year`, `4-review-card`, `5-network-rating`, `6-live-and-term`, in that order. Each is a fast step on from the one before; none conflicts. Do not merge a later one without the earlier ones: they are stacked.
 
-**Or everything in one release.** If you would rather release #63 and these together: merge `origin/retention/6-live-and-term` into `release/2026-11` on your machine, push that branch, and follow path A with **sixteen** migrations instead of fourteen. In rehearsal, `main` + #63 + the six merged with no conflicts and the result was file-for-file the tree every check below ran against.
+**Or everything in one release.** If you would rather release #63 and these together: merge `origin/retention/6-live-and-term` into `release/2026-11` on your machine, push that branch, and follow path A with **seventeen** migrations instead of fourteen. In rehearsal, `main` + #63 + the six merged with no conflicts and the result was file-for-file the tree every check below ran against.
 
 **What changes the moment this is live, with no switch:**
 
@@ -738,7 +740,7 @@ Then `HANDS_OFF_MODE=on`. It changes nothing for a shop until that shop chooses.
 
 ---
 
-## All sixteen migrations, in order
+## All seventeen migrations, in order
 
 | # | File | PR | Apply before stage |
 |---|---|---|---|
@@ -758,15 +760,18 @@ Then `HANDS_OFF_MODE=on`. It changes nothing for a shop until that shop chooses.
 | 14 | `20261118090000_user_last_seen.sql` | #62 | 12 |
 | 15 | `20261119090000_automation_mode.sql` | #64 | 13 |
 | 16 | `20261119100000_review_snapshot.sql` | #68 | 13 |
+| 17 | `20261120090000_operator_rows_start_off.sql` | #69 | 13 |
 
-All sixteen only add things or tighten access. Each is on staging already. **On path A, apply the first fourteen, in this order, before merging #63.** The last two go on before stage 13 (or with the others, if you release everything at once).
+The seventeenth adds one database rule: an account created through an operator account (a shop a rep sets up) starts with posts and replies **off**, whatever the insert says, until a mode is chosen. It changes no existing row.
+
+All seventeen only add things or tighten access. Each is on staging already. **On path A, apply the first fourteen, in this order, before merging #63.** The last two go on before stage 13 (or with the others, if you release everything at once).
 
 ## The documents and the legal PRs
 
 - **#41** (this runbook), **#45** (`docs/test-listing-runbook.md`) and **#51** (`docs/README.md`, the index of documents) change no code and can be merged at any time. **Run the test in #45 before stage 1 if you can:** its first step is the real model call that #24 is waiting on.
 - **#30** (legal drafts) and then **#44** (the solicitor briefing, which sits on #30): only after the solicitor. #30 changes the live privacy and terms pages, not only documents.
 
-**One migration to leave alone:** `20261116110000_change_log_add_media.sql` (in #39). Do not apply it anywhere, staging included, until all sixteen above are on production. It changes an existing constraint rather than adding something, and applying it early makes the production script refuse everything after migration 1. It is only needed if listing photos are ever switched on. The file explains this at the top.
+**One migration to leave alone:** `20261116110000_change_log_add_media.sql` (in #39). Do not apply it anywhere, staging included, until all seventeen above are on production. It changes an existing constraint rather than adding something, and applying it early makes the production script refuse everything after migration 1. It is only needed if listing photos are ever switched on. The file explains this at the top.
 
 ---
 
@@ -801,7 +806,7 @@ Nothing here has been deleted or closed. This is a list for you, for after the r
 
 - **A deploy misbehaves.** Netlify, Deploys, pick the last good one, "Publish deploy". That is instant and touches nothing else. Then tell me what you saw.
 - **Undo a merge that has been pushed.** `git revert -m 1 <the merge commit>` and push. Do not reset or force-push main.
-- **Migrations stay.** All sixteen only add things (tables, columns, indexes) or tighten access. Old code runs fine against them, so a code rollback never needs a database rollback.
+- **Migrations stay.** All seventeen only add things (tables, columns, indexes) or tighten access. Old code runs fine against them, so a code rollback never needs a database rollback.
 - **A merge conflict that is not described above.** Stop: `git merge --abort`. The rehearsal had exactly three conflicted merges (#27, #29, #36), none in stages 11 or 12, and none on path A. Anything else means a branch has changed since 18 November.
 
 ---
