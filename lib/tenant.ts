@@ -72,9 +72,9 @@ export interface Tenant {
   fundedBy?: string;
 
   /**
-   * Which option the "how should we work?" choice offers first
-   * (lib/automation-mode.ts). It is the option shown selected on the screen,
-   * nothing more: a shop is only ever in hands-off because it chose it.
+   * Which option the "how should we work?" choice shows as the large,
+   * recommended button (lib/automation-mode.ts). Nothing is selected in
+   * advance: a shop is only ever in hands-off because it pressed that button.
    * Unset means ask me first.
    */
   defaultAutomationMode?: 'hands_off' | 'ask_first';

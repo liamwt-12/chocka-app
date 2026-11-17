@@ -8,7 +8,7 @@ exact words on the screen matter. They live in one place in the code
 (`lib/automation-mode.ts`) with a version, and the version is stored with each
 shop's choice along with the time it was made.
 
-Wording version: `2026-11-19-draft`
+Wording version: `2026-11-20-draft`
 
 ## What the shop sees
 
@@ -27,7 +27,7 @@ Title: **How would you like us to work?** "Choose one. Nothing has been posted o
 >
 > By choosing Hands-off you give [brand] permission to post and reply on your Google listing for you, as described here, until you tell us to stop.
 
-Button: **Yes, look after it for me**
+Button, large, labelled **Recommended** for the funder's shops: **Start hands-off**
 
 ### Ask me first
 
@@ -37,7 +37,9 @@ Button: **Yes, look after it for me**
 > - You approve your first three posts before they go up.
 > - A reply to a 1, 2 or 3 star review always waits for you.
 
-Button: **Ask me first**
+Button, smaller: **Ask me first**
+
+Neither option is ticked or selected when the screen opens. Pressing a button is the choice.
 
 ## How the permission is recorded
 
@@ -63,10 +65,7 @@ version, so a permission can always be matched to the words that were shown.
 
 ## Questions for the solicitor
 
-1. For the funder's shops the Hands-off option is shown **selected** when the
-   screen opens, and the shop gives permission by pressing the button under the
-   permission sentence. Is a selected option plus a button press enough, or
-   should the shop have to tick an empty box?
+1. Hands-off is the large button, labelled "Recommended", and "Ask me first" is a smaller button beneath it. Nothing is pre-ticked; the shop gives permission by pressing "Start hands-off" under the permission sentence. Is a recommended button plus a press enough, or should there also be a box to tick?
 2. Is the permission sentence wide enough for weekly posts and for both kinds of
    reply, and narrow enough not to cover anything else?
 3. The low-star reply is fixed wording, never written by AI. Is "the same

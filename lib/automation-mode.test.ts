@@ -130,6 +130,25 @@ describe('what Settings and the admin page show', () => {
   });
 });
 
+describe('the choice is two buttons, and nothing is ticked in advance', () => {
+  const ui = readFileSync(new URL('../components/AutomationChoice.tsx', import.meta.url), 'utf8');
+  it('has no radio button, tick box or pre-selected option anywhere', () => {
+    expect(ui).not.toMatch(/type="radio"|type="checkbox"|checked=|defaultChecked|role="radiogroup"|setPick/);
+  });
+  it('hands-off is the large button, marked Recommended for the Tarkett tenant; "ask me first" is a smaller one', () => {
+    expect(HANDS_OFF_WORDING.button).toBe('Start hands-off');
+    expect(ASK_FIRST_WORDING.button).toBe('Ask me first');
+    expect(ui).toMatch(/s\.offeredFirst === 'hands_off' && <span[^>]*>Recommended<\/span>/);
+    const big = /onClick=\{\(\) => choose\('hands_off'\)\} style=\{\{[^}]*fontSize: (\d+)/.exec(ui)!, small = /onClick=\{\(\) => choose\('ask_first'\)\} style=\{\{[^}]*fontSize: (\d+)/.exec(ui)!;
+    expect(Number(big[1])).toBeGreaterThan(Number(small[1]));
+    // The permission sentence sits above the hands-off button, so it is read before it is pressed.
+    expect(ui.indexOf('{s.handsOff.permission}')).toBeLessThan(ui.indexOf("choose('hands_off')"));
+  });
+  it('pressing a button is what records the choice, with the wording version that was on the screen', () => {
+    expect(ui).toMatch(/mode === 'hands_off' \? \{ mode, wordingVersion: s\.wordingVersion \} : \{ mode \}/);
+  });
+});
+
 describe('the wording', () => {
   it('promises pause and undo, says the shop is told, and makes no claim about results', () => {
     const all = [HANDS_OFF_WORDING.summary, ...HANDS_OFF_WORDING.points, HANDS_OFF_WORDING.permission, ASK_FIRST_WORDING.summary, ...ASK_FIRST_WORDING.points].join(' ');

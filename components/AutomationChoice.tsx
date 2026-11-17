@@ -9,8 +9,8 @@
  *
  * The wording comes from the server with its version, and the version is sent
  * back with the choice, so what is stored as agreed is what was on the screen.
- * Nothing is chosen for the shop: an option is shown selected, and the choice
- * is only made when the shop presses the button.
+ * Nothing is chosen for the shop and nothing is ticked in advance: there are
+ * two buttons, and the choice is made by pressing one.
  *
  * While HANDS_OFF_MODE is off this renders `children` (what the page showed
  * before) and nothing else.
@@ -30,7 +30,6 @@ const day = (iso: string) => new Date(iso).toLocaleDateString('en-GB', { day: 'n
 export default function AutomationChoice({ variant, cardStyle, children, onChanged }: { variant: 'onboarding' | 'settings'; cardStyle: CSSProperties; children?: ReactNode; onChanged?: () => void }) {
   const [s, setS] = useState<State | null>(null);
   const [failed, setFailed] = useState(false);
-  const [pick, setPick] = useState<Mode>('ask_first');
   const [changing, setChanging] = useState(false);
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState<{ ok: boolean; text: string } | null>(null);
@@ -38,7 +37,7 @@ export default function AutomationChoice({ variant, cardStyle, children, onChang
   useEffect(() => {
     fetch('/api/automation-mode').then(async (r) => {
       if (!r.ok) throw new Error();
-      const j = await r.json(); setS(j); setPick(j.chosen ? j.mode : j.offeredFirst);
+      setS(await r.json());
     }).catch(() => setFailed(true));
   }, []);
 
@@ -88,31 +87,31 @@ export default function AutomationChoice({ variant, cardStyle, children, onChang
   const link: CSSProperties = { ...b, background: 'transparent', color: C.mid, textDecoration: 'underline', padding: '10px 4px', fontWeight: 500, fontSize: 15 };
   const status = note && <p role="status" style={{ fontSize: 14, margin: '10px 0 0', fontFamily: sans, color: note.ok ? C.green : C.red }}>{note.text}</p>;
 
-  const option = (mode: Mode, w: { title: string; summary: string; points: string[] }) => {
-    const on = pick === mode;
-    return (
-      <label key={mode} style={{ display: 'block', background: C.card2, border: `2px solid ${on ? 'var(--brand-strong)' : C.border}`, borderRadius: 12, padding: '13px 14px', marginBottom: 8, cursor: 'pointer', fontFamily: sans }}>
-        <span style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
-          <input type="radio" name="automation-mode" value={mode} checked={on} onChange={() => { setPick(mode); setNote(null); }} style={{ width: 20, height: 20, marginTop: 2, accentColor: 'var(--brand-strong)', flexShrink: 0 }} />
-          <span>
-            <span style={{ display: 'block', fontSize: 17, fontWeight: 700, color: C.text }}>{w.title}</span>
-            <span style={{ display: 'block', fontSize: 15, color: C.mid, marginTop: 2 }}>{w.summary}</span>
-          </span>
-        </span>
-        {on && <ul style={{ margin: '10px 0 0', paddingLeft: 22, fontSize: 14, lineHeight: 1.5, color: C.mid }}>{w.points.map((p) => <li key={p}>{p}</li>)}</ul>}
-        {on && mode === 'hands_off' && <p style={{ fontSize: 13, color: C.soft, margin: '8px 0 0' }}>The reply to a 1, 2 or 3 star review reads: &ldquo;{s.handsOff.holdingReply}&rdquo;</p>}
-      </label>
-    );
-  };
-
+  // Two buttons, and nothing chosen until one is pressed: no option is ticked
+  // or selected in advance. Hands-off is the large one; where the brand
+  // recommends it, it says so. Pressing a button is the choice, and is what is
+  // recorded, with the time and the version of the wording shown here.
+  const points = (items: string[]) => <ul style={{ margin: '8px 0 0', paddingLeft: 22, fontSize: 14, lineHeight: 1.5, color: C.mid, fontFamily: sans }}>{items.map((p) => <li key={p}>{p}</li>)}</ul>;
   const chooser = (
     <>
-      <div role="radiogroup" aria-label="How would you like us to work?">
-        {(s.offeredFirst === 'hands_off' ? ['hands_off', 'ask_first'] as Mode[] : ['ask_first', 'hands_off'] as Mode[]).map((m) => option(m, m === 'hands_off' ? s.handsOff : s.askFirst))}
+      <div style={{ background: C.card2, border: `2px solid var(--brand-strong)`, borderRadius: 12, padding: '14px 14px 16px', marginBottom: 12 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', fontFamily: sans }}>
+          <span style={{ fontSize: 18, fontWeight: 700, color: C.text }}>{s.handsOff.title}</span>
+          {s.offeredFirst === 'hands_off' && <span style={{ fontSize: 12, fontWeight: 700, letterSpacing: '0.04em', textTransform: 'uppercase', color: '#fff', background: 'var(--brand-strong)', borderRadius: 999, padding: '3px 9px' }}>Recommended</span>}
+        </div>
+        <p style={{ fontSize: 15, color: C.mid, margin: '4px 0 0', fontFamily: sans }}>{s.handsOff.summary}</p>
+        {points(s.handsOff.points)}
+        <p style={{ fontSize: 13, color: C.soft, margin: '8px 0 0', fontFamily: sans }}>The reply to a 1, 2 or 3 star review reads: &ldquo;{s.handsOff.holdingReply}&rdquo;</p>
+        <p style={{ fontSize: 14, color: C.text, margin: '10px 0 12px', fontFamily: sans }}>{s.handsOff.permission}</p>
+        <button type="button" disabled={busy} onClick={() => choose('hands_off')} style={{ ...b, display: 'block', width: '100%', padding: '17px 18px', fontSize: 18, background: 'var(--brand-strong)', color: '#fff', opacity: busy ? 0.6 : 1 }}>{s.handsOff.button}</button>
       </div>
-      {pick === 'hands_off' && <p style={{ fontSize: 14, color: C.text, margin: '6px 0 10px', fontFamily: sans }}>{s.handsOff.permission}</p>}
-      <button type="button" disabled={busy} onClick={() => choose(pick)} style={{ ...b, display: 'block', width: '100%', background: 'var(--brand-strong)', color: '#fff', opacity: busy ? 0.6 : 1 }}>{pick === 'hands_off' ? s.handsOff.button : s.askFirst.button}</button>
-      <p style={{ fontSize: 13, color: C.soft, margin: '8px 0 0', fontFamily: sans }}>You can change this, or pause everything, at any time in Settings.</p>
+      <div style={{ padding: '2px 2px 0' }}>
+        <div style={{ fontSize: 15, fontWeight: 700, color: C.text, fontFamily: sans }}>{s.askFirst.title}</div>
+        <p style={{ fontSize: 14, color: C.mid, margin: '2px 0 0', fontFamily: sans }}>{s.askFirst.summary}</p>
+        {points(s.askFirst.points)}
+        <button type="button" disabled={busy} onClick={() => choose('ask_first')} style={{ ...b, marginTop: 10, padding: '9px 14px', fontSize: 14, background: '#fff', color: C.text, border: `1px solid ${C.border}`, opacity: busy ? 0.6 : 1 }}>{s.askFirst.button}</button>
+      </div>
+      <p style={{ fontSize: 13, color: C.soft, margin: '12px 0 0', fontFamily: sans }}>You can change this, or pause everything, at any time in Settings.</p>
     </>
   );
 
@@ -124,7 +123,7 @@ export default function AutomationChoice({ variant, cardStyle, children, onChang
       {s.paused
         ? <button type="button" disabled={busy} onClick={() => pause(false)} style={{ ...b, background: C.green, color: '#fff' }}>Resume</button>
         : <button type="button" disabled={busy} onClick={() => pause(true)} style={{ ...b, background: '#fff', color: C.text, border: `1px solid ${C.border}` }}>Pause everything</button>}
-      {!changing && <button type="button" disabled={busy} onClick={() => { setChanging(true); setPick(s.mode === 'hands_off' ? 'ask_first' : 'hands_off'); setNote(null); }} style={link}>Change how we work</button>}
+      {!changing && <button type="button" disabled={busy} onClick={() => { setChanging(true); setNote(null); }} style={link}>Change how we work</button>}
     </div>
   );
   const current = (

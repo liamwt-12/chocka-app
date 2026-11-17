@@ -24,8 +24,9 @@
  * PERMISSION. Hands-off is only ever in force when the shop itself chose it on
  * a screen that showed the wording below. The moment, and the version of the
  * wording, are stored with the choice. No code path sets hands-off for a shop
- * that did not choose it: the tenant's "default" is which option is offered
- * first on the screen, not something applied on the shop's behalf.
+ * that did not choose it: the tenant's "default" is which option is the
+ * large, recommended button on the screen. Neither is ticked in advance, and
+ * pressing a button is what records the choice.
  *
  * OFF unless HANDS_OFF_MODE=on. While it is off the choice is not offered, and
  * a stored choice of hands-off has no effect: every shop is treated as ask me
@@ -43,7 +44,7 @@ export type AutomationMode = 'hands_off' | 'ask_first';
  *
  * DRAFT: needs solicitor review before HANDS_OFF_MODE is switched on.
  */
-export const HANDS_OFF_WORDING_VERSION = '2026-11-19-draft';
+export const HANDS_OFF_WORDING_VERSION = '2026-11-20-draft';
 
 /** What the shop reads before it chooses. {brand} is the brand name. DRAFT: needs solicitor review. */
 export const HANDS_OFF_WORDING = {
@@ -56,7 +57,7 @@ export const HANDS_OFF_WORDING = {
     'Pause and Undo are always one tap away in Settings.',
   ],
   permission: 'By choosing Hands-off you give {brand} permission to post and reply on your Google listing for you, as described here, until you tell us to stop.',
-  button: 'Yes, look after it for me',
+  button: 'Start hands-off',
 } as const;
 
 export const ASK_FIRST_WORDING = {
@@ -128,7 +129,11 @@ export function switchesInForce(row: (ModeRow & { auto_post_enabled?: boolean | 
   return { posts: row.auto_post_enabled === true, replies: row.auto_reply_enabled === true };
 }
 
-/** Which option the choice screen offers first for a tenant. Never applied for the shop. */
+/**
+ * Which option the choice screen makes the large, recommended button for a
+ * tenant. It is a button, not a tick: nothing is selected in advance, and
+ * nothing is ever applied for the shop.
+ */
 export function offeredFirst(tenantDefault: AutomationMode | undefined): AutomationMode {
   return tenantDefault === 'hands_off' ? 'hands_off' : 'ask_first';
 }
