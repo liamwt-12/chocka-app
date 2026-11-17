@@ -162,7 +162,7 @@ PRs #46 to #53 add no new variables. #54 to #60 add these, **all optional, all o
 | Variable | Value | When | Why |
 |---|---|---|---|
 | `WELCOME_EMAIL` | Leave unset, or `on` | When you decide | `on` sends **one** email to a shop at the moment it connects, and never to a shop that has not (#56). Unset: nothing is sent |
-| `LIVE_REQUIRES` | **Leave unset** | Only to relax the definition | What counts as live beyond "connected". Unset means all of `matched,verified,access,active` (#55, and `active` from #69). Removing a word relaxes it, and "Ready to invite shops?" then shows a cross. A value with anything else in it is ignored |
+| `LIVE_REQUIRES` | **Leave unset** | Only to relax the definition | What counts as live beyond "connected". Unset means all of `matched,verified,access` (#55). Removing a word relaxes it, and "Ready to invite shops?" then shows a cross. A value with anything else in it is ignored. What a shop has switched on never comes into it (#69) |
 | `BILLING_PRICE_PENCE_PER_SHOP` | Whole pence per live shop | Before the first statement | The price is deliberately not in the code: the repository is public (#58). Unset: the statement shows counts only |
 | `BILLING_MONTHLY_CAP_PENCE` | Whole pence a month | Before the first statement | The monthly cap, as money (#61). Every live shop is listed; anything above the cap is one credit line. Not in the code either. Unset: no cap |
 | `RETENTION_VIEW` | Leave unset, or `on` | After the privacy notice mentions it | `on` opens the retention view in `/admin/pilot` and starts recording when each shop last opened its dashboard: one date per shop (#62) |
@@ -655,7 +655,7 @@ Six PRs, stacked in this order, each on top of the one before and the first on t
 | #66 | Compare with the same weeks last year, not the weeks before | No switch | none |
 | #67 | Review card as a print-ready A6 PDF, and one file of all of them | No switch (a download) | none |
 | #68 | Network rating and share of reviews answered in the monthly summary | Comes with the console switch | `20261119100000_review_snapshot` |
-| #69 | Live means posts or replies are on; the cap belongs to a term; the proof run | No switch | none |
+| #69 | Live shops with nothing switched on are flagged; the cap belongs to a term; the proof run and review fixes | No switch | none |
 
 **Two migrations first** (both only add empty columns, both are on staging):
 
@@ -686,8 +686,8 @@ To take them one at a time instead, merge `origin/retention/1-hands-off`, then `
 
 **What changes the moment this is live, with no switch:**
 
-1. **A connected shop with posts and replies both off is no longer "live".** It shows as **Connected, not live: Nothing switched on**, appears under Needs help with what to say to the shop, and is **not counted on the monthly statement**. The same for a shop that has pressed Pause. A shop becomes live when it switches posts or replies on itself. Nothing in the app, and no button in `/admin/pilot`, switches them on for a shop. **Before merging, look at how many connected shops have nothing on:** every one of them leaves the live count on the day this goes out.
-2. **`LIVE_REQUIRES` has a fourth word, `active`.** Unset still means the full definition. If you set it to `matched,verified,access` by hand, a shop with nothing on still counts as live and is still on the statement: add `,active` or remove the variable. "Ready to invite shops?" now shows a **cross** whenever the definition is relaxed, and a value with a typo in it is ignored rather than trusted.
+1. **Live, and so billable, is: connected, the right listing, verified by Google, access working.** It does **not** depend on what the shop has switched on, and pressing Pause does not stop it; only disconnecting (or losing access) does. (Decided 20 November. An earlier version of #69 made a shop with nothing on "not live"; that was reversed before release.)
+2. **A live shop with nothing switched on is still shown.** It is listed under Needs help as **Nothing switched on** (or **Paused by the shop**), with what to say to it, and the console's monthly summary counts "live, with nothing switched on" separately. Nothing in the app, and no button in `/admin/pilot`, switches anything on for a shop. `LIVE_REQUIRES` keeps its three words; leave it unset.
 3. **The cap is only applied inside its term.** With `BILLING_MONTHLY_CAP_PENCE` set and no term dates, **the cap is not applied**, the statement says so in red, and "Ready to invite shops?" shows a cross. Set `BILLING_TERM_START` and `BILLING_TERM_END` (below) before the first statement.
 4. **Every comparison is now with the same weeks last year**: the league, the ad view in the console and in the shop's monthly email, the network summary, and the plain-words monthly report (if that switch is on). A listing with nothing from last year falls back to the old comparison and says so. The league does not rank such a shop.
 5. **A rise or a fall needs at least three more (or fewer) customer actions**, as well as ten in the earlier period. Ten to eleven is no longer a "clear rise".
@@ -707,7 +707,7 @@ To take them one at a time instead, merge `origin/retention/1-hands-off`, then `
 
 1. `/admin/pilot`, **Ready to invite shops? → Check now.** "Hands-off or ask me first, and Pause" and "Review totals per listing" both have a tick. "Hands-off mode" and "Email every shop about every new review" both say **Off**. "Monthly statement" says whether the term is set.
 2. The shop table has a **How we work** column. Every connected shop reads "Ask me first (not chosen yet)" with what it has switched on.
-3. **Needs help**: any connected shop with nothing on is listed as **Nothing switched on**.
+3. **Needs help**: any live shop with nothing on is listed as **Nothing switched on**. It is still **Live** in the shop table and still on the statement.
 4. **Live shops in a month**: with a cap and a term set, "The cap applies for the term ...". With a cap and no term, a red line saying the cap has not been applied.
 5. **Review cards for the counter → Download all cards (PDF)**: a file with one A6 page per connected shop. Scan one with a phone.
 6. **Read the emails that are switched off**: each of the five opens with made-up content.

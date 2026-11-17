@@ -58,9 +58,9 @@ export function settingChecks(env: Env = process.env): Check[] {
 
   const parsed = parseLiveRequires(env.LIVE_REQUIRES);
   const rules = parsed.rules;
-  const relaxed = (['matched', 'verified', 'access', 'active'] as const).filter((k) => !rules[k]);
+  const relaxed = (['matched', 'verified', 'access'] as const).filter((k) => !rules[k]);
   // Relaxing what counts as live changes what is billed, so it is a cross, not a note.
-  out.push({ key: 'LIVE_REQUIRES', label: 'What counts as live', ok: parsed.problem || relaxed.length ? false : null, detail: parsed.problem ? parsed.problem : relaxed.length ? `RELAXED: a shop counts as live, and is counted on the statement, without ${relaxed.map((k) => (k === 'active' ? 'posts or replies switched on' : k)).join(', ')}. Remove LIVE_REQUIRES, or set it to matched,verified,access,active, unless that is intended.` : 'Connected, right listing, verified by Google, access not lost, and posts or replies switched on (and not paused).' });
+  out.push({ key: 'LIVE_REQUIRES', label: 'What counts as live', ok: parsed.problem || relaxed.length ? false : null, detail: parsed.problem ? parsed.problem : relaxed.length ? `RELAXED: a shop counts as live, and is counted on the statement, without ${relaxed.join(', ')}. Remove LIVE_REQUIRES unless that is intended.` : 'Connected, right listing, verified by Google, access not lost. It does not depend on what the shop has switched on: a live shop with nothing on is listed under Needs help.' });
   const b = billingSettingsFromEnv(env);
   const term = b.termStart && b.termEnd ? (b.termEnd < b.termStart ? 'set, but it ends before it starts' : 'set') : b.termStart || b.termEnd ? 'only one of its two dates is set' : 'not set';
   // A cap with no usable term is never applied, so it is flagged rather than left to be discovered on a statement.

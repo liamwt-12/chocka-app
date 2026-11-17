@@ -29,13 +29,12 @@ describe('settings', () => {
     expect(on.find((c) => c.key === 'WELCOME_EMAIL')).toMatchObject({ ok: null, detail: expect.stringMatching(/^ON/) });
     expect(on.find((c) => c.key === 'TARKETT_CONSOLE_ENABLED')!.detail).toMatch(/privacy checklist/);
     // Relaxing what counts as live changes what is billed: a cross, not a note.
-    expect(on.find((c) => c.key === 'LIVE_REQUIRES')).toMatchObject({ ok: false, detail: expect.stringMatching(/RELAXED: .*without matched, verified, posts or replies switched on/) });
+    expect(on.find((c) => c.key === 'LIVE_REQUIRES')).toMatchObject({ ok: false, detail: expect.stringMatching(/RELAXED: .*without matched, verified/) });
     expect(summary(on).ready).toBe(false);
     expect(summary(settingChecks({ ...FULL, WELCOME_EMAIL: 'on' })).ready).toBe(true);
-    // The old documented value leaves "something switched on" out, and is flagged; a typo is ignored and flagged.
-    expect(settingChecks({ ...FULL, LIVE_REQUIRES: 'matched,verified,access' }).find((c) => c.key === 'LIVE_REQUIRES')!.ok).toBe(false);
+    // The full definition, spelt out, is fine; a typo is ignored and flagged.
+    expect(settingChecks({ ...FULL, LIVE_REQUIRES: 'matched,verified,access' }).find((c) => c.key === 'LIVE_REQUIRES')!.ok).toBeNull();
     expect(settingChecks({ ...FULL, LIVE_REQUIRES: 'matched;verified' }).find((c) => c.key === 'LIVE_REQUIRES')).toMatchObject({ ok: false, detail: expect.stringMatching(/has been ignored/) });
-    expect(settingChecks({ ...FULL, LIVE_REQUIRES: 'matched,verified,access,active' }).find((c) => c.key === 'LIVE_REQUIRES')!.ok).toBeNull();
     // A cap with no term is a cross too.
     expect(settingChecks({ ...FULL, BILLING_MONTHLY_CAP_PENCE: '2500' }).find((c) => c.key === 'BILLING')).toMatchObject({ ok: false, detail: expect.stringMatching(/THE CAP WILL NOT BE APPLIED/) });
     expect(settingChecks({ ...FULL, BILLING_MONTHLY_CAP_PENCE: '2500', BILLING_TERM_START: '2030-01-01', BILLING_TERM_END: '2030-12-31' }).find((c) => c.key === 'BILLING')!.ok).toBeNull();

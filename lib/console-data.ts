@@ -33,6 +33,8 @@ export interface ConsoleShop {
   pilotState: string;
   /** Why a shop is not live yet, and what would help, in plain words. Null when it is live. */
   statusNote: { label: string; why: string; action: string } | null;
+  /** Live, with nothing being done for it (posts and replies off, or paused). */
+  quiet: boolean;
   connection: string | null;
   participating: boolean;
   joinedOn: string | null;
@@ -103,7 +105,9 @@ export async function loadConsoleData(db: Db, tenantId: string, now: Date = new 
     const participating = !!(r.user_id && profile?.google_location_name);
     const shop: ConsoleShop = {
       retailerId: r.id, name: r.name, town: r.town, pilotState: state,
-      statusNote: full.live || full.key === 'not_invited' ? null : { label: full.label, why: full.why, action: full.action },
+      // A live shop with nothing switched on keeps its note: it is live, and it is quiet.
+      statusNote: (full.live && !full.quiet) || full.key === 'not_invited' ? null : { label: full.label, why: full.why, action: full.action },
+      quiet: full.quiet,
       connection: r.connection_status ? ADMIN_LABELS[r.connection_status as ConnectionStatus] ?? r.connection_status : null,
       participating, joinedOn: null, scoreAtActivation: null, postsLast30: null, repliesLast30: null,
       actionsChange: null, viewsChange: null, improvement: null, adStartDate: participating ? r.ad_start_date ?? null : null,

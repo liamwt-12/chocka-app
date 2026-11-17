@@ -58,7 +58,7 @@ export type TotalsBasis = 'last_year' | 'month_before' | null;
 export interface NetworkSummary {
   /** The last complete month, as "November 2026". */
   monthLabel: string;
-  shops: { total: number; live: number; connectedNotLive: number; invited: number; notInvited: number };
+  shops: { total: number; live: number; /** Of the live shops, how many have nothing switched on or are paused. */ liveQuiet: number; connectedNotLive: number; invited: number; notInvited: number };
   /** Network totals for the month, with the month before where it can be compared like for like. */
   totals: { lines: NetworkLine[]; shopsCounted: number; shopsCompared: number; note: string; basis: TotalsBasis; /** "November 2025", or "the month before". */ beforeLabel: string | null };
   /** How shops are doing against their own starting point. */
@@ -138,11 +138,11 @@ export function buildNetworkSummary(
   const adShops = participating.filter((s) => s.adStartDate).map((s) => ({ name: s.name, town: s.town, from: s.adStartDate!, spend: s.adSpend, label: s.adChange?.label ?? 'Not worked out', detail: s.adChange?.detail ?? '', flag: !!s.adChange?.flag }));
 
   const reasons = new Map<string, number>();
-  for (const s of shops) if (s.statusNote) reasons.set(s.statusNote.label, (reasons.get(s.statusNote.label) || 0) + 1);
+  for (const s of shops) if (s.statusNote && !s.quiet) reasons.set(s.statusNote.label, (reasons.get(s.statusNote.label) || 0) + 1);
 
   return {
     monthLabel,
-    shops: { total: shops.length, live: count('live'), connectedNotLive: count('connected_not_live'), invited: count('invited') + count('invite_expired'), notInvited: count('not_invited') },
+    shops: { total: shops.length, live: count('live'), liveQuiet: shops.filter((x) => x.pilotState === 'live' && x.quiet).length, connectedNotLive: count('connected_not_live'), invited: count('invited') + count('invite_expired'), notInvited: count('not_invited') },
     totals: { lines, shopsCounted: counted.length, shopsCompared: both.length, note, basis, beforeLabel },
     improvement: {
       rising: bands.filter((b) => b === 'Strong rise' || b === 'Rising').length,

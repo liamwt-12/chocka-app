@@ -74,12 +74,13 @@ export default function ConsoleClient({ view }: { view: 'console' | 'league' | '
       {nav}
       <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 16 }}>
         <div style={tile}><div style={{ ...big, color: C.green }}>{s.shops.live}</div><div style={{ fontSize: 13, color: C.mid }}>shops live, of {s.shops.total}</div></div>
+        <div style={tile}><div style={{ ...big, color: s.shops.liveQuiet ? C.amber : C.text }}>{s.shops.liveQuiet}</div><div style={{ fontSize: 13, color: C.mid }}>of those, with nothing switched on</div></div>
         <div style={tile}><div style={{ ...big, color: s.shops.connectedNotLive ? C.amber : C.text }}>{s.shops.connectedNotLive}</div><div style={{ fontSize: 13, color: C.mid }}>connected, not live yet</div></div>
         <div style={tile}><div style={big}>{s.shops.invited}</div><div style={{ fontSize: 13, color: C.mid }}>invited, not connected</div></div>
         <div style={tile}><div style={big}>{s.shops.notInvited}</div><div style={{ fontSize: 13, color: C.mid }}>not invited yet</div></div>
       </div>
 
-      <p style={{ fontSize: 13, color: C.mid, margin: '-6px 0 16px' }}>A shop is live when it is connected to the right listing, Google has verified that listing, our access to it works, and the shop has posts or review replies switched on.</p>
+      <p style={{ fontSize: 13, color: C.mid, margin: '-6px 0 16px' }}>A shop is live when it is connected to the right listing, Google has verified that listing, and our access to it works. A live shop with posts and review replies both off (or paused) is counted separately, and is named on the Shops page.</p>
 
       <div style={card}>
         <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 2 }}>What customers did, across the network</div>

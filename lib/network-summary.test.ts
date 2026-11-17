@@ -11,8 +11,15 @@ const entry = (id: string, band: string, change: number, rank = 1) => ({ rank, r
 describe('the monthly network summary', () => {
   it('counts shops by state', () => {
     const s = buildNetworkSummary([shop('a'), shop('b', { pilotState: 'connected_not_live', statusNote: { label: 'Check listing', why: '', action: '' } }), shop('c', { pilotState: 'invited', participating: false, statusNote: { label: 'Not opened', why: '', action: '' } }), shop('d', { pilotState: 'invite_expired', participating: false, statusNote: { label: 'Link expired', why: '', action: '' } }), shop('e', { pilotState: 'not_invited', participating: false })], { ranked: [] }, [], 'November 2026');
-    expect(s.shops).toEqual({ total: 5, live: 1, connectedNotLive: 1, invited: 2, notInvited: 1 });
+    expect(s.shops).toEqual({ total: 5, live: 1, liveQuiet: 0, connectedNotLive: 1, invited: 2, notInvited: 1 });
     expect(s.notLive).toEqual({ total: 3, byReason: [{ label: 'Check listing', count: 1 }, { label: 'Link expired', count: 1 }, { label: 'Not opened', count: 1 }] });
+  });
+
+  it('a live shop with nothing switched on is counted as live, counted again as quiet, and is not among the shops "not live"', () => {
+    const quiet = shop('q', { quiet: true, statusNote: { label: 'Nothing switched on', why: '', action: '' } });
+    const s = buildNetworkSummary([shop('a'), quiet, shop('c', { pilotState: 'invited', participating: false, statusNote: { label: 'Not opened', why: '', action: '' } })], { ranked: [] }, [], 'm');
+    expect(s.shops).toMatchObject({ live: 2, liveQuiet: 1 });
+    expect(s.notLive).toEqual({ total: 1, byReason: [{ label: 'Not opened', count: 1 }] });
   });
 
   const M = (id: string, now: any, before: any) => ({ retailerId: id, thisMonth: T({ daysWithData: 30, ...now }), lastMonth: T({ daysWithData: 31, ...before }) });

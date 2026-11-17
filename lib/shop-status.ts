@@ -10,27 +10,27 @@
  * shop is live, or why it is not, asks here: /admin/pilot, the needs-help list,
  * the console, the monthly count of live shops.
  *
- * LIVE means, by default, all five of:
+ * LIVE (which is also what is BILLABLE) means, by default, all four of:
  *   connected   the shop is linked to an account and a listing is bound
  *   matched     the listing is the one we invited, or a person has confirmed it
  *   verified    Google has verified the listing, so it can actually be managed
  *   access      our permission from Google still works
- *   active      posts or review replies are switched on, and the shop has not
- *               pressed Pause: something is actually being done for it
- * The last four can be relaxed with LIVE_REQUIRES (a comma-separated list of
- * the ones to keep: "matched,verified,access,active" is the default).
- * "connected" is not optional: without a bound listing there is nothing to be
- * live.
+ * The last three can be relaxed with LIVE_REQUIRES (a comma-separated list of
+ * the ones to keep: "matched,verified,access" is the default). "connected" is
+ * not optional: without a bound listing there is nothing to be live.
  *
- * WHY "ACTIVE" IS PART OF IT. A shop that connected and switched nothing on
- * gets one email a month from us and nothing else. Calling that "live", and
- * counting it for the monthly statement, says the service is doing something
- * it is not. Live now means the shop is connected AND we are working for it.
- * It does not require anything to have been posted yet: a shop that switched
- * posts on this morning is live.
+ * LIVE DOES NOT DEPEND ON WHAT THE SHOP HAS SWITCHED ON. A shop is billable
+ * while it is connected to a verified listing we can reach. Switching posts
+ * and replies off, or pressing Pause, does not stop that; only disconnecting
+ * (or losing access) does. That was decided on 20 November 2026.
  *
- * This is about what the SHOP has switched on. Nothing here, and nothing that
- * reads it, ever switches posts or replies on for a shop.
+ * A LIVE SHOP WITH NOTHING SWITCHED ON IS STILL SHOWN. It is live, and it is
+ * also "quiet": its status says "Nothing switched on" or "Paused by the
+ * shop", it is on the needs-help list and in the console, so a shop that is
+ * being paid for and getting nothing is never invisible.
+ *
+ * Nothing here, and nothing that reads it, ever switches posts or replies on
+ * for a shop.
  *
  * Pure: takes rows, returns a status. Tested without a database.
  */
@@ -39,15 +39,15 @@ import { isInviteExpired } from './invite-token';
 import { HELP, type HelpReason } from './connect-help';
 import { switchesInForce } from './automation-mode';
 
-export interface LiveRules { matched: boolean; verified: boolean; access: boolean; active: boolean }
-export const DEFAULT_LIVE_RULES: LiveRules = { matched: true, verified: true, access: true, active: true };
+export interface LiveRules { matched: boolean; verified: boolean; access: boolean }
+export const DEFAULT_LIVE_RULES: LiveRules = { matched: true, verified: true, access: true };
 
-/** LIVE_REQUIRES="matched,verified,access,active" (the default). Unknown words are ignored; unset means the default. */
+/** LIVE_REQUIRES="matched,verified,access" (the default). Unset means the default. */
 export function liveRulesFromEnv(value: string | undefined = process.env.LIVE_REQUIRES): LiveRules {
   return parseLiveRequires(value).rules;
 }
 
-const LIVE_WORDS = ['matched', 'verified', 'access', 'active'] as const;
+const LIVE_WORDS = ['matched', 'verified', 'access'] as const;
 /**
  * Read LIVE_REQUIRES. A value containing anything that is not one of the four
  * words (a typo, a semicolon, quotation marks) is NOT trusted to relax the
@@ -60,7 +60,7 @@ export function parseLiveRequires(value: string | undefined): { rules: LiveRules
   const unknown = words.filter((w) => !(LIVE_WORDS as readonly string[]).includes(w));
   if (unknown.length || !words.length) return { rules: { ...DEFAULT_LIVE_RULES }, problem: `LIVE_REQUIRES contains something that is not one of ${LIVE_WORDS.join(', ')} (${unknown.join(', ').slice(0, 60) || 'nothing readable'}), so it has been ignored and the full definition applies.` };
   const keep = new Set(words);
-  return { rules: { matched: keep.has('matched'), verified: keep.has('verified'), access: keep.has('access'), active: keep.has('active') }, problem: null };
+  return { rules: { matched: keep.has('matched'), verified: keep.has('verified'), access: keep.has('access') }, problem: null };
 }
 
 /**
@@ -82,7 +82,9 @@ export function isActive(user: Parameters<typeof switchesInForce>[0]): boolean {
 export type StatusKey =
   | 'live'
   // connected, but something stops it counting as live
-  | 'access_lost' | 'check_listing' | 'waiting_google' | 'no_listing_chosen' | 'nothing_on' | 'paused'
+  | 'access_lost' | 'check_listing' | 'waiting_google' | 'no_listing_chosen'
+  // live, and nothing is being done for it
+  | 'nothing_on' | 'paused'
   // not connected, and we know why
   | 'cancelled' | 'unticked' | 'no_listing' | 'wrong_account' | 'google_error' | 'bounced' | 'link_expired'
   // not connected, and all we know is how far it got
@@ -94,7 +96,10 @@ export interface ShopStatus {
   key: StatusKey;
   /** Short label for a list. */
   label: string;
+  /** Live, which is also billable. Does not depend on what the shop has switched on. */
   live: boolean;
+  /** Live, but nothing is being done for it: posts and replies both off, or paused. Shown, so it is never invisible. */
+  quiet: boolean;
   connected: boolean;
   /** Should a person look at this now? */
   needsHelp: boolean;
@@ -149,7 +154,7 @@ export function shopStatus(
   now: Date = new Date(),
   rules: LiveRules = liveRulesFromEnv(),
 ): ShopStatus {
-  const base = { live: false, connected: false, needsHelp: true, severity: 2 as const, since: null as string | null, buttons: [] as HelpButton[] };
+  const base = { live: false, quiet: false, connected: false, needsHelp: true, severity: 2 as const, since: null as string | null, buttons: [] as HelpButton[] };
 
   // ── Connected (linked to an account) ──
   if (retailer.user_id) {
@@ -183,16 +188,17 @@ export function shopStatus(
         action: 'Compare the name and address with the shop. If it is their shop, press This is right. If not, press Reset connection and ask them to use the Google account for the right shop.',
         buttons: ['confirm_listing', 'reset'] };
     }
-    // Connected, right listing, verified, access working. Is anything being done for it?
-    if (rules.active && !isActive(user)) {
+    // Connected, right listing, verified, access working: LIVE, and billable.
+    // If nothing is being done for it, it is still live, and it is flagged.
+    if (!isActive(user)) {
       if (user.automation_paused_at) {
-        return { ...base, key: 'paused', label: 'Paused by the shop', connected: true, severity: 3, since: user.automation_paused_at,
-          why: `Connected and ready, but the shop pressed Pause${user.automation_paused_at ? ` on ${onDate(user.automation_paused_at)}` : ''}, so nothing is being posted or replied to. It does not count as live while paused.`,
+        return { ...base, key: 'paused', label: 'Paused by the shop', live: true, quiet: true, connected: true, severity: 3, since: user.automation_paused_at,
+          why: `Live, but the shop pressed Pause${user.automation_paused_at ? ` on ${onDate(user.automation_paused_at)}` : ''}, so nothing is being posted or replied to. It still counts as live: only disconnecting stops that.`,
           action: 'Ask whether something went wrong, and whether they would like to carry on. They press Resume in Settings. Only the shop can do this.',
           buttons: [] };
       }
-      return { ...base, key: 'nothing_on', label: 'Nothing switched on', connected: true, severity: 2, since: retailer.connection_checked_at ?? null,
-        why: 'Connected and ready, but posts and review replies are both switched off, so nothing is being done for this shop. It does not count as live until one is on.',
+      return { ...base, key: 'nothing_on', label: 'Nothing switched on', live: true, quiet: true, connected: true, severity: 2, since: retailer.connection_checked_at ?? null,
+        why: 'Live, but posts and review replies are both switched off, so nothing is being done for this shop. It still counts as live.',
         action: 'A short call: ask whether they would like us to look after posts and replies. They choose on their dashboard or in Settings. Only the shop can switch these on.',
         buttons: [] };
     }

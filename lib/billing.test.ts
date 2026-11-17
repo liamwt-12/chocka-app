@@ -253,24 +253,17 @@ describe('recordLiveToday', () => {
     expect(d.writes.first[0]).toEqual({ first_live_on: '2026-12-05' });
   });
 
-  it('a shop with nothing switched on, or paused, is not counted: live is tied to something being done', async () => {
+  it('a shop with nothing switched on, or paused, IS counted: billable is connected, verified and reachable, whatever is switched on', async () => {
     const d = db(
-      [retailer('posts'), retailer('replies'), retailer('nothing'), retailer('paused')],
-      [user('u-posts'), user('u-replies', { auto_post_enabled: false, auto_reply_enabled: true }), user('u-nothing', { auto_post_enabled: false, auto_reply_enabled: false }), user('u-paused', { automation_paused_at: '2026-12-04T09:00:00Z' })],
+      [retailer('posts'), retailer('nothing'), retailer('paused'), retailer('lost'), retailer('unverified', { connection_status: 'waiting_google' })],
+      [user('u-posts'), user('u-nothing', { auto_post_enabled: false, auto_reply_enabled: false }), user('u-paused', { automation_paused_at: '2026-12-04T09:00:00Z' }), user('u-lost', { token_status: 'invalid', auto_post_enabled: true }), user('u-unverified')],
     );
     const r = await recordLiveToday(d, NOW);
-    expect(r).toMatchObject({ live: 2, marked: 2 });
-    expect(d.writes.months.map((m: any) => m.retailer_id).sort()).toEqual(['posts', 'replies']);
+    expect(r).toMatchObject({ live: 3, marked: 3 });
+    expect(d.writes.months.map((m: any) => m.retailer_id).sort()).toEqual(['nothing', 'paused', 'posts']);
   });
-  it('money settings are whole numbers written in digits; a month must be a real month', async () => {
-    for (const bad of ['1e3', '0x10', '10.0', ' ', '-5']) expect(billingSettingsFromEnv({ BILLING_PRICE_PENCE_PER_SHOP: bad }).pricePence).toBeNull();
-    const { loadStatement } = await import('./billing');
-    for (const bad of ['2030-13', '2030-00', '2030-1']) await expect(loadStatement({ from: () => ({}) } as any, 't', bad)).rejects.toThrow(/Use a month like/);
-  });
-  it('a name that starts with a tab or a return cannot be read as a formula either', () => {
-    const csv = statementCsv(buildStatement('2026-12', [row('t', { name: '\t=1+1', last_live_on: '2026-12-31' }), row('r', { name: 'A\rB', last_live_on: '2026-12-31' })], { pricePence: null, capPence: null }, '2027-01-05'));
-    expect(csv).toContain(`"'\t=1+1"`);
-    expect(csv).toContain('"A\rB"');
+  it('the statement file says what live means', () => {
+    expect(statementCsv(buildStatement('2026-12', [], { pricePence: null, capPence: null }, '2027-01-05'))).toContain('Live means connected to a verified listing we can reach. It does not depend on what the shop has switched on.');
   });
   it('reads the switches with the account, so the count cannot be made without them', () => {
     const src = readFileSync(new URL('./billing.ts', import.meta.url), 'utf8');

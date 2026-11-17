@@ -35,8 +35,8 @@ describe('pilotStatus', () => {
   it('live: linked, working access, listing bound, something switched on', () => {
     expect(pilotStatus({ user_id: 'u1' }, live, [], NOW).state).toBe('live');
   });
-  it('connected with nothing switched on is connected, not live', () => {
-    expect(pilotStatus({ user_id: 'u1' }, { ...live, auto_reply_enabled: false }, [], NOW).state).toBe('connected_not_live');
+  it('connected with nothing switched on is still live: what is switched on does not decide it', () => {
+    expect(pilotStatus({ user_id: 'u1' }, { ...live, auto_reply_enabled: false }, [], NOW).state).toBe('live');
   });
   it('live through manager access', () => {
     const managed = { id: 'u2', google_refresh_token: null, auto_post_enabled: true, managed_by_user_id: 'op', manager: { id: 'op', google_refresh_token: 'v1.y', token_status: 'valid' }, profiles: [{ google_location_name: 'locations/2' }] };

@@ -2,9 +2,10 @@
  * A reliable monthly count of live shops, by name.
  *
  * THE RECORD. Once a day, every shop that is live (lib/shop-status.ts, the one
- * definition: connected, the right listing, verified, access working, AND
- * posts or replies switched on) has its row for the current month marked for
- * that day. The row
+ * definition: connected, the right listing, verified by Google, access
+ * working) has its row for the current month marked for that day. What the
+ * shop has switched on does not come into it, and pausing does not stop it:
+ * only disconnecting does. The row
  * copies the shop's name and does not depend on the shop's record continuing
  * to exist, so a past month's count survives a shop leaving or deleting its
  * account. Marking is safe to repeat: a second run on the same day changes
@@ -272,7 +273,7 @@ const csvCell = (v: unknown) => {
 
 /** The statement as a spreadsheet file. Names are escaped so one cannot be read as a formula. Pure. */
 export function statementCsv(s: Statement): string {
-  const rows: unknown[][] = [...(s.noCountOnLastDay ? [['WARNING: no count was taken on the last day of this month, so nobody is shown as live. Do not use this statement as it stands.'], []] : []), ['Month', s.month], [s.provisional ? 'Provisional: shops live now' : 'Shops live on the last day of the month', s.decidedOn], [], ['Shop', 'Town', 'Days live', 'First live', 'Last live', 'Above the cap']];
+  const rows: unknown[][] = [...(s.noCountOnLastDay ? [['WARNING: no count was taken on the last day of this month, so nobody is shown as live. Do not use this statement as it stands.'], []] : []), ['Month', s.month], [s.provisional ? 'Provisional: shops live now' : 'Shops live on the last day of the month', s.decidedOn], ['Live means connected to a verified listing we can reach. It does not depend on what the shop has switched on.'], [], ['Shop', 'Town', 'Days live', 'First live', 'Last live', 'Above the cap']];
   for (const l of s.lines) rows.push([l.name, l.town ?? '', l.liveDays, l.firstLiveOn, l.lastLiveOn, l.aboveCap ? 'yes' : '']);
   rows.push([], ['Live shops', s.liveShops]);
   if (s.money && s.settings.pricePence !== null) {
