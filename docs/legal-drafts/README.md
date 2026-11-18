@@ -7,6 +7,7 @@ Legal drafts for Stellar Local, written 14 November 2026. **None of these is pub
 | `privacy-policy.md` | One privacy policy that matches what the product does today | `app/privacy/page.tsx` |
 | `terms-of-service.md` | One set of retailer terms that matches the product | `app/terms/page.tsx` |
 | `article-14-notice.md` | The notice owed to the 180 store-locator records, plus a two-line version for Tarkett's first message | Nothing (never sent) |
+| `solicitor-briefing.md` | **Start here if you are the solicitor.** A data map, the Article 14 position and timeline, the six questions below with the context to answer each, what changes if Tarkett sees per-shop data, and the exact documents to send | Nothing (a briefing, not a published document) |
 
 ## What changed in the app in this PR
 
