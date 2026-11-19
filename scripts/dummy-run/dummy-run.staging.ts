@@ -658,7 +658,7 @@ describe('dummy run on staging', () => {
       statuses.push(p4.status);
       need(gen.data.generated === 1 && p4.status === 'pending_approval', `post 4 was ${p4.status}`);
       const preview = world.emails.slice(emailsBefore);
-      need(preview.length === 1 && preview[0].to === EMAIL('a') && preview[0].html.includes('/api/posts/cancel'), `post 4 preview emails: ${preview.length}`);
+      need(preview.length === 1 && preview[0].to === EMAIL('a') && preview[0].html === '' && preview[0].text.includes('/api/posts/cancel') && /goes up on .* unless you stop it/.test(preview[0].text) && !/<[a-z]/i.test(preview[0].text), `post 4 preview emails: ${preview.length}`);
       await makeDue(p4.id);
       pub = await cron('post-publisher');
       need(pub.data.published === 1 && la().posts.length === 4, `after post 4, "Google" has ${la().posts.length} posts`);
@@ -1106,7 +1106,7 @@ describe('dummy run on staging', () => {
       need(posts.length === 1 && posts[0].status === 'pending_approval', `D's first post in hands-off: generated ${gen.data.generated}, ${posts.map((x: any) => x.status)}`);
       handsOffPostId = posts[0].id;
       const mail = world.emails.slice(em0).filter((e) => e.to === EMAIL('d'));
-      need(mail.length === 1 && /Your Google post for this week/.test(mail[0].subject) && /posts\/cancel\?id=/.test(mail[0].html), `the shop was not sent its post first (${mail.map((e) => e.subject)})`);
+      need(mail.length === 1 && /Your Google post for this week/.test(mail[0].subject) && mail[0].html === '' && /posts\/cancel\?id=/.test(mail[0].text) && !/<[a-z]/i.test(mail[0].text), `the shop was not sent its post first, in plain text (${mail.map((e) => e.subject)})`);
       const dash = await call('dashboard', 'GET', '/api/dashboard', { cookie: shops.d.cookie });
       need(dash.data.postsToManage?.some((x: any) => x.id === handsOffPostId && !x.waiting), 'the booked post is not on the dashboard with a way to stop it');
       // Not before its time.
@@ -1327,13 +1327,14 @@ describe('dummy run on staging', () => {
     await step('alerts', 'the admin page can show each switched-off email with made-up content, and that sends nothing', async () => {
       const em0 = world.emails.length;
       const list = await admin('admin/pilot', { action: 'preview_email' });
-      need(list.data.previews?.length === 5, `previews listed: ${list.text.slice(0, 120)}`);
+      const { EMAIL_PREVIEWS } = await mod('lib/email-previews.ts');
+      need(list.data.previews?.length === EMAIL_PREVIEWS.length && list.data.previews.length >= 5, `previews listed: ${list.text.slice(0, 120)}`);
       for (const p of list.data.previews) {
         const one = await admin('admin/pilot', { action: 'preview_email', key: p.key });
         need(one.status === 200 && one.data.subject && one.data.text.includes('Example') && !/invalid\.example|ZZ-TEST|<[a-z]/i.test(one.data.text), `sample ${p.key}: ${one.status}`);
       }
       need(world.emails.length === em0, 'reading a sample sent an email');
-      return '5 samples, all made-up content, nothing sent';
+      return `${list.data.previews.length} samples, all made-up content, nothing sent`;
     });
 
     await step('operator rows', 'an account made through an operator account starts with posts and replies off, whatever the insert says; an ordinary account is untouched', async () => {

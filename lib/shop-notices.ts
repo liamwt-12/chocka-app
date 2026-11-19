@@ -1,6 +1,6 @@
 /**
- * Short notices to a shop, in plain text: a new review, and a post waiting for
- * its approval.
+ * Short notices to a shop, in plain text: a new review, a post waiting for its
+ * approval, and (hands-off) the week's post before it goes up.
  *
  * WHY PLAIN TEXT. These are the messages a shop gets most often, and each asks
  * for at most one thing. A plain note from a person-sized address is read; a
@@ -78,6 +78,25 @@ export function holdingReplyPostedNotice(p: { businessName: string; reviewerName
       `You asked us to look after replies, so we have posted a short, polite reply that asks the customer to contact you. Nothing else has been said on your behalf. The reply:\n${quoted(p.reply)}`,
       `You may want to get in touch with this customer yourself. If you would rather the reply was not there, or want to write your own, you can undo it in Settings:\n${p.settingsUrl}`,
       'To have these wait for you instead, choose "Ask me first" in Settings. You can also pause everything there.',
+      sign(p.tenant),
+    ]),
+  };
+}
+
+/**
+ * Hands-off only: this week's post is booked and goes up at its time unless
+ * the shop stops it. The shop agreed to that in advance, so this asks for
+ * nothing; it shows the post, says when, and gives the one link to stop it.
+ */
+export function postBookedNotice(p: { businessName: string; postContent: string; scheduledFor: string; cancelUrl: string; tenant: Tenant }): Notice {
+  const when = new Date(p.scheduledFor).toLocaleString('en-GB', { timeZone: 'Europe/London', weekday: 'long', day: 'numeric', month: 'long', hour: 'numeric', minute: '2-digit' });
+  return {
+    subject: `Your Google post for this week: ${oneLine(p.businessName)}`,
+    text: join([
+      `Here is the Google post we have written for ${oneLine(p.businessName)}. You asked us to look after your posts, so it goes up on ${when} unless you stop it.`,
+      quoted(p.postContent),
+      `To stop it, so that nothing is posted this week (you will be asked to confirm):\n${p.cancelUrl}`,
+      'If you are happy with it, you do not need to do anything.',
       sign(p.tenant),
     ]),
   };

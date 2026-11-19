@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
 import { verifyCronSecret, unauthorizedResponse, getActiveUsersWithProfiles, generateCancelHash } from '@/lib/cron';
 import { generatePost } from '@/lib/ai';
-import { sendEmail, postPreviewEmail } from '@/lib/email';
+import { sendEmail } from '@/lib/email';
+import { shopContactEmail, postBookedNotice } from '@/lib/shop-notices';
 import { getTenantForRow } from '@/lib/tenant';
 import { nextMondaySlot } from '@/lib/post-schedule';
 import { APPROVAL_REQUIRED_POSTS, AWAITING_APPROVAL, PUBLISHABLE } from '@/lib/safe-automation';
@@ -132,16 +133,21 @@ export async function GET(request: NextRequest) {
           .select()
           .single();
 
-        if (post && user.email && !needsApproval) {
-          const hash = generateCancelHash(post.id);
-          const cancelUrl = `${t.appUrl}/api/posts/cancel?id=${post.id}&hash=${hash}`;
-
-          await sendEmail({
-            to: user.email,
-            subject: `Your Google post for this week — ${profile.business_name}`,
-            html: postPreviewEmail(profile.business_name, postContent, cancelUrl, t),
-            tenant: t,
-          });
+        // Hands-off (or a shop past its first three): the post is booked, and
+        // the shop is sent it first with the one link to stop it. Plain text,
+        // to the shop's own address only, never a rep's or an operator's
+        // (lib/shop-notices.ts). With no such address the post is still booked
+        // and can be stopped from the dashboard; the log says it was not sent.
+        if (post && !needsApproval) {
+          const to = shopContactEmail(user);
+          if (!to) {
+            console.log(`[cron:post-generator] post ${post.id} booked; preview NOT sent: NO ADDRESS OF THE SHOP'S OWN (user ${user.id})`);
+          } else {
+            const hash = generateCancelHash(post.id);
+            const cancelUrl = `${t.appUrl}/api/posts/cancel?id=${post.id}&hash=${hash}`;
+            const n = postBookedNotice({ businessName: profile.business_name, postContent, scheduledFor: monday.toISOString(), cancelUrl, tenant: t });
+            await sendEmail({ to, subject: n.subject, text: n.text, tenant: t });
+          }
         }
 
         generated++;

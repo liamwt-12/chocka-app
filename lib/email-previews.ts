@@ -5,12 +5,13 @@
  * Nothing here sends anything: it returns the subject and the plain text,
  * exactly as a shop would get them. The links in a sample go nowhere.
  */
-import { postWaitingNotice, lowReviewNotice, newReviewNotice, holdingReplyPostedNotice, type Notice } from './shop-notices';
+import { postWaitingNotice, postBookedNotice, lowReviewNotice, newReviewNotice, holdingReplyPostedNotice, type Notice } from './shop-notices';
 import { holdingReply } from './safe-automation';
 import type { Tenant } from './tenant';
 
 export const EMAIL_PREVIEWS = [
   { key: 'post_waiting', label: 'A post is waiting for approval', setting: 'EARLY_POST_PREVIEW_EMAILS' },
+  { key: 'post_booked', label: 'A post is booked and goes up unless the shop stops it', setting: 'Already sent (hands-off shops, and every shop after its first three posts); shown here to read' },
   { key: 'good_review_replied', label: 'New good review, we replied', setting: 'REVIEW_ALERT_EMAILS' },
   { key: 'good_review_not_replied', label: 'New good review, replies are off', setting: 'REVIEW_ALERT_EMAILS' },
   { key: 'low_review_needs_input', label: 'New low review, reply waiting for the shop', setting: 'REVIEW_ALERT_EMAILS (for shops with replies off; already sent to shops with replies on)' },
@@ -27,6 +28,8 @@ export function emailPreview(key: string, tenant: Tenant, now: Date = new Date()
   switch (key) {
     case 'post_waiting':
       return postWaitingNotice({ businessName: SHOP, postContent: 'Thinking about a new floor before the spring? Call in and see the samples in our showroom, or ring us for a free measure.', scheduledFor: new Date(now.getTime() + 86_400_000).toISOString(), approveUrl: NOWHERE, skipUrl: NOWHERE, approvalsLeft: 3, tenant });
+    case 'post_booked':
+      return postBookedNotice({ businessName: SHOP, postContent: 'Thinking about a new floor before the spring? Call in and see the samples in our showroom, or ring us for a free measure.', scheduledFor: new Date(now.getTime() + 3 * 86_400_000).toISOString(), cancelUrl: NOWHERE, tenant });
     case 'good_review_replied':
       return newReviewNotice({ ...good, replyState: 'posted', reply: 'Thank you, Sam. We are glad you are pleased with it, and we will pass that on to the fitters.' });
     case 'good_review_not_replied':
