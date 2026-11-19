@@ -46,7 +46,7 @@ describe('the booked-post notice', () => {
 const sent: Array<{ to: string; subject: string; text?: string; html?: string }> = [];
 const state: { users: any[]; published: number } = { users: [], published: 3 };
 vi.mock('@/lib/email', () => ({ sendEmail: async (m: any) => { sent.push(m); return true; } }));
-vi.mock('@/lib/ai', () => ({ generatePost: async () => 'Fresh stock in the showroom this week.' }));
+vi.mock('@/lib/ai', () => ({ generatePost: async () => 'Fresh stock in the showroom this week.', defaultCategory: () => 'Local business' }));
 vi.mock('@/lib/voice', () => ({ loadVoiceForUser: async () => null }));
 vi.mock('@/lib/shop-photos', () => ({ reservePhotoForUser: async () => null }));
 vi.mock('@/lib/cron', () => ({
