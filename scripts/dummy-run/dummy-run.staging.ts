@@ -658,7 +658,7 @@ describe('dummy run on staging', () => {
       statuses.push(p4.status);
       need(gen.data.generated === 1 && p4.status === 'pending_approval', `post 4 was ${p4.status}`);
       const preview = world.emails.slice(emailsBefore);
-      need(preview.length === 1 && preview[0].to === EMAIL('a') && preview[0].html.includes('/api/posts/cancel'), `post 4 preview emails: ${preview.length}`);
+      need(preview.length === 1 && preview[0].to === EMAIL('a') && preview[0].html === '' && preview[0].text.includes('/api/posts/cancel') && /goes up on .* unless you stop it/.test(preview[0].text) && !/<[a-z]/i.test(preview[0].text), `post 4 preview emails: ${preview.length}`);
       await makeDue(p4.id);
       pub = await cron('post-publisher');
       need(pub.data.published === 1 && la().posts.length === 4, `after post 4, "Google" has ${la().posts.length} posts`);
@@ -1106,7 +1106,7 @@ describe('dummy run on staging', () => {
       need(posts.length === 1 && posts[0].status === 'pending_approval', `D's first post in hands-off: generated ${gen.data.generated}, ${posts.map((x: any) => x.status)}`);
       handsOffPostId = posts[0].id;
       const mail = world.emails.slice(em0).filter((e) => e.to === EMAIL('d'));
-      need(mail.length === 1 && /Your Google post for this week/.test(mail[0].subject) && /posts\/cancel\?id=/.test(mail[0].html), `the shop was not sent its post first (${mail.map((e) => e.subject)})`);
+      need(mail.length === 1 && /Your Google post for this week/.test(mail[0].subject) && mail[0].html === '' && /posts\/cancel\?id=/.test(mail[0].text) && !/<[a-z]/i.test(mail[0].text), `the shop was not sent its post first, in plain text (${mail.map((e) => e.subject)})`);
       const dash = await call('dashboard', 'GET', '/api/dashboard', { cookie: shops.d.cookie });
       need(dash.data.postsToManage?.some((x: any) => x.id === handsOffPostId && !x.waiting), 'the booked post is not on the dashboard with a way to stop it');
       // Not before its time.
@@ -1327,13 +1327,14 @@ describe('dummy run on staging', () => {
     await step('alerts', 'the admin page can show each switched-off email with made-up content, and that sends nothing', async () => {
       const em0 = world.emails.length;
       const list = await admin('admin/pilot', { action: 'preview_email' });
-      need(list.data.previews?.length === 5, `previews listed: ${list.text.slice(0, 120)}`);
+      const { EMAIL_PREVIEWS } = await mod('lib/email-previews.ts');
+      need(list.data.previews?.length === EMAIL_PREVIEWS.length && list.data.previews.length >= 5, `previews listed: ${list.text.slice(0, 120)}`);
       for (const p of list.data.previews) {
         const one = await admin('admin/pilot', { action: 'preview_email', key: p.key });
         need(one.status === 200 && one.data.subject && one.data.text.includes('Example') && !/invalid\.example|ZZ-TEST|<[a-z]/i.test(one.data.text), `sample ${p.key}: ${one.status}`);
       }
       need(world.emails.length === em0, 'reading a sample sent an email');
-      return '5 samples, all made-up content, nothing sent';
+      return `${list.data.previews.length} samples, all made-up content, nothing sent`;
     });
 
     await step('operator rows', 'an account made through an operator account starts with posts and replies off, whatever the insert says; an ordinary account is untouched', async () => {
@@ -1430,6 +1431,42 @@ describe('dummy run on staging', () => {
       const { GoogleAuthError, isDeadGrant } = await mod('lib/google.ts');
       need(isDeadGrant(new GoogleAuthError('Token refresh failed: busy', 429, false)) === false, 'a busy Google would be treated as a lost connection');
       return 'noticed by the daily check; shop told on its dashboard with a Reconnect button; support sees "Connection lost" in plain words; shop no longer counted as live';
+    });
+    await step('lost access', 'the connection-lost email: off sends nothing; on, one plain-text email to the shop, then not again for a week; reconnecting clears it', async () => {
+      // Needs migration 20261121090000_connection_lost_notice_marker on staging.
+      const { runConnectionLostNotices } = await mod('lib/connection-lost.ts');
+      const { sendEmail } = await mod('lib/email.ts');
+      const marker = async () => (await db.from('users').select('connection_lost_notice_at').eq('id', shops.e.userId).single()).data?.connection_lost_notice_at ?? null;
+      const toE = (from: number) => world.emails.slice(from).filter((e) => e.to === EMAIL('e'));
+      const pass = (enabled: boolean) => runConnectionLostNotices(db, { now: new Date(), enabled, send: sendEmail });
+      // Off (the default): the hourly job counts it and sends nothing.
+      let em0 = world.emails.length;
+      const sync = await cron('metrics-sync');
+      need(sync.data.connectionLost?.enabled === false && sync.data.connectionLost.due >= 1 && sync.data.connectionLost.sent === 0 && toE(em0).length === 0 && (await marker()) === null, `with the switch off: ${JSON.stringify(sync.data.connectionLost)}, ${toE(em0).length} email(s)`);
+      // On: one email, plain text, to the shop's own address.
+      em0 = world.emails.length;
+      const on = await pass(true);
+      const mail = toE(em0);
+      need(!on.problem && mail.length === 1 && /Please reconnect/.test(mail[0].subject) && mail[0].html === '' && /Settings and press Reconnect/.test(mail[0].text) && /nothing is posted/.test(mail[0].text) && !/<[a-z]/i.test(mail[0].text) && (await marker()), `with it on: ${JSON.stringify(on)}, ${mail.map((e) => e.subject)}`);
+      // Not again within the week.
+      em0 = world.emails.length;
+      await pass(true);
+      need(toE(em0).length === 0, 'the email was sent again within the week');
+      // A week on, once more.
+      await db.from('users').update({ connection_lost_notice_at: new Date(Date.now() - 8 * DAY).toISOString() }).eq('id', shops.e.userId);
+      em0 = world.emails.length;
+      await pass(true);
+      need(toE(em0).length === 1, `a week on: ${toE(em0).length} email(s)`);
+      // Reconnected: the marker is cleared and nothing is sent. Then put E back as it was.
+      await db.from('users').update({ token_status: 'valid' }).eq('id', shops.e.userId);
+      try {
+        em0 = world.emails.length;
+        const cleared = await pass(true);
+        need(cleared.cleared >= 1 && (await marker()) === null && toE(em0).length === 0, `after reconnecting: ${JSON.stringify(cleared)}`);
+      } finally {
+        await db.from('users').update({ token_status: 'invalid', connection_lost_notice_at: null }).eq('id', shops.e.userId);
+      }
+      return 'off: counted, none sent; on: one plain-text email to E, none within the week, one a week on; reconnecting cleared the marker';
     });
     await step('retention', 'off: nothing is recorded and the view is closed. On: facts per shop, most at risk first, no contact details', async () => {
       const off = await admin('admin/pilot', { action: 'retention' });

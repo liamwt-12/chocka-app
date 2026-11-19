@@ -1,0 +1,15 @@
+-- A marker of when a shop was last emailed that its Google connection is lost.
+--
+-- The email is sent (only when CONNECTION_LOST_EMAILS=on) once when access
+-- breaks, then at most once a week while it stays broken. The marker is
+-- claimed with a conditional update BEFORE sending, so two runs together
+-- cannot both send, and a crash at the wrong instant means one missed email,
+-- never a duplicate. It is cleared when the shop reconnects, so a later break
+-- is told about straight away. Same shape as users.welcome_email_sent_at
+-- (20261117100000).
+--
+-- Until this is applied the job sends nothing: it logs that the marker is
+-- missing and how many it would have sent.
+--
+-- ADDITIVE ONLY: one nullable column.
+alter table public.users add column if not exists connection_lost_notice_at timestamptz;

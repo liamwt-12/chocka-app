@@ -1,6 +1,7 @@
 /**
- * Short notices to a shop, in plain text: a new review, and a post waiting for
- * its approval.
+ * Short notices to a shop, in plain text: a new review, a post waiting for its
+ * approval, (hands-off) the week's post before it goes up, and that our
+ * Google connection has been lost.
  *
  * WHY PLAIN TEXT. These are the messages a shop gets most often, and each asks
  * for at most one thing. A plain note from a person-sized address is read; a
@@ -83,6 +84,25 @@ export function holdingReplyPostedNotice(p: { businessName: string; reviewerName
   };
 }
 
+/**
+ * Hands-off only: this week's post is booked and goes up at its time unless
+ * the shop stops it. The shop agreed to that in advance, so this asks for
+ * nothing; it shows the post, says when, and gives the one link to stop it.
+ */
+export function postBookedNotice(p: { businessName: string; postContent: string; scheduledFor: string; cancelUrl: string; tenant: Tenant }): Notice {
+  const when = new Date(p.scheduledFor).toLocaleString('en-GB', { timeZone: 'Europe/London', weekday: 'long', day: 'numeric', month: 'long', hour: 'numeric', minute: '2-digit' });
+  return {
+    subject: `Your Google post for this week: ${oneLine(p.businessName)}`,
+    text: join([
+      `Here is the Google post we have written for ${oneLine(p.businessName)}. You asked us to look after your posts, so it goes up on ${when} unless you stop it.`,
+      quoted(p.postContent),
+      `To stop it, so that nothing is posted this week (you will be asked to confirm):\n${p.cancelUrl}`,
+      'If you are happy with it, you do not need to do anything.',
+      sign(p.tenant),
+    ]),
+  };
+}
+
 /** A post is waiting for the shop's approval and is due within a day. Nothing goes up unless it approves. */
 export function postWaitingNotice(p: { businessName: string; postContent: string; scheduledFor: string; approveUrl: string; skipUrl: string; approvalsLeft: number; tenant: Tenant }): Notice {
   const when = new Date(p.scheduledFor).toLocaleString('en-GB', { timeZone: 'Europe/London', weekday: 'long', day: 'numeric', month: 'long', hour: 'numeric', minute: '2-digit' });
@@ -97,6 +117,24 @@ export function postWaitingNotice(p: { businessName: string; postContent: string
       `To approve it (you will be asked to confirm):\n${p.approveUrl}`,
       `To skip this week:\n${p.skipUrl}`,
       `If you do nothing, nothing is posted. ${after}`,
+      sign(p.tenant),
+    ]),
+  };
+}
+
+/**
+ * Google has stopped letting us in (users.token_status 'invalid'). Says what
+ * happened, what has stopped, and how to reconnect. Sent by lib/connection-lost.ts.
+ */
+export function connectionLostNotice(p: { businessName: string; settingsUrl: string; tenant: Tenant }): Notice {
+  const shop = oneLine(p.businessName);
+  return {
+    subject: `Please reconnect ${shop} to Google`,
+    text: join([
+      `Google has stopped letting us into the Google listing for ${shop}. This usually happens after the password of the Google account is changed, or when someone removes us from the listing in Google.`,
+      'Until you reconnect, nothing is posted, no reviews are replied to, and nothing on your listing is changed.',
+      `To reconnect, sign in, go to Settings and press Reconnect. Use the same Google account as before. It takes a minute:\n${p.settingsUrl}`,
+      `We will remind you once a week until it is reconnected. If you meant to remove us, or need a hand, write to us at ${p.tenant.supportEmail}.`,
       sign(p.tenant),
     ]),
   };

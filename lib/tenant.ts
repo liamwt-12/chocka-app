@@ -66,6 +66,14 @@ export interface Tenant {
   priceMonthlyPence: number; // 2900
   proofLocation: string; // Chocka-specific proof copy ("North East")
 
+  /**
+   * What kind of business this brand's shops are, as the post and description
+   * writers describe them to the model (lib/ai.ts). Stellar's shops are all
+   * flooring retailers; Chocka's are a mix of trades and other local firms, so
+   * it gets the neutral wording.
+   */
+  businessType: 'flooring_retailer' | 'local_business';
+
   // Who pays, when the retailer does not. Set only on a zero-price tenant, and
   // used wherever "free" would otherwise read as "trial" or "broken" — a
   // retailer told the service is free still wants to know why it is.
@@ -153,6 +161,7 @@ const CHOCKA_BASE: Omit<Tenant, 'appUrl' | 'appHost' | 'emailFrom'> = {
   priceMonthlyGbp: 29,
   priceMonthlyPence: 2900,
   proofLocation: 'North East',
+  businessType: 'local_business',
   loginCopy: {
     headline: ['SEE YOUR', 'GOOGLE PROFILE', 'SCORE.'],
     sub: 'Find out what\'s hurting your visibility and what to fix first. Takes 30 seconds.',
@@ -220,6 +229,7 @@ const STELLAR_BASE: Omit<Tenant, 'appUrl' | 'appHost' | 'emailFrom'> = {
   priceMonthlyGbp: 0,
   priceMonthlyPence: 0,
   proofLocation: 'UK',
+  businessType: 'flooring_retailer',
   fundedBy: 'Tarkett',
   defaultAutomationMode: 'hands_off',
   // The 180 retailer records behind the Stellar pilot were taken from Tarkett's

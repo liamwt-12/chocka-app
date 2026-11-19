@@ -71,32 +71,6 @@ function emailWrapper(content: string, tenant?: Tenant): string {
   `;
 }
 
-export function postPreviewEmail(
-  businessName: string,
-  postContent: string,
-  cancelUrl: string,
-  tenant?: Tenant,
-): string {
-  const t = tenant ?? getTenant();
-  const brand = t.palette.brandStrong;
-  const firstName = businessName.split(' ')[0];
-  return emailWrapper(`
-    <p style="font-size: 15px; line-height: 1.6; margin: 0 0 6px;">Hi ${firstName},</p>
-    <p style="font-size: 15px; line-height: 1.6; margin: 0 0 28px; color: #555;">Here's your Google post for this week. It goes live on Monday morning &mdash; if you're happy with it, do nothing.</p>
-
-    <div style="background: #F0EDE8; border-left: 3px solid ${brand}; border-radius: 0 12px 12px 0; padding: 20px 20px 20px 18px; margin-bottom: 28px;">
-      <div style="font-size: 11px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: ${brand}; margin-bottom: 10px;">Your Google Post</div>
-      <p style="font-size: 15px; line-height: 1.65; margin: 0; color: #1A1A1A;">${postContent}</p>
-    </div>
-
-    <p style="font-size: 14px; color: #555; margin: 0 0 20px; line-height: 1.6;">Not happy with it? No worries &mdash; just hit the button below and we'll scrap it.</p>
-
-    <a href="${cancelUrl}" style="display: inline-block; background: #1A1A1A; color: #fff; padding: 12px 22px; border-radius: 8px; text-decoration: none; font-size: 14px; font-weight: 600;">Cancel This Post</a>
-
-    <p style="font-size: 13px; color: #bbb; margin: 20px 0 0;">If you do nothing, it goes up automatically. Sorted.</p>
-  `, t);
-}
-
 export function monthlyReportEmail(params: {
   businessName: string;
   month: string;
