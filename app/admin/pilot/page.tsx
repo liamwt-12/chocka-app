@@ -2,6 +2,7 @@
 
 import { useState, useMemo } from 'react';
 import PhotoPanel from '@/components/admin/PhotoPanel';
+import ReviewRequestPanel from '@/components/admin/ReviewRequestPanel';
 import VoiceFields, { draftFromVoice, EMPTY_DRAFT, type VoiceDraft } from '@/components/VoiceFields';
 
 // Pilot admin: add a retailer, generate invite links (never sends), see who is live.
@@ -57,6 +58,8 @@ export default function PilotAdminPage() {
   // Photos: only shown when the server says SHOP_PHOTOS is on.
   const [photosEnabled, setPhotosEnabled] = useState(false);
   const [photosFor, setPhotosFor] = useState<Row | null>(null);
+  // Review requests for one shop's customers (components/admin/ReviewRequestPanel.tsx). Dry run only unless REVIEW_REQUESTS=on.
+  const [requestsFor, setRequestsFor] = useState<Row | null>(null);
 
   const call = async (payload: object) => {
     const res = await fetch('/api/admin/pilot', {
@@ -362,6 +365,12 @@ export default function PilotAdminPage() {
           </div>
         )}
 
+        {requestsFor && (
+          <div style={{ ...card, border: `2px solid ${C.text}` }}>
+            <ReviewRequestPanel shop={{ id: requestsFor.id, name: requestsFor.name }} password={password} onClose={() => setRequestsFor(null)} />
+          </div>
+        )}
+
         {voiceFor && (
           <div style={{ ...card, border: `2px solid ${C.text}` }}>
             <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 2 }}>How {voiceFor.name} sounds</div>
@@ -598,6 +607,7 @@ export default function PilotAdminPage() {
                             {r.review.cardPath && <a href={r.review.cardPath} target="_blank" rel="noreferrer" style={{ color: C.text, fontSize: 13, fontWeight: 600, padding: '2px 6px' }}>Card</a>}
                             {r.review.pdfPath && <a href={r.review.pdfPath} title="Print-ready A6 PDF, with bleed, for a printer" style={{ color: C.text, fontSize: 13, fontWeight: 600, padding: '2px 6px' }}>PDF</a>}
                             {r.review.source === 'baseline' && <span title="This shop has not connected its listing yet, so the link uses the listing matched from Tarkett's store list. Scan the card and check it opens the right shop before printing." style={{ color: C.amber, fontSize: 12 }}> check first</span>}
+                            {r.review.source === 'connected' && <button onClick={() => setRequestsFor(r)} title="Email the shop's customers, from a list the shop gives you, asking for a review. Dry run first." style={{ ...btn, background: 'transparent', color: C.text, padding: '2px 6px', textDecoration: 'underline' }}>Ask customers</button>}
                           </>
                         ) : <span style={{ color: C.soft }} title="No Google place ID on record for this shop yet. It appears once the shop connects its listing.">No listing yet</span>}
                       </td>

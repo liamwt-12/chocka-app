@@ -26,11 +26,39 @@ interface SendEmailParams {
   text?: string;
   /** Sender identity. Defaults to the primary tenant. */
   tenant?: Tenant;
+  /**
+   * A display name to put in front of the tenant's own sending address, in
+   * place of the tenant's usual one. The ADDRESS never changes: it is always
+   * the tenant's, so nothing can go out as if from someone else's domain.
+   * Used by review requests (lib/review-requests.ts): "<Shop> via Stellar Local".
+   */
+  fromName?: string;
+  /** Where replies go. Review requests set the shop's own address. */
+  replyTo?: string;
+  /** Extra headers, such as List-Unsubscribe. Only plain names and single-line values are passed on. */
+  headers?: Record<string, string>;
 }
 
-export async function sendEmail({ to, subject, html, text, tenant }: SendEmailParams): Promise<boolean> {
+/** The tenant's sending address with another display name in front. Quotes, brackets and line breaks are taken out of the name. */
+export function fromWithName(emailFrom: string, name: string): string {
+  const address = (emailFrom.match(/<([^<>\s]+@[^<>\s]+)>/)?.[1] ?? emailFrom).trim();
+  const clean = name.replace(/[\r\n"<>\\]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 120);
+  return clean ? `"${clean}" <${address}>` : emailFrom;
+}
+
+/** Well-formed, single-line headers only. A value with a line break in it could add headers of its own. */
+export function safeHeaders(h: Record<string, string> | undefined): Record<string, string> | undefined {
+  if (!h) return undefined;
+  const out: Record<string, string> = {};
+  for (const [k, v] of Object.entries(h)) if (/^[A-Za-z][A-Za-z0-9-]{0,60}$/.test(k) && typeof v === 'string' && !/[\r\n]/.test(v)) out[k] = v;
+  return Object.keys(out).length ? out : undefined;
+}
+
+export async function sendEmail({ to, subject, html, text, tenant, fromName, replyTo, headers }: SendEmailParams): Promise<boolean> {
   try {
     if (!html && !text) { console.error('Email not sent: it had no content'); return false; }
+    const t = tenant ?? getTenant();
+    const extra = safeHeaders(headers);
     const res = await fetch(RESEND_API, {
       method: 'POST',
       headers: {
@@ -38,10 +66,12 @@ export async function sendEmail({ to, subject, html, text, tenant }: SendEmailPa
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        from: (tenant ?? getTenant()).emailFrom,
+        from: fromName ? fromWithName(t.emailFrom, fromName) : t.emailFrom,
         to,
         subject,
         ...(text ? { text } : { html }),
+        ...(replyTo && !/[\r\n]/.test(replyTo) ? { reply_to: replyTo } : {}),
+        ...(extra ? { headers: extra } : {}),
       }),
     });
     if (!res.ok) {

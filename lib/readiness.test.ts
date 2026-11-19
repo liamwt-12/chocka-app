@@ -60,6 +60,21 @@ describe('settings', () => {
   });
 });
 
+describe('review requests', () => {
+  it('the launch check shows the switch, Off unless REVIEW_REQUESTS=on', () => {
+    expect(settingChecks(FULL).find((c) => c.key === 'REVIEW_REQUESTS')).toMatchObject({ ok: null, detail: expect.stringMatching(/^Off\. .*nothing can be sent/) });
+    expect(settingChecks({ ...FULL, REVIEW_REQUESTS: 'on' }).find((c) => c.key === 'REVIEW_REQUESTS')!.detail).toMatch(/^ON\./);
+  });
+  it('its tables missing are a note while it is off, and something to fix once it is on', async () => {
+    const db = { from: (t: string) => ({ select: () => ({ limit: async () => ({ error: t.startsWith('review_request') ? { message: 'relation does not exist' } : null }) }) }) };
+    const off = (await schemaChecks(db, {})).filter((c) => c.key.startsWith('review_request'));
+    expect(off).toHaveLength(3);
+    expect(off.every((c) => c.ok === null && /Needed only before REVIEW_REQUESTS=on: apply migration 20261121100000_review_requests/.test(c.detail))).toBe(true);
+    const on = (await schemaChecks(db, { REVIEW_REQUESTS: 'on' })).filter((c) => c.key.startsWith('review_request'));
+    expect(on.every((c) => c.ok === false)).toBe(true);
+  });
+});
+
 describe('database', () => {
   it('a missing column names the migration to apply', async () => {
     const db = { from: (t: string) => ({ select: (cols: string) => ({ limit: async () => ({ error: t === 'live_months' || cols.includes('welcome_email_sent_at') ? { message: 'column does not exist' } : null }) }) }) };

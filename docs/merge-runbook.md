@@ -770,6 +770,32 @@ To switch on: read it in `/admin/pilot` → **Read the emails that are switched 
 
 ---
 
+## After the release: review requests, switched off (`reviews/requests-v1`)
+
+An operator can email a shop's own customers, from a CSV the shop gives, asking for an honest Google review. Everything is in `lib/review-requests.ts` (the rules and the wording), `lib/review-requests-data.ts` (database and sending) and the **Ask customers** link beside each connected shop's review link in `/admin/pilot`.
+
+**Variable:**
+
+| Variable | Value | When | Why |
+|---|---|---|---|
+| `REVIEW_REQUESTS` | **Leave unset** | Only after the solicitor has answered the questions in the notes (kept outside the repository), the shop terms and privacy notice cover it, and your own test below | `on` lets an operator send. Unset (or anything but `on`): the operator can upload a file and see the dry run, and **nothing can be sent** |
+
+**Migration: `20261121100000_review_requests.sql`. NOT APPLIED anywhere, staging included.** Three new tables (emails sent, who each shop has asked, unsubscribed), each holding a hash of the address and never the address, RLS on, public roles revoked. It is not one of the seventeen below. Apply it (staging first, with the usual scripts) before switching the variable on. Until it is applied, **Ready to invite shops?** shows the three tables as a note, not a cross; once `REVIEW_REQUESTS=on` they become a cross if missing. The dry run needs the tables too: before the migration it says which migration to apply.
+
+**How it behaves:**
+
+- **Dry run first, always.** It lists every row: would be sent, or left out and why (not an address, the shop's own address, repeated in the file, unsubscribed, already asked by this shop in the last 365 days, or over a limit). It shows the exact email the first person would get, with From and Reply-To.
+- **Sending** needs `REVIEW_REQUESTS=on` **and** the operator typing the number of emails that will go. The server works the list out again before sending, so a count that no longer matches is refused.
+- **From:** `"<Shop name> via Stellar Local" <Stellar Local's own sending address>`. **Reply-To:** the address on the account the shop itself signed in with. A shop set up through an operator account, not yet connected, or with no listing of its own connected is refused.
+- **One wording for everyone**, in plain text, with an optional "Hello <first name>". No filtering by how happy anyone was, nothing offered in return. A test fails if gating or incentive words appear.
+- **Unsubscribe:** a link in every email, plus `List-Unsubscribe` and `List-Unsubscribe-Post` headers. Opening the link shows a button; pressing it (or a mail client's own unsubscribe) puts the address on a list that **no shop** can send to again. The list is checked before every single send. It works with the switch off.
+- **Limits (constants in the code, not settings):** 25 per send, 50 per shop in any 24 hours, 300 for all shops together in any 24 hours, and a 0.6 second pause between emails. A send stops starting new emails after 20 seconds and lists who was not reached; run the dry run again to send the rest.
+- **Retention:** the file is never stored. Rows for emails sent (hash only) are deleted after **30 days**, "already asked" entries after **365 days**, by the daily onboarding job at 10:00. The unsubscribe list is never deleted. Before the migration is applied the job logs that the clear-out did not run and carries on as before.
+
+**Your own test, before switching on:** apply the migration to staging and test locally against staging with `REVIEW_REQUESTS` unset: upload a file with your own test addresses (and a repeat, a broken one and your shop's own address) and check the dry run. Then, on production after the migration, switch on and send to **one** address of your own: check From, Reply-To (reply, and see it arrive at the shop's address), the Google link opens the right listing, and the unsubscribe link and your mail client's own unsubscribe both work and a second dry run then shows that address as unsubscribed.
+
+---
+
 ## All seventeen migrations, in order
 
 | # | File | PR | Apply before stage |
