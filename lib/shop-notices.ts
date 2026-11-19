@@ -1,6 +1,7 @@
 /**
  * Short notices to a shop, in plain text: a new review, a post waiting for its
- * approval, and (hands-off) the week's post before it goes up.
+ * approval, (hands-off) the week's post before it goes up, and that our
+ * Google connection has been lost.
  *
  * WHY PLAIN TEXT. These are the messages a shop gets most often, and each asks
  * for at most one thing. A plain note from a person-sized address is read; a
@@ -116,6 +117,24 @@ export function postWaitingNotice(p: { businessName: string; postContent: string
       `To approve it (you will be asked to confirm):\n${p.approveUrl}`,
       `To skip this week:\n${p.skipUrl}`,
       `If you do nothing, nothing is posted. ${after}`,
+      sign(p.tenant),
+    ]),
+  };
+}
+
+/**
+ * Google has stopped letting us in (users.token_status 'invalid'). Says what
+ * happened, what has stopped, and how to reconnect. Sent by lib/connection-lost.ts.
+ */
+export function connectionLostNotice(p: { businessName: string; settingsUrl: string; tenant: Tenant }): Notice {
+  const shop = oneLine(p.businessName);
+  return {
+    subject: `Please reconnect ${shop} to Google`,
+    text: join([
+      `Google has stopped letting us into the Google listing for ${shop}. This usually happens after the password of the Google account is changed, or when someone removes us from the listing in Google.`,
+      'Until you reconnect, nothing is posted, no reviews are replied to, and nothing on your listing is changed.',
+      `To reconnect, sign in, go to Settings and press Reconnect. Use the same Google account as before. It takes a minute:\n${p.settingsUrl}`,
+      `We will remind you once a week until it is reconnected. If you meant to remove us, or need a hand, write to us at ${p.tenant.supportEmail}.`,
       sign(p.tenant),
     ]),
   };

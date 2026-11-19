@@ -8,6 +8,8 @@ import { resolveAccess } from '@/lib/managed-access';
 import { syncDailyMetrics, pickProfilesToSync, markSyncAttemptFailed } from '@/lib/metrics';
 import { recheckConnection } from '@/lib/connection-check';
 import { recordLiveToday } from '@/lib/billing';
+import { sendEmail } from '@/lib/email';
+import { runConnectionLostNotices, connectionLostEmailsEnabled } from '@/lib/connection-lost';
 
 // Hourly. For each shop that is due (about once a day):
 //   1. fetch Google's daily figures (lib/metrics.ts)
@@ -18,6 +20,8 @@ import { recordLiveToday } from '@/lib/billing';
 // and, first, once a day: mark which shops are live for the monthly count.
 // and if Google says our permission is gone for good, record that, so the shop
 // and whoever is helping are told within a day rather than never.
+// and, before the shops, tell a shop whose connection is lost (lib/connection-lost.ts):
+// once when it breaks, then at most weekly. Off unless CONNECTION_LOST_EMAILS=on.
 //
 // Stops well inside the time a function is allowed and carries on next hour.
 const TIME_BUDGET_MS = 18_000;
@@ -32,6 +36,16 @@ export async function GET(request: NextRequest) {
     // requests however many shops there are; only the first run of the day
     // writes anything; it never fails this job.
     const liveCount = await recordLiveToday(supabaseAdmin);
+
+    // Before the shops, so a long queue cannot starve it; held to a third of
+    // the time and a few emails a run (it is hourly, and the marker keeps it to
+    // once a week per shop). Never fails this job.
+    const connectionLost = await runConnectionLostNotices(supabaseAdmin, {
+      now: new Date(),
+      enabled: connectionLostEmailsEnabled(),
+      send: (m) => sendEmail(m),
+      timeLeft: () => Date.now() - started < TIME_BUDGET_MS / 3,
+    });
 
     const users = await getActiveUsersWithProfiles(supabaseAdmin, 'metrics-sync', { includeHeld: true });
     const queue = pickProfilesToSync(users, new Date());
@@ -103,7 +117,7 @@ export async function GET(request: NextRequest) {
         if (result) rechecked++;
       }
     }
-    return NextResponse.json({ success: true, queued: queue.length, synced, failed, rechecked, lostAccess: lost, reviewNotes, liveCount });
+    return NextResponse.json({ success: true, queued: queue.length, synced, failed, rechecked, lostAccess: lost, reviewNotes, liveCount, connectionLost });
   } catch (err) {
     console.error('Metrics sync cron failed:', err);
     return NextResponse.json({ error: 'Cron failed' }, { status: 500 });
