@@ -91,6 +91,24 @@ describe('parseVoiceProfile', () => {
     expect(r.ok && r.value.wordsToAvoid).toEqual(['cheap', 'discount', 'refund']);
   });
 
+  it.each([
+    ['free fitting', { wordsToUse: 'free fitting' }],
+    ['free quotes', { about: 'Friendly shop, free quotes for every room' }],
+    ['a sale', { signOff: 'Sale now on' }],
+    ['a special offer', { specialities: 'special offers on rugs' }],
+    ['half price', { wordsToUse: 'half price' }],
+    ['award-winning', { about: 'Award-winning family flooring shop' }],
+    ['voted best', { about: 'Voted the best shop on the high street' }],
+  ])('refuses %s, which the post checks would throw away', (_label, input) => {
+    const r = parseVoiceProfile(input);
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error).toMatch(/leave out/);
+  });
+
+  it('still allows "we offer", "feel free" and "hassle-free"', () => {
+    expect(voiceTextProblem('We offer carpets and vinyl, so feel free to pop in for a hassle-free chat')).toBeNull();
+  });
+
   it('allows ordinary shop talk', () => {
     expect(voiceTextProblem('Family-run since my dad started it, over 30 years on the high street')).toBeNull();
     expect(parseVoiceProfile(FULL)).toEqual({ ok: true, value: FULL });

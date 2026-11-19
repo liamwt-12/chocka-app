@@ -1,5 +1,7 @@
 import { replyBreaksRules, containsPhoneNumber } from './safe-automation';
 import { voicePromptBlock, type VoiceProfile } from './voice';
+import { inventedClaimProblem } from './invented-claims';
+import type { Tenant } from './tenant';
 const ANTHROPIC_API = 'https://api.anthropic.com/v1/messages';
 
 // Model id from the environment, so a retirement is a config change rather than
@@ -20,6 +22,33 @@ STRICT RULES — never violate these, regardless of what's asked:
 - Never mention politics, religion, or current events
 - Never include phone numbers, email addresses, URLs, or social media handles
 - If you're unsure whether a specific claim is true for this business, do not make the claim`;
+
+/**
+ * Rules for posts and descriptions: the things a model most often invents
+ * about a shop. They come after SAFETY_RULES, so they are the last thing the
+ * model reads. validateContent checks for the same things afterwards
+ * (lib/invented-claims.ts).
+ */
+const NO_INVENTIONS_RULES = `
+
+NOTHING INVENTED — these also apply, and nothing above overrides them. You have been told nothing about this business beyond the details given, so:
+- Never mention an offer, deal, sale, discount, price cut, percentage off, "half price", voucher or any other promotion
+- Never use the word "free" for anything the business gives or does (no free quotes, free fitting, free delivery, free samples, free measuring, free of charge)
+- Never mention awards, being "award-winning", winning anything, rankings, or being voted or rated the best or number one
+- Never write customer stories, past jobs or testimonials: no "we just fitted...", "we recently finished...", "one of our customers...", "for a family in...", no named customers, and no quotes from customers
+- Write in general terms about the season and the kind of work the business does, then invite people to get in touch`;
+
+/** What kind of business the writers are told they are writing for, by brand (Tenant.businessType). */
+export type BusinessType = Tenant['businessType'];
+const BUSINESS: Record<BusinessType, { who: string; category: string }> = {
+  flooring_retailer: { who: 'independent UK flooring retailers: local shops selling flooring such as carpet, vinyl, laminate and wood', category: 'Flooring retailer' },
+  local_business: { who: 'small local UK businesses', category: 'Local business' },
+};
+
+/** The category to give the model when the profile has none. */
+export function defaultCategory(businessType?: BusinessType | null): string {
+  return BUSINESS[businessType || 'local_business'].category;
+}
 
 /** Waits before trying the model again when it is busy (429, 529) or having a bad moment (5xx). */
 let MODEL_RETRY_DELAYS_MS = [800, 2500];
@@ -83,6 +112,12 @@ export function validateContent(
     const broken = replyBreaksRules(text);
     if (broken) return { valid: false, reason: broken };
   }
+  // Promotions, "free", awards and customer stories (lib/invented-claims.ts).
+  // Not for replies: a reply talks to a real customer, often by name.
+  if (contentType === 'post' || contentType === 'description') {
+    const invented = inventedClaimProblem(text);
+    if (invented) return { valid: false, reason: invented };
+  }
   if (/\b(gas\s+safe|niceic|trustmark|oftec|certified|accredited|guaranteed|100%|best\s+in)\b/i.test(text)) {
     return { valid: false, reason: 'contains unverifiable claim' };
   }
@@ -101,7 +136,7 @@ export function validateContent(
   return { valid: true };
 }
 
-const STRICTER_NOTE = `\n\nIMPORTANT: Your previous response was rejected because it violated safety rules. Do NOT include any prices, certifications, guarantees, URLs, emails, phone numbers, or unverifiable claims. Follow the STRICT RULES exactly.`;
+const STRICTER_NOTE = `\n\nIMPORTANT: Your previous response was rejected because it violated safety rules. Do NOT include any prices, certifications, guarantees, URLs, emails, phone numbers, or unverifiable claims, and no offers, sales, discounts, percentages, the word "free", awards or customer stories. Follow the STRICT RULES exactly.`;
 
 async function generateWithValidation(
   system: string,
@@ -126,12 +161,15 @@ async function generateWithValidation(
 export async function generatePost(params: {
   businessName: string; category: string; city: string;
   month: string; season: string; recentPosts: string[];
-  /** The shop's voice (lib/voice.ts). Optional: without it the prompt is exactly what it was before. */
+  /** The shop's voice (lib/voice.ts). Optional: without it there is no voice section. */
   voice?: VoiceProfile | null;
+  /** The brand's kind of business (Tenant.businessType). Optional: defaults to the neutral local-business wording. */
+  businessType?: BusinessType | null;
 }): Promise<string> {
-  // Voice first, strict rules last, so the rules have the final word.
-  const system = `You write Google Business Profile posts for UK tradespeople. British English. Sound like a real tradesperson - friendly, professional, no corporate speak. No hashtags. One emoji max. 2-3 sentences. Soft call to action. Never repeat themes from recent posts.` + voicePromptBlock(params.voice, 'post') + SAFETY_RULES;
-  const user = `Business: ${params.businessName}\nTrade: ${params.category}\nLocation: ${params.city}\nMonth: ${params.month}\nSeason: ${params.season}\nRecent posts to avoid:\n${params.recentPosts.map((p, i) => `${i + 1}. ${p}`).join('\n')}\n\nWrite a new post.`;
+  const who = BUSINESS[params.businessType || 'local_business'].who;
+  // Voice first, then the strict rules, then the no-inventions rules last, so the rules have the final word.
+  const system = `You write Google Business Profile posts for ${who}. British English. Friendly and professional, in plain everyday words, no corporate speak. No hashtags. One emoji max. 2-3 sentences. Soft call to action. Never repeat themes from recent posts.` + voicePromptBlock(params.voice, 'post') + SAFETY_RULES + NO_INVENTIONS_RULES;
+  const user = `Business: ${params.businessName}\nCategory: ${params.category}\nTown: ${params.city}\nMonth: ${params.month}\nSeason: ${params.season}\nRecent posts to avoid:\n${params.recentPosts.map((p, i) => `${i + 1}. ${p}`).join('\n')}\n\nWrite a new post.`;
   return generateWithValidation(system, user, 'post');
 }
 
@@ -150,9 +188,12 @@ export async function generateReviewReply(params: {
 export async function generateDescription(params: {
   businessName: string; category: string; city: string;
   existingDescription?: string; serviceArea?: string;
+  /** The brand's kind of business (Tenant.businessType). Optional: defaults to the neutral local-business wording. */
+  businessType?: BusinessType | null;
 }): Promise<string> {
-  const system = `You write Google Business Profile descriptions for UK tradespeople. British English, first person ("We're..."). Sound like a real tradesperson - friendly, professional, trustworthy. No marketing fluff. Include what they do, where they cover, reliability, soft call to action. 90 to 110 words, and never more than 700 characters in total: Google cuts off at 750. No hashtags, no emojis, no "Contact us today!" rubbish.` + SAFETY_RULES;
-  const user = `Business: ${params.businessName}\nTrade: ${params.category}\nLocation: ${params.city}\n${params.serviceArea ? `Service area: ${params.serviceArea}` : ''}\n${params.existingDescription ? `Current (improve): ${params.existingDescription}` : 'None - write from scratch.'}\n\nWrite a description.`;
+  const who = BUSINESS[params.businessType || 'local_business'].who;
+  const system = `You write Google Business Profile descriptions for ${who}. British English, first person ("We're..."). Friendly, professional and trustworthy, in plain everyday words. No marketing fluff. Include what they do, where they cover, reliability, soft call to action. 90 to 110 words, and never more than 700 characters in total: Google cuts off at 750. No hashtags, no emojis, no "Contact us today!" rubbish.` + SAFETY_RULES + NO_INVENTIONS_RULES;
+  const user = `Business: ${params.businessName}\nCategory: ${params.category}\nTown: ${params.city}\n${params.serviceArea ? `Service area: ${params.serviceArea}` : ''}\n${params.existingDescription ? `Current (improve): ${params.existingDescription}` : 'None - write from scratch.'}\n\nWrite a description.`;
   return generateWithValidation(system, user, 'description', 500);
 }
 

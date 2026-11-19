@@ -18,13 +18,15 @@
  *     and no voice involved.
  *  3. It is refused at the door if it contains what the output checks would
  *     reject anyway (prices, phone numbers, web or email addresses,
- *     accreditations, refund or fault wording). Otherwise the model would be
+ *     accreditations, refund or fault wording, offers, sales, "free" and
+ *     award claims). Otherwise the model would be
  *     steered into text the validator throws away, and the shop's posts would
  *     quietly stop.
  *
  * Pure functions plus one database helper with the client injected.
  */
 import { FORBIDDEN_REPLY_PATTERNS, containsPhoneNumber } from './safe-automation';
+import { promotionProblem } from './invented-claims';
 
 export const TONES = {
   friendly: 'friendly and approachable',
@@ -108,6 +110,10 @@ export function voiceTextProblem(text: string): string | null {
     return 'leave out accreditations, guarantees and "best" or "cheapest" claims';
   }
   if (FORBIDDEN_REPLY_PATTERNS.some((re) => re.test(text))) return 'leave out refunds, discounts, compensation, fault and legal wording';
+  // The same promotion, "free" and award checks a generated post goes through
+  // (lib/invented-claims.ts). Story wording is not checked here: it is the
+  // shop's own words, and the prompt forbids the model from telling stories.
+  if (promotionProblem(text)) return 'leave out offers, sales, "free" and award claims';
   if (/\b(ignore|disregard|override|forget)\b.{0,40}\b(rules?|instructions?|above|previous|prompt)\b/i.test(text) || /\bsystem\s+prompt\b/i.test(text)) {
     return 'describe the shop in plain words';
   }

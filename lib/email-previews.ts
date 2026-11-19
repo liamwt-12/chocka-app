@@ -28,9 +28,9 @@ export function emailPreview(key: string, tenant: Tenant, now: Date = new Date()
   const low = { businessName: SHOP, reviewerName: 'Alex Example', rating: 2, comment: 'Waited a long time for the fitter to arrive.' };
   switch (key) {
     case 'post_waiting':
-      return postWaitingNotice({ businessName: SHOP, postContent: 'Thinking about a new floor before the spring? Call in and see the samples in our showroom, or ring us for a free measure.', scheduledFor: new Date(now.getTime() + 86_400_000).toISOString(), approveUrl: NOWHERE, skipUrl: NOWHERE, approvalsLeft: 3, tenant });
+      return postWaitingNotice({ businessName: SHOP, postContent: 'Thinking about a new floor before the spring? Call in and see the samples in our showroom, or ring us to book a visit.', scheduledFor: new Date(now.getTime() + 86_400_000).toISOString(), approveUrl: NOWHERE, skipUrl: NOWHERE, approvalsLeft: 3, tenant });
     case 'post_booked':
-      return postBookedNotice({ businessName: SHOP, postContent: 'Thinking about a new floor before the spring? Call in and see the samples in our showroom, or ring us for a free measure.', scheduledFor: new Date(now.getTime() + 3 * 86_400_000).toISOString(), cancelUrl: NOWHERE, tenant });
+      return postBookedNotice({ businessName: SHOP, postContent: 'Thinking about a new floor before the spring? Call in and see the samples in our showroom, or ring us to book a visit.', scheduledFor: new Date(now.getTime() + 3 * 86_400_000).toISOString(), cancelUrl: NOWHERE, tenant });
     case 'good_review_replied':
       return newReviewNotice({ ...good, replyState: 'posted', reply: 'Thank you, Sam. We are glad you are pleased with it, and we will pass that on to the fitters.' });
     case 'good_review_not_replied':
