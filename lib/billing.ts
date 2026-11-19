@@ -45,13 +45,18 @@
  *     credit: above the total ceiling for the term   (only in the month it is reached)
  *     total
  *
- * Every later month inside the term charges nothing, and says the term ended
- * in the month the ceiling was reached. What earlier months charged is worked
- * out from the same daily record and the same rules as their own statements
- * (totalCeilingForMonth); if an earlier month cannot be worked out (it has
- * not ended, or no count was taken on its last day) there is no statement,
- * rather than a guess. Months after BILLING_TERM_END are as before: no cap,
- * no ceiling, and the statement says the term has ended.
+ * What earlier months charged is worked out from the same daily record and
+ * the same rules as their own statements (totalCeilingForMonth); if an
+ * earlier month cannot be worked out (it has not ended, or no count was taken
+ * on its last day) there is no statement, rather than a guess.
+ *
+ * AFTER THE TERM, NO STATEMENT. Once the term has ended, whether at
+ * BILLING_TERM_END or in the month the total ceiling was reached, no
+ * statement is produced for any later month: not one at the full price with
+ * no cap, and not one charging nothing. Either would be a decision nobody
+ * made. The page says the term has ended and that the next term must be set
+ * (termEndedProblem, and totalCeilingForMonth for the ceiling). The daily
+ * record of who is live is still kept.
  *
  * NO STATEMENT WITHOUT THE TERM. Until both term dates are set, no statement
  * is produced at all (termProblem), and the launch check shows a cross. A
@@ -124,8 +129,7 @@ export function termProblem(settings: BillingSettings): string | null {
   return null;
 }
 
-/** after_ceiling: the term ended early, when the total ceiling was reached, so nothing is charged and the cap has nothing to do. */
-export type CapReason = 'no_cap' | 'in_term' | 'no_term' | 'bad_term' | 'before_term' | 'after_term' | 'after_ceiling';
+export type CapReason = 'no_cap' | 'in_term' | 'no_term' | 'bad_term' | 'before_term' | 'after_term';
 export interface CapForMonth {
   /** Is the cap applied to this month? */
   applies: boolean;
@@ -152,6 +156,23 @@ export function capForMonth(settings: BillingSettings, month: string): CapForMon
 }
 
 export const monthOf = (isoDay: string) => isoDay.slice(0, 7);
+
+/** What to set to bill for months after a term. One sentence, used wherever a term has ended. */
+const NEXT_TERM = 'Nothing is billed automatically after a term ends. To produce statements for later months, set the next term: BILLING_TERM_START and BILLING_TERM_END (and BILLING_TOTAL_CEILING_PENCE if the next term has one).';
+
+/**
+ * Why there is no statement for a month after the term ended at
+ * BILLING_TERM_END, or null. A month is after the term when its last day is
+ * after the term's last day: the same rule that decides whether it is inside.
+ * Only when both term dates are set and in order; otherwise termProblem
+ * already says what is missing. Pure.
+ */
+export function termEndedProblem(settings: BillingSettings, month: string): string | null {
+  const start = dayOrNull(settings.termStart), end = dayOrNull(settings.termEnd);
+  if (!start || !end || end < start) return null;
+  if (lastDayOfMonth(month) <= end) return null;
+  return `No statement for ${monthName(month)}: the term ended on ${end}. ${NEXT_TERM}`;
+}
 /** The day in UK time, since "live in November" should mean November here. */
 export function ukDay(now: Date = new Date()): string {
   return new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/London', year: 'numeric', month: '2-digit', day: '2-digit' }).format(now);
@@ -288,8 +309,8 @@ export type CeilingState =
   | 'no_price'      // set, but with no price there is nothing to limit
   | 'outside_term'  // this month does not end inside the term
   | 'under'         // inside the term, and the fees stay below the ceiling
-  | 'reached'       // the fees reach the ceiling this month: the term ends with it
-  | 'after';        // reached in an earlier month: the term has ended, nothing is charged
+  | 'reached';      // the fees reach the ceiling this month: the term ends with it
+// A month after the one that reached it has no statement at all (StatementNotAvailable).
 export interface TotalCeiling {
   state: CeilingState;
   ceilingPence: number | null;
@@ -319,7 +340,8 @@ const poundsSign = (pence: number) => `£${pounds(pence)}`;
  * each charged with exactly the rules its own statement uses (monthly cap
  * and all), from the rows given, which must therefore cover every month from
  * the start of the term. If the ceiling was reached in one of them, the term
- * ended there and this month charges nothing. If one of them cannot be
+ * ended there and there is no statement for this month: StatementNotAvailable,
+ * saying the next term must be set. If one of them cannot be
  * worked out (it has not ended, or no count was taken on its last day), no
  * statement: StatementNotAvailable, never a guess. Pure.
  */
@@ -343,8 +365,7 @@ export function totalCeilingForMonth(month: string, rows: LiveMonthRow[], settin
     if (earlier.noCountOnLastDay) throw new StatementNotAvailable(`No statement can be produced for ${monthName(month)}: the total ceiling for the term needs what every earlier month of the term charged, and no count was taken on the last day of ${monthName(m)}, so what it charged is not known.`);
     before += earlier.money!.totalPence;
     if (before >= ceilingPence) {
-      return { state: 'after', ceilingPence, chargedBeforePence: before, leftAfterPence: 0, reachedIn: m,
-        note: `Nothing is charged for ${monthName(month)} under this term: the term ended in ${monthName(m)}, when the total ceiling for the term (${poundsSign(ceilingPence)}) was reached.` };
+      throw new StatementNotAvailable(`No statement for ${monthName(month)}: the term ended in ${monthName(m)}, when the total ceiling for the term (${poundsSign(ceilingPence)}) was reached. ${NEXT_TERM}`);
     }
   }
   const left = ceilingPence - before;
@@ -365,15 +386,12 @@ export function totalCeilingForMonth(month: string, rows: LiveMonthRow[], settin
  * loadStatement reads them); without one, this month's rows are enough.
  */
 export function buildStatement(month: string, rows: LiveMonthRow[], settings: BillingSettings, today: string = ukDay()): Statement {
+  // After the term: no statement, full price or free. The next term has to be set.
+  const ended = termEndedProblem(settings, month);
+  if (ended) throw new StatementNotAvailable(ended);
   const base = monthStatement(month, rows, settings, today);
   const ceiling = totalCeilingForMonth(month, rows, settings, today, base.money ? base.money.totalPence : null);
   if (!base.money) return { ...base, money: null, ceiling };
-  if (ceiling.state === 'after') {
-    // The term has ended: nothing is charged, nobody is above a cap, and the note says why.
-    return { ...base, lines: base.lines.map((l) => ({ ...l, aboveCap: false })), shopsAboveCap: 0,
-      cap: { applies: false, reason: 'after_ceiling', note: null },
-      money: { grossPence: 0, creditPence: 0, ceilingCreditPence: 0, totalPence: 0 }, ceiling };
-  }
   const ceilingCreditPence = ceiling.state === 'reached' ? base.money.totalPence - (ceiling.ceilingPence! - ceiling.chargedBeforePence) : 0;
   return { ...base, money: { ...base.money, ceilingCreditPence, totalPence: base.money.totalPence - ceilingCreditPence }, ceiling };
 }
@@ -425,9 +443,7 @@ export function statementCsv(s: Statement): string {
   const rows: unknown[][] = [...(s.noCountOnLastDay ? [['WARNING: no count was taken on the last day of this month, so nobody is shown as live. Do not use this statement as it stands.'], []] : []), ['Month', s.month], [s.provisional ? 'Provisional: shops live now' : 'Shops live on the last day of the month', s.decidedOn], ['Live means connected to a verified listing we can reach. It does not depend on what the shop has switched on.'], [], ['Shop', 'Town', 'Days live', 'First live', 'Last live', 'Above the cap']];
   for (const l of s.lines) rows.push([l.name, l.town ?? '', l.liveDays, l.firstLiveOn, l.lastLiveOn, l.aboveCap ? 'yes' : '']);
   rows.push([], ['Live shops', s.liveShops]);
-  if (s.money && s.ceiling.state === 'after') {
-    rows.push([], [s.ceiling.note], ['Total', pounds(0)]);
-  } else if (s.money && s.settings.pricePence !== null) {
+  if (s.money && s.settings.pricePence !== null) {
     rows.push([], [`Live shops x ${pounds(s.settings.pricePence)}`, pounds(s.money.grossPence)]);
     if (s.cap.applies && s.settings.capPence !== null) {
       rows.push(['Monthly cap', pounds(s.settings.capPence)]);
@@ -442,12 +458,12 @@ export function statementCsv(s: Statement): string {
   return rows.map((r) => r.map(csvCell).join(',')).join('\n') + '\n';
 }
 
-/** Thrown instead of a statement when the term has not been set. Not a fault: something to set. */
+/** Thrown instead of a statement when the term has not been set, or has ended. Not a fault: something to set. */
 export class StatementNotAvailable extends Error {}
 
 export async function loadStatement(db: BillingDb, tenantId: string, month: string, settings: BillingSettings = billingSettingsFromEnv(), today: string = ukDay()): Promise<Statement> {
   if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(month)) throw new Error('Use a month like 2026-12');
-  const problem = termProblem(settings);
+  const problem = termProblem(settings) ?? termEndedProblem(settings, month);
   if (problem) throw new StatementNotAvailable(problem);
   // With a total ceiling, every month of the term up to this one is needed, to know what has been charged.
   if (settings.totalCeilingPence != null && settings.pricePence !== null) {

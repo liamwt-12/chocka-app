@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
-import { billingSettingsFromEnv, planLiveMarks, buildStatement, statementCsv, recordLiveToday, ukDay, monthOf, countsForMonth, lastDayOfMonth, capForMonth, termProblem, loadStatement, StatementNotAvailable, type LiveMonthRow } from './billing';
+import { billingSettingsFromEnv, planLiveMarks, buildStatement, statementCsv, recordLiveToday, ukDay, monthOf, countsForMonth, lastDayOfMonth, capForMonth, termProblem, termEndedProblem, loadStatement, StatementNotAvailable, type LiveMonthRow } from './billing';
 
 const row = (id: string, o: Partial<LiveMonthRow> = {}): LiveMonthRow => ({ month: '2026-12', retailer_id: id, tenant_id: 't', name: `Shop ${id}`, town: 'Town', live_days: 10, first_live_on: '2026-12-01', last_live_on: '2026-12-10', ...o });
 const shop = (id: string, name = `Shop ${id}`) => ({ retailerId: id, tenantId: 't', name, town: 'Town' });
@@ -185,16 +185,27 @@ describe('the cap belongs to a term, and stops applying after it', () => {
     expect(statementCsv(s)).toContain('Credit: above the monthly cap (2 shops),-15.00');
   });
 
-  it('after the term: no cap, no credit line, no shop marked as above it, and it says the term has ended', () => {
-    const s = buildStatement('2030-11', march, S, '2030-12-05');
-    expect(s.money).toEqual({ grossPence: 4000, creditPence: 0, ceilingCreditPence: 0, totalPence: 4000 });
-    expect(s.shopsAboveCap).toBe(0);
-    expect(s.lines.some((l) => l.aboveCap)).toBe(false);
-    expect(s.cap).toMatchObject({ applies: false, reason: 'after_term' });
-    const csv = statementCsv(s);
-    expect(csv).not.toMatch(/Credit: above the monthly cap|^Monthly cap,/m);
-    expect(csv).toContain('The monthly cap is not applied: the term ended on 2030-11-09');
-    expect(csv).toContain('Total,40.00');
+  it('after the term: NO statement, neither at full price nor free, and it says the next term must be set', () => {
+    const msg = 'No statement for November 2030: the term ended on 2030-11-09. Nothing is billed automatically after a term ends. To produce statements for later months, set the next term: BILLING_TERM_START and BILLING_TERM_END (and BILLING_TOTAL_CEILING_PENCE if the next term has one).';
+    expect(termEndedProblem(S, '2030-11')).toBe(msg);
+    expect(() => buildStatement('2030-11', march, S, '2030-12-05')).toThrow(StatementNotAvailable);
+    expect(() => buildStatement('2030-11', march, S, '2030-12-05')).toThrow(msg);
+    // Every later month too, with or without a price or a cap.
+    for (const m of ['2030-12', '2031-06', '2035-01']) expect(() => buildStatement(m, march, S, '2036-01-01')).toThrow(/^No statement for .*: the term ended on 2030-11-09\. Nothing is billed automatically/);
+    expect(() => buildStatement('2030-12', march, { ...S, pricePence: null, capPence: null }, '2031-01-05')).toThrow(StatementNotAvailable);
+    // The month holding the last day of the term is still inside it, and still has its statement.
+    expect(termEndedProblem({ ...S, termEnd: '2030-11-30' }, '2030-11')).toBeNull();
+    expect(buildStatement('2030-11', march, { ...S, termEnd: '2030-11-30' }, '2030-12-05').money!.totalPence).toBe(2500);
+    // No term set, or a broken one: termProblem speaks for it, not this.
+    expect(termEndedProblem({ pricePence: 1, capPence: null }, '2099-01')).toBeNull();
+    expect(termEndedProblem({ ...S, termStart: '2030-12-01', termEnd: '2030-01-01' }, '2031-01')).toBeNull();
+  });
+
+  it('loadStatement refuses a month after the term before reading anything', async () => {
+    let reads = 0;
+    const db = { from: () => { reads++; throw new Error('should not read'); } };
+    await expect(loadStatement(db as any, 't', '2030-12', S, '2031-01-05')).rejects.toThrow(/^No statement for December 2030: the term ended on 2030-11-09\./);
+    expect(reads).toBe(0);
   });
 
   it('a cap with no term dates is NOT applied, and the statement says so loudly', () => {
@@ -396,9 +407,7 @@ describe('a total ceiling for the term', () => {
     expect(mar.ceiling).toMatchObject({ state: 'reached', reachedIn: '2031-03', chargedBeforePence: 4662, leftAfterPence: 0 });
     expect(mar.ceiling.note).toBe('The total ceiling for the term (£69.93) is reached exactly in March 2031. The term ends with March 2031.');
     expect(statementCsv(mar)).not.toMatch(/Credit: above the total ceiling/);
-    const apr = st('2031-04', { totalCeilingPence: ceiling });
-    expect(apr.ceiling).toMatchObject({ state: 'after', reachedIn: '2031-03' });
-    expect(apr.money!.totalPence).toBe(0);
+    expect(() => st('2031-04', { totalCeilingPence: ceiling })).toThrow('No statement for April 2031: the term ended in March 2031, when the total ceiling for the term (£69.93) was reached. Nothing is billed automatically after a term ends. To produce statements for later months, set the next term: BILLING_TERM_START and BILLING_TERM_END (and BILLING_TOTAL_CEILING_PENCE if the next term has one).');
   });
 
   it('crossed during a month: only what is left is charged, and the rest is one credit line', () => {
@@ -416,26 +425,19 @@ describe('a total ceiling for the term', () => {
     expect(csv).toContain('Total,3.38');
     expect(csv.match(/Credit:/g)).toHaveLength(1);
     // Across the term, exactly the ceiling was charged.
-    expect(['2031-01', '2031-02', '2031-03', '2031-04', '2031-05'].reduce((t, m) => t + st(m, o).money!.totalPence, 0)).toBe(5000);
+    expect(['2031-01', '2031-02', '2031-03'].reduce((t, m) => t + st(m, o).money!.totalPence, 0)).toBe(5000);
   });
 
-  it('months after it: nothing charged, said plainly, every live shop still listed', () => {
-    for (const m of ['2031-04', '2031-07']) {
-      const s = st(m, { totalCeilingPence: 5000, capPence: 2000 });
-      expect(s.money).toEqual({ grossPence: 0, creditPence: 0, ceilingCreditPence: 0, totalPence: 0 });
-      expect(s.ceiling).toMatchObject({ state: 'after', leftAfterPence: 0 });
-      expect(s.cap).toEqual({ applies: false, reason: 'after_ceiling', note: null });
-      expect(s.liveShops).toBe(3);
-      expect(s.lines.map((l) => l.name)).toEqual(['Shop a', 'Shop b', 'Shop c']);
-      expect(s.lines.some((l) => l.aboveCap)).toBe(false);
-      expect(s.shopsAboveCap).toBe(0);
-      const csv = statementCsv(s);
-      expect(csv).not.toMatch(/Live shops x|Monthly cap|Credit:/);
-      expect(csv).toContain('Total,0.00');
-    }
-    expect(st('2031-04', { totalCeilingPence: 5000, capPence: 2000 }).ceiling.note).toMatch(/^Nothing is charged for April 2031 under this term: the term ended in /);
-    expect(st('2031-07', { totalCeilingPence: 5000 }).ceiling.note).toBe('Nothing is charged for July 2031 under this term: the term ended in March 2031, when the total ceiling for the term (£50.00) was reached.');
-    expect(statementCsv(st('2031-07', { totalCeilingPence: 5000 }))).toContain('Nothing is charged for July 2031 under this term: the term ended in March 2031, when the total ceiling for the term (£50.00) was reached.');
+  it('months after it: NO statement, not a free one, and it says the next term must be set', () => {
+    expect(() => st('2031-04', { totalCeilingPence: 5000, capPence: 2000 })).toThrow(StatementNotAvailable);
+    expect(() => st('2031-07', { totalCeilingPence: 5000 })).toThrow(StatementNotAvailable);
+    // The month that reaches it keeps its statement.
+    expect(st('2031-03', { totalCeilingPence: 5000 }).ceiling.state).toBe('reached');
+    expect(() => st('2031-04', { totalCeilingPence: 5000, capPence: 2000 })).toThrow(/^No statement for April 2031: the term ended in /);
+    expect(() => st('2031-07', { totalCeilingPence: 5000 })).toThrow('No statement for July 2031: the term ended in March 2031, when the total ceiling for the term (£50.00) was reached. Nothing is billed automatically after a term ends. To produce statements for later months, set the next term: BILLING_TERM_START and BILLING_TERM_END (and BILLING_TOTAL_CEILING_PENCE if the next term has one).');
+    // Nothing in the code can still produce a free month.
+    const src = readFileSync(new URL('./billing.ts', import.meta.url), 'utf8');
+    expect(src).not.toMatch(/'after_ceiling'|state: 'after'/);
   });
 
   it('a ceiling smaller than one month\'s capped fee: reached in the first month, both credit lines shown', () => {
@@ -448,7 +450,7 @@ describe('a total ceiling for the term', () => {
     expect(csv).toContain('Credit: above the monthly cap (1 shop),-3.31');
     expect(csv).toContain('Credit: above the total ceiling for the term,-18.77');
     expect(csv).toContain('Total,1.23');
-    expect(st('2031-02', o).ceiling).toMatchObject({ state: 'after', reachedIn: '2031-01' });
+    expect(() => st('2031-02', o)).toThrow(/^No statement for February 2031: the term ended in January 2031/);
   });
 
   it('counts what each month charged AFTER the monthly cap, not before it', () => {
@@ -470,14 +472,11 @@ describe('a total ceiling for the term', () => {
     expect(st('2031-03', { totalCeilingPence: 99999 }, rows).ceiling).toMatchObject({ state: 'under', chargedBeforePence: 2331 + 777 });
   });
 
-  it('months outside the term: before it, nothing counts towards the ceiling; after BILLING_TERM_END, as before', () => {
+  it('months outside the term: before it, nothing counts towards the ceiling; after BILLING_TERM_END, no statement', () => {
     const rows = [...liveIn(['2030-12']), ...ROWS, ...liveIn(['2032-01'])];
     expect(st('2030-12', { totalCeilingPence: 5000 }, rows, '2032-02-10').ceiling).toMatchObject({ state: 'outside_term', note: null });
     expect(st('2031-01', { totalCeilingPence: 5000 }, rows, '2032-02-10').ceiling).toMatchObject({ state: 'under', chargedBeforePence: 0 });
-    const after = st('2032-01', { totalCeilingPence: 5000, capPence: 1000 }, rows, '2032-02-10');
-    expect(after.ceiling.state).toBe('outside_term');
-    expect(after.cap).toMatchObject({ applies: false, reason: 'after_term' });
-    expect(after.money).toEqual({ grossPence: 2331, creditPence: 0, ceilingCreditPence: 0, totalPence: 2331 });
+    expect(() => st('2032-01', { totalCeilingPence: 5000, capPence: 1000 }, rows, '2032-02-10')).toThrow(/^No statement for January 2032: the term ended on /);
   });
 
   it('with no price set there is nothing to limit: counts only, and nothing said', () => {
@@ -500,11 +499,11 @@ describe('a total ceiling for the term', () => {
       // Without a ceiling, the same month's statement is produced as before.
       expect(st('2031-03', {}, rows).money!.totalPence).toBe(2331);
       // If the ceiling was reached before the gap, the gap does not matter.
-      expect(st('2031-03', { totalCeilingPence: 2000 }, rows).ceiling).toMatchObject({ state: 'after', reachedIn: '2031-01' });
+      expect(() => st('2031-03', { totalCeilingPence: 2000 }, rows)).toThrow(/^No statement for March 2031: the term ended in January 2031/);
     });
     it('an earlier month has not ended yet (a month not yet begun)', () => {
       expect(() => st('2031-05', { totalCeilingPence: 99999 }, ROWS, '2031-03-20')).toThrow('No statement can be produced for May 2031 yet: the total ceiling for the term needs what every earlier month of the term charged, and March 2031 has not ended.');
-      expect(st('2031-05', { totalCeilingPence: 2000 }, ROWS, '2031-03-20').ceiling).toMatchObject({ state: 'after', reachedIn: '2031-01' });
+      expect(() => st('2031-05', { totalCeilingPence: 2000 }, ROWS, '2031-03-20')).toThrow(/^No statement for May 2031: the term ended in January 2031/);
     });
   });
 
@@ -542,11 +541,12 @@ describe('a total ceiling for the term', () => {
       const rows = liveIn(['2031-01', '2031-02', '2031-03'], ids);
       const settings = S({ pricePence: 7, totalCeilingPence: 12345 });
       const db = pagedDb(rows);
-      const mar = await loadStatement(db as any, 't', '2031-03', settings, LATER);
+      const mar = await loadStatement(db as any, 't', '2031-03', settings, LATER).catch((e) => e);
+      expect(mar).toBeInstanceOf(StatementNotAvailable);
       expect(db.reads[0]).toMatchObject({ gte: '2031-01', lte: '2031-03' });
       expect(db.reads).toHaveLength(4);
       // 7,700 a month: January charges it in full, February reaches the ceiling with 4,645 of it.
-      expect(mar.ceiling).toMatchObject({ state: 'after', reachedIn: '2031-02' });
+      await expect(loadStatement(pagedDb(rows) as any, 't', '2031-03', settings, LATER)).rejects.toThrow(/^No statement for March 2031: the term ended in February 2031/);
       const feb = await loadStatement(pagedDb(rows) as any, 't', '2031-02', settings, LATER);
       expect(feb.money).toEqual({ grossPence: 7700, creditPence: 0, ceilingCreditPence: 3055, totalPence: 4645 });
     });
