@@ -1,25 +1,34 @@
 /**
- * "Change during your ads": the weeks before a shop's ad start date against the
- * weeks after, set beside shops with no ads over the same calendar weeks.
+ * "Change during your ads": the four weeks from a shop's ad start date against
+ * THE SAME FOUR WEEKS A YEAR EARLIER, set beside shops with no ads measured the
+ * same way.
+ *
+ * It used to compare with the four weeks just before the ads. Ads tend to
+ * start when the season does, so that mostly measured the season. Last year's
+ * same weeks take the time of year out (lib/year-on-year.ts). If a shop has
+ * no figures from last year, the four weeks before are used instead, and the
+ * result says so.
  *
  * WHAT THIS CAN AND CANNOT SAY. It shows what changed while the ads ran, and
  * how that compares with shops that had no ads. It cannot show the ads caused
- * the change: seasons, weather, local events and other marketing all move these
+ * the change: weather, local events and other marketing all move these
  * numbers. Every place that renders this must say so, and must never use the
  * words "results of your ads". (Attribution was declined in writing in July.)
  *
  * WHEN IT SAYS NOTHING. Rather than guess, it returns a reason instead of
  * figures when:
  *   - the after-window is not complete yet (fewer than WINDOW_DAYS reportable days since the start)
- *   - the shop has too little stored history before the start
+ *   - the shop has too little stored history from last year AND from the weeks before
  * and it leaves out the network comparison when fewer than MIN_COMPARISON_SHOPS
- * shops without ads have full data for both windows.
+ * shops without ads have full data for both windows, on the same basis.
  *
  * Windows are WINDOW_DAYS long (28, so whole weeks and weekdays match):
- *   before = [start - 28, start - 1]
- *   after  = [start, start + 27]
+ *   after      = [start, start + 27]
+ *   last year  = the after-window moved back 52 weeks
+ *   before     = [start - 28, start - 1]   (the fallback)
  */
 import { totalsFor, addDaysIso, lastReportableDate, type MetricRow, type MetricTotals } from './metrics';
+import { sameWeeksLastYear, mergeRanges, hasFigures, type Basis, type DayRange } from './year-on-year';
 
 export const WINDOW_DAYS = 28;
 /** A window needs at least this many days with stored figures to count. */
@@ -36,22 +45,27 @@ export const COMPARED_METRICS: Array<{ key: keyof MetricTotals; label: string }>
   { key: 'directions', label: 'Direction requests' },
 ];
 
-export interface AdWindows { start: string; beforeFrom: string; beforeTo: string; afterFrom: string; afterTo: string }
+export interface AdWindows { start: string; beforeFrom: string; beforeTo: string; afterFrom: string; afterTo: string; lastYearFrom: string; lastYearTo: string }
 
 export function adWindows(start: string): AdWindows {
+  const afterTo = addDaysIso(start, WINDOW_DAYS - 1);
+  const lastYear = sameWeeksLastYear({ from: start, to: afterTo });
   return {
     start,
     beforeFrom: addDaysIso(start, -WINDOW_DAYS),
     beforeTo: addDaysIso(start, -1),
     afterFrom: start,
-    afterTo: addDaysIso(start, WINDOW_DAYS - 1),
+    afterTo,
+    lastYearFrom: lastYear.from,
+    lastYearTo: lastYear.to,
   };
 }
 
 export interface MetricChange { key: string; label: string; before: number; after: number; percent: number | null }
 
 export type AdComparison =
-  | { status: 'ok'; windows: AdWindows; shop: MetricChange[]; network: { shops: number; changes: MetricChange[] } | null }
+  /** `basis` says what "before" is: the same four weeks last year, or (with no figures from last year) the four weeks before the ads. */
+  | { status: 'ok'; basis: Basis; windows: AdWindows; shop: MetricChange[]; network: { shops: number; changes: MetricChange[] } | null }
   | { status: 'too_early'; windows: AdWindows; readyOn: string; message: string }
   | { status: 'not_enough_history'; windows: AdWindows; message: string };
 
@@ -82,15 +96,22 @@ export function compareAdPeriod(
     const readyOn = addDaysIso(w.afterTo, 5);
     return { status: 'too_early', windows: w, readyOn, message: `Your ads started on ${start}. We need four full weeks of Google figures after that date before we can compare, so this will appear from ${readyOn}.` };
   }
-  const before = totalsFor(shopRows, w.beforeFrom, w.beforeTo);
   const after = totalsFor(shopRows, w.afterFrom, w.afterTo);
-  if (before.daysWithData < MIN_DAYS_IN_WINDOW || after.daysWithData < MIN_DAYS_IN_WINDOW) {
-    return { status: 'not_enough_history', windows: w, message: `Google doesn't have enough figures for your listing from the four weeks before ${start} for us to compare fairly, so we've left this out rather than guess.` };
+  const lastYear = totalsFor(shopRows, w.lastYearFrom, w.lastYearTo);
+  const weeksBefore = totalsFor(shopRows, w.beforeFrom, w.beforeTo);
+  // Last year's same weeks if the shop has them; otherwise the weeks before; otherwise nothing.
+  // Last year's window must be there in full and hold real figures (not a row of noughts from before the listing existed).
+  const basis: Basis | null = hasFigures(lastYear, WINDOW_DAYS) ? 'last_year' : hasFigures(weeksBefore, MIN_DAYS_IN_WINDOW) ? 'weeks_before' : null;
+  if (after.daysWithData < MIN_DAYS_IN_WINDOW || !basis) {
+    return { status: 'not_enough_history', windows: w, message: `Google doesn't have enough figures for your listing, from the same weeks last year or from the four weeks before ${start}, for us to compare fairly, so we've left this out rather than guess.` };
   }
+  const before = basis === 'last_year' ? lastYear : weeksBefore;
+  const [baseFrom, baseTo] = basis === 'last_year' ? [w.lastYearFrom, w.lastYearTo] : [w.beforeFrom, w.beforeTo];
 
+  // Shops with no ads, measured on the same basis as this shop.
   const usable = comparisonShops
-    .map((rows) => ({ b: totalsFor(rows, w.beforeFrom, w.beforeTo), a: totalsFor(rows, w.afterFrom, w.afterTo) }))
-    .filter(({ b, a }) => b.daysWithData >= MIN_DAYS_IN_WINDOW && a.daysWithData >= MIN_DAYS_IN_WINDOW);
+    .map((rows) => ({ b: totalsFor(rows, baseFrom, baseTo), a: totalsFor(rows, w.afterFrom, w.afterTo) }))
+    .filter(({ b, a }) => hasFigures(b, basis === 'last_year' ? WINDOW_DAYS : MIN_DAYS_IN_WINDOW) && a.daysWithData >= MIN_DAYS_IN_WINDOW);
 
   let network: { shops: number; changes: MetricChange[] } | null = null;
   if (usable.length >= MIN_COMPARISON_SHOPS) {
@@ -100,13 +121,14 @@ export function compareAdPeriod(
     }, {} as MetricTotals);
     network = { shops: usable.length, changes: changes(sum('b'), sum('a')) };
   }
-  return { status: 'ok', windows: w, shop: changes(before, after), network };
+  return { status: 'ok', basis, windows: w, shop: changes(before, after), network };
 }
 
 /** Load the stored rows a comparison needs for one profile. */
-export function comparisonRange(start: string): { from: string; to: string } {
+export function comparisonRanges(start: string): DayRange[] {
   const w = adWindows(start);
-  return { from: w.beforeFrom, to: w.afterTo };
+  // Last year's same weeks, and from four weeks before the ads to four weeks after. Never overlapping.
+  return mergeRanges([{ from: w.lastYearFrom, to: w.lastYearTo }, { from: w.beforeFrom, to: w.afterTo }]);
 }
 
 const fmtPct = (p: number | null) => (p === null ? '' : ` (${p > 0 ? '+' : ''}${p}%)`);
@@ -127,10 +149,10 @@ export function adComparisonEmailSection(c: AdComparison): string {
     </tr>`;
   }).join('');
   const netNote = c.network
-    ? `The right-hand column is the change across ${c.network.shops} shops without ads over the same weeks.`
+    ? `The right-hand column is the change across ${c.network.shops} shops without ads, measured the same way.`
     : 'There are not yet enough shops without ads to compare against, so that column is empty.';
   return `<div style="background:#F5F3EF;border-radius:12px;padding:16px;margin-bottom:24px;">${head}
-    <p style="font-size:12px;color:#999;margin:0 0 8px;">Four weeks before ${c.windows.start} compared with the four weeks from ${c.windows.start}.</p>
+    <p style="font-size:12px;color:#999;margin:0 0 8px;">${c.basis === 'last_year' ? `The same four weeks last year compared with the four weeks from ${c.windows.start}.` : `Four weeks before ${c.windows.start} compared with the four weeks from ${c.windows.start}. (We have no figures for your listing from the same weeks last year.)`}</p>
     <table width="100%" cellpadding="0" cellspacing="0">${rows}</table>
     <p style="font-size:12px;color:#777;margin:10px 0 0;">${netNote} This shows what changed while your ads were running. Other things affect these numbers too, such as the time of year, so it is not proof of what the ads did.</p>
   </div>`;

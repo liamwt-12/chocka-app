@@ -1,6 +1,6 @@
 # Documents: what each one is and where it lives
 
-Written 16 November 2026, refreshed 18 November 2026. This repository is **public**, so some documents are deliberately kept out of it.
+Written 16 November 2026, refreshed 18 November 2026, and again for the retention build (#64 to #69). This repository is **public**, so some documents are deliberately kept out of it.
 
 "Where" tells you how to read a document today:
 
@@ -19,6 +19,8 @@ Written 16 November 2026, refreshed 18 November 2026. This repository is **publi
 | Show a Tarkett rep how to onboard a shop | `docs/rep-guide.md` (PR #31, updated in #56 and #61) |
 | Give Tarkett the words to invite a shop | `docs/invite-wording.md` (PR #56). On the solicitor's list |
 | Write the monthly update to Tarkett | `docs/templates/new-this-month.md` (PR #62). A template; nothing sends it |
+| Decide whether to switch on hands-off mode | `docs/hands-off-wording.md` (PR #64). The words a shop agrees to. A draft that needs solicitor review |
+| Switch on the review alert and preview emails | `docs/merge-runbook.md`, "Switching on the two silence emails, after your own test" (PR #69) |
 
 ## Running and releasing
 
@@ -85,6 +87,7 @@ These stay on Liam's machine. They contain prices, names or commercial terms, or
 | `docs/localo-audit.md` | Notes on a competing product |
 | `docs/flow-visual/` | A page of before-and-after screenshots of the onboarding flow, and the notes on load behind it |
 | `docs/expansion-readiness.md` | A sized list of what would have to change to serve another country or kind of customer. Nothing in it is built |
+| `docs/retention-strategy.md` | A reading of the product from a shop's side and the funder's, and what to build next. The retention build (#64 to #69) came from it. Also listed in `.git/info/exclude` |
 | `docs/PRIVATE-CONTEXT.md` | Background notes for whoever is working on the code. Also listed in `.git/info/exclude`, so it cannot be added by accident |
 
 If one of these is ever needed in the repository, make the repository private first, or take the commercial detail out.

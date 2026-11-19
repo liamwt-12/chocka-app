@@ -36,22 +36,22 @@ Across the {SHOPS_COUNTED} shops with a full month of figures:
 | Website clicks | {CLICKS} |
 | Direction requests | {DIRECTIONS} |
 
-For the {SHOPS_COMPARED} shops with two full months, {MONTH} against the month before:
+For the {SHOPS_COMPARED} shops with both months in full, {MONTH} against {EARLIER_MONTH}:
 
-| | {MONTH} | Month before | Change per day |
+| | {MONTH} | {EARLIER_MONTH} | Change per day |
 |---|---|---|---|
 | Times seen on Google | {SAME_VIEWS} | {VIEWS_BEFORE} | {VIEWS_CHANGE} |
 | Calls from listings | {SAME_CALLS} | {CALLS_BEFORE} | {CALLS_CHANGE} |
 | Website clicks | {SAME_CLICKS} | {CLICKS_BEFORE} | {CLICKS_CHANGE} |
 | Direction requests | {SAME_DIRECTIONS} | {DIRECTIONS_BEFORE} | {DIRECTIONS_CHANGE} |
 
-*(Delete the second table if the console shows no comparison yet. Never compare the first table with last month's update: the shops are not the same.)*
+*({EARLIER_MONTH} is the same month last year, as the console names it, so the time of year is not counted as a change. If the console says it has fallen back to the month before, write "the month before" and keep its sentence about the time of year. Delete the second table if the console shows no comparison yet. Never compare the first table with last month's update: the shops are not the same.)*
 
 These are Google's own figures, added up. They show what happened, not why.
 
-## Against each shop's starting point
+## Against the same weeks last year
 
-{RISING} shops are rising, {STEADY} steady, {FALLING} falling, and {TOO_EARLY} have not been connected long enough to say.
+{RISING} shops are rising, {STEADY} steady, {FALLING} falling, and {TOO_EARLY} cannot be said yet (connected less than four weeks, or no figures from last year).
 
 Most improved this month: {TOP_1}, {TOP_2}, {TOP_3}.
 

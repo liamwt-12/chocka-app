@@ -156,3 +156,21 @@ describe('MANAGER_EMBED', () => {
     expect(MANAGER_EMBED).toContain('managed_by_user_id');
   });
 });
+
+describe('a shop set up through an operator account starts with posts and replies off', () => {
+  const sql = require('node:fs').readFileSync(new URL('../supabase/migrations/20261120090000_operator_rows_start_off.sql', import.meta.url), 'utf8') as string;
+  it('the database sets both switches off on insert for a managed row with no mode chosen, whatever the insert said', () => {
+    expect(sql).toMatch(/before insert on public\.users/);
+    expect(sql).toMatch(/if new\.managed_by_user_id is not null and new\.automation_mode is null then\s+new\.auto_post_enabled := false;\s+new\.auto_reply_enabled := false;/);
+  });
+  it('touches no existing row and leaves the column defaults alone (the other brand relies on them)', () => {
+    const code = sql.replace(/--.*$/gm, '');
+    expect(code).not.toMatch(/\bupdate\s+public\.users|alter\s+table|set\s+default/i);
+    expect(code).not.toMatch(/before\s+insert\s+or\s+update|before\s+update/i);
+  });
+  it('no code in the app creates a managed row, so there is nowhere else the rule could be missed', () => {
+    const { execSync } = require('node:child_process');
+    const hits = execSync("git grep -n 'managed_by_user_id' -- app lib scripts ':!*.test.ts' ':!scripts/scale-check' ':!scripts/dummy-run'", { cwd: new URL('..', import.meta.url).pathname, encoding: 'utf8' }) as string;
+    expect(hits.split('\n').filter((l) => /\.insert\(|insert into/i.test(l))).toEqual([]);
+  });
+});

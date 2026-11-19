@@ -57,6 +57,12 @@ export interface PilotUser extends ManagedAccessRow {
   created_at?: string | null;
   onboarding_step?: string | null;
   token_invalid_at?: string | null;
+  auto_post_enabled?: boolean | null;
+  auto_reply_enabled?: boolean | null;
+  automation_paused_at?: string | null;
+  automation_mode?: string | null;
+  automation_consent_at?: string | null;
+  automation_consent_version?: string | null;
   profiles?: Array<{ google_location_name: string | null; google_place_id?: string | null }> | null;
 }
 

@@ -8,10 +8,11 @@ import { refreshAccessToken } from '@/lib/google';
 import { decryptSecret, userTokenAad } from '@/lib/secrets';
 import { resolveAccess } from '@/lib/managed-access';
 import { livePresenceScore } from '@/lib/presence-score';
-import { loadMetricRows, totalsFor, previousMonth, type MetricRow } from '@/lib/metrics';
-import { compareAdPeriod, comparisonRange, adComparisonEmailSection } from '@/lib/ad-comparison';
+import { loadMetricRows, totalsFor, previousMonth, type MetricRow, loadMetricRanges } from '@/lib/metrics';
+import { compareAdPeriod, comparisonRanges, adComparisonEmailSection } from '@/lib/ad-comparison';
+import { sameMonthLastYear, hasFigures } from '@/lib/year-on-year';
 import { startBudget, rotateForRun, runIndex } from '@/lib/cron-budget';
-import { plainSummaryEnabled, whatWeDid, whatChanged, narrativeHtml } from '@/lib/report-narrative';
+import { plainSummaryEnabled, whatWeDid, whatChanged, narrativeHtml, chooseComparison } from '@/lib/report-narrative';
 import { loadNarrativeFacts } from '@/lib/report-narrative-data';
 import { reportMonthKey, alreadyReported, claimMonthlyReport, releaseMonthlyReport, inChunks } from '@/lib/monthly-report';
 
@@ -52,10 +53,10 @@ export async function GET(request: NextRequest) {
     const comparisonCache = new Map<string, MetricRow[][]>();
     const comparisonRowsFor = async (start: string): Promise<MetricRow[][]> => {
       if (!comparisonCache.has(start)) {
-        const { from, to } = comparisonRange(start);
+        const ranges = comparisonRanges(start);
         // Ten at a time. All at once was one burst of a request per shop: about
         // 145 in the same instant at 180 shops.
-        comparisonCache.set(start, await inChunks(comparisonProfileIds, 10, (id) => loadMetricRows(supabaseAdmin, id, from, to)));
+        comparisonCache.set(start, await inChunks(comparisonProfileIds, 10, (id) => loadMetricRanges(supabaseAdmin, id, ranges)));
       }
       return comparisonCache.get(start)!;
     };
@@ -123,10 +124,18 @@ export async function GET(request: NextRequest) {
             const facts = await loadNarrativeFacts(supabaseAdmin, profile.id, lastMonth.toISOString(), thisMonthStart.toISOString());
             const did = whatWeDid({ postsPublished: postsPublished || 0, repliesPosted: reviewsReplied || 0, ...facts, postsOn: !!user.auto_post_enabled, repliesOn: !!user.auto_reply_enabled });
             // Compare only two months that are (nearly) all there: a part month against a whole one is not a change.
+            // With the same month last year if the listing has it (so the time
+            // of year is not counted as a change); otherwise with last month.
             const daysIn = (iso: string) => Number(iso.slice(8, 10));
-            const hasBefore = monthTotals.daysWithData >= daysIn(month.to) - 2 && beforeTotals.daysWithData >= daysIn(before.to) - 2;
-            const changed = whatChanged(enoughDays ? monthTotals : null, hasBefore ? beforeTotals : null);
-            narrative = narrativeHtml(did, changed, hasBefore);
+            const yearAgo = sameMonthLastYear(month.from);
+            const yearAgoTotals = totalsFor(await loadMetricRows(supabaseAdmin, profile.id, yearAgo.from, yearAgo.to), yearAgo.from, yearAgo.to);
+            const compare = chooseComparison(
+              monthTotals.daysWithData >= daysIn(month.to) - 2,
+              { complete: hasFigures(yearAgoTotals, yearAgo.days - 2), figures: yearAgoTotals },
+              { complete: beforeTotals.daysWithData >= daysIn(before.to) - 2, figures: beforeTotals },
+            );
+            const changed = whatChanged(enoughDays ? monthTotals : null, compare ? compare.before : null, compare?.comparedWith);
+            narrative = narrativeHtml(did, changed, !!compare);
           } catch (e: any) {
             console.warn(`[cron:monthly-report] plain summary skipped for user ${user.id}: ${String(e?.message).slice(0, 200)}`);
           }
@@ -136,8 +145,7 @@ export async function GET(request: NextRequest) {
         const adStart = adStartByUser.get(user.id);
         if (adStart) {
           try {
-            const { from, to } = comparisonRange(adStart);
-            const comparison = compareAdPeriod(adStart, await loadMetricRows(supabaseAdmin, profile.id, from, to), await comparisonRowsFor(adStart), now);
+            const comparison = compareAdPeriod(adStart, await loadMetricRanges(supabaseAdmin, profile.id, comparisonRanges(adStart)), await comparisonRowsFor(adStart), now);
             adComparisonHtml = adComparisonEmailSection(comparison);
           } catch (e: any) {
             console.warn(`[cron:monthly-report] ad comparison skipped for user ${user.id}: ${String(e?.message).slice(0, 200)}`);

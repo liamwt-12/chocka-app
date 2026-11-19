@@ -1,10 +1,14 @@
-# Merge runbook: every open pull request (#24 to #63)
+# Merge runbook: every open pull request (#24 to #69)
 
-Updated 18 November 2026 for #61 and #62 (stage 12) and for the single release PR (#63).
+Updated for the retention build, #64 to #69 (stage 13), which sits **on top of** the release PR (#63). Before that: 18 November 2026 for #61 and #62 (stage 12) and for the single release PR.
+
+**The retention build is not in #63.** #63 is still exactly the tree it was. Merge #63 first (path A) or stages 1 to 12 (path B), then do stage 13 below. Or, once you have read #64 to #69, merge them into the release branch and release everything at once: "Stage 13" says how.
 
 **There are now two ways to do this.** Both end in exactly the same code. Read "Two ways to merge" below and pick one before you start.
 
 **33 code PRs in 12 stages, 14 database migrations, 3 documents, and 2 legal PRs that wait for the solicitor.** Or: one PR, #63, that contains all of the code and the three documents.
+
+**Then stage 13: six more PRs (#64 to #69) and 3 more migrations**, for 17 in all.
 
 Every step of both paths was rehearsed on throwaway local branches that were never pushed (`rehearsal/final-2026-11-16`, `-17` and `-18` for the staged path; `rehearsal/single-merge-2026-11-18` for the single merge), with typecheck and the full test suite. Both results are file-for-file identical to the head of #62, which is the tree that passed the staging dummy run (54 of 54), the scale check (58) and the 92-shop simulation (38).
 
@@ -36,7 +40,7 @@ Either way: **all new switches stay off**, and **run the test-listing session (#
 
 1. **Not on the 1st or 2nd of a month. Not a Friday or Monday morning.** (Reasons under "Before you start".)
 2. Do "Before you start" below: new `ADMIN_PASSWORD`, `SESSION_SECRET`, the tag.
-3. **Apply all 14 migrations, in the order in "All fourteen migrations"**, each with a dry run first. Expect the "still differ" warning on the first thirteen; the fourteenth ends clean. The old code keeps running normally throughout.
+3. **Apply the first 14 migrations, in the order in "All seventeen migrations"**, each with a dry run first. Expect the "still differ" warning on every one of them, the fourteenth included: staging also has the two for stage 13, and the warning after the fourteenth lists only those new columns on `users` and `profiles`. The old code keeps running normally throughout.
 4. Merge:
 
 ```bash
@@ -118,9 +122,9 @@ All three must pass. `rm -rf .next` matters: without it, typecheck reports false
 
 Never paste migration SQL into the Supabase editor. It jams this script afterwards.
 
-### The "still differ" warning: expect it on the first thirteen
+### The "still differ" warning: expect it on the first sixteen
 
-Staging already has all fourteen migrations. So after **each of the first thirteen**, the script:
+Staging already has all seventeen migrations (the fourteen for #63 and the three for stage 13). So after **each of the first sixteen**, the script:
 
 1. prints `applied and recorded`,
 2. then prints `WARNING: production and staging still differ after applying:` followed by a list,
@@ -128,7 +132,7 @@ Staging already has all fourteen migrations. So after **each of the first thirte
 
 **That is expected, every time.** The migration has been applied and recorded. The list is simply what staging still has that production does not. What to check is that the list **gets shorter each time** and contains only things from later migrations.
 
-Only the fourteenth (`20261118090000_user_last_seen`) ends with `identical across every probe`. If you stop early, the last one you apply still warns. **This has changed twice:** the tenth used to end cleanly, then the thirteenth; now that staging also has the fourteenth, the thirteenth warns too, listing only one column on `users`.
+Only the seventeenth (`20261120090000_operator_rows_start_off`) ends with `identical across every probe`. If you stop early, the last one you apply still warns. **This has changed three times:** the tenth used to end cleanly, then the thirteenth, then the fourteenth. Now that staging also has the two for stage 13, **the fourteenth warns too**, listing only the new columns on `users` and `profiles` (five each). That is expected if you merge #63 before stage 13.
 
 **A different message means stop.** If it says `REFUSED: production has objects staging does not. They have diverged`, do not continue. Nothing has been applied. Tell me what it listed.
 
@@ -158,7 +162,7 @@ PRs #46 to #53 add no new variables. #54 to #60 add these, **all optional, all o
 | Variable | Value | When | Why |
 |---|---|---|---|
 | `WELCOME_EMAIL` | Leave unset, or `on` | When you decide | `on` sends **one** email to a shop at the moment it connects, and never to a shop that has not (#56). Unset: nothing is sent |
-| `LIVE_REQUIRES` | Leave unset | Only to relax the definition | What counts as live beyond "connected". Default `matched,verified,access` (#55). Removing a word relaxes it |
+| `LIVE_REQUIRES` | **Leave unset** | Only to relax the definition | What counts as live beyond "connected". Unset means all of `matched,verified,access` (#55). Removing a word relaxes it, and "Ready to invite shops?" then shows a cross. A value with anything else in it is ignored. What a shop has switched on never comes into it (#69) |
 | `BILLING_PRICE_PENCE_PER_SHOP` | Whole pence per live shop | Before the first statement | The price is deliberately not in the code: the repository is public (#58). Unset: the statement shows counts only |
 | `BILLING_MONTHLY_CAP_PENCE` | Whole pence a month | Before the first statement | The monthly cap, as money (#61). Every live shop is listed; anything above the cap is one credit line. Not in the code either. Unset: no cap |
 | `RETENTION_VIEW` | Leave unset, or `on` | After the privacy notice mentions it | `on` opens the retention view in `/admin/pilot` and starts recording when each shop last opened its dashboard: one date per shop (#62) |
@@ -640,7 +644,105 @@ In the rehearsal both merged with no conflicts and the result was identical to t
 
 ---
 
-## All fourteen migrations, in order
+## Stage 13: the retention build (#64, #65, #66, #67, #68, #69)
+
+Six PRs, stacked in this order, each on top of the one before and the first on top of the release branch:
+
+| PR | What | Behind a switch? | Migration first |
+|---|---|---|---|
+| #64 | Hands-off mode: the shop chooses once, with Pause | **Off** until `HANDS_OFF_MODE=on` | `20261119090000_automation_mode` |
+| #65 | Tell every shop about every new review; read the switched-off emails in `/admin/pilot` | **Off** until `REVIEW_ALERT_EMAILS=on` | none |
+| #66 | Compare with the same weeks last year, not the weeks before | No switch | none |
+| #67 | Review card as a print-ready A6 PDF, and one file of all of them | No switch (a download) | none |
+| #68 | Network rating and share of reviews answered in the monthly summary | Comes with the console switch | `20261119100000_review_snapshot` |
+| #69 | Live shops with nothing switched on are flagged; the cap belongs to a term; the proof run and review fixes | No switch | none |
+
+**Three migrations first** (two only add empty columns, the third adds one database rule; all are on staging):
+
+```bash
+/usr/local/bin/python3.14 scripts/apply-migration-to-production.py 20261119090000_automation_mode.sql
+/usr/local/bin/python3.14 scripts/apply-migration-to-production.py 20261119090000_automation_mode.sql --confirm
+/usr/local/bin/python3.14 scripts/apply-migration-to-production.py 20261119100000_review_snapshot.sql
+/usr/local/bin/python3.14 scripts/apply-migration-to-production.py 20261119100000_review_snapshot.sql --confirm
+/usr/local/bin/python3.14 scripts/apply-migration-to-production.py 20261120090000_operator_rows_start_off.sql
+/usr/local/bin/python3.14 scripts/apply-migration-to-production.py 20261120090000_operator_rows_start_off.sql --confirm
+```
+
+Expected: the first two warn that staging and production "still differ" (later ones are still to come); the third **ends with `identical across every probe`** and a tick. The code that is live before this stage runs normally on both.
+
+**Then merge.** After #63 (or stage 12) is on `main`:
+
+```bash
+cd ~/chocka-app && git checkout main && git pull --ff-only && git fetch origin
+git tag pre-retention-merge
+for n in 64 65 66 67 68 69; do gh pr edit $n --base main; done
+git merge --no-ff --no-edit origin/retention/6-live-and-term     # all six: they are one line of commits. Clean in rehearsal
+rm -rf .next && npx tsc --noEmit && npm test && npm run build     # 1,109 tests
+git diff --stat origin/retention/6-live-and-term HEAD             # must print nothing
+git push origin main
+```
+
+To take them one at a time instead, merge `origin/retention/1-hands-off`, then `2-stop-silence`, `3-last-year`, `4-review-card`, `5-network-rating`, `6-live-and-term`, in that order. Each is a fast step on from the one before; none conflicts. Do not merge a later one without the earlier ones: they are stacked.
+
+**Or everything in one release.** If you would rather release #63 and these together: merge `origin/retention/6-live-and-term` into `release/2026-11` on your machine, push that branch, and follow path A with **seventeen** migrations instead of fourteen. In rehearsal, `main` + #63 + the six merged with no conflicts and the result was file-for-file the tree every check below ran against.
+
+**What changes the moment this is live, with no switch:**
+
+1. **Live, and so billable, is: connected, the right listing, verified by Google, access working.** It does **not** depend on what the shop has switched on, and pressing Pause does not stop it; only disconnecting (or losing access) does. (Decided 20 November. An earlier version of #69 made a shop with nothing on "not live"; that was reversed before release.)
+2. **A live shop with nothing switched on is still shown.** It is listed under Needs help as **Nothing switched on** (or **Paused by the shop**), with what to say to it, and the console's monthly summary counts "live, with nothing switched on" separately. Nothing in the app, and no button in `/admin/pilot`, switches anything on for a shop. `LIVE_REQUIRES` keeps its three words; leave it unset.
+3. **No statement is produced until the term is set.** `BILLING_TERM_START` and `BILLING_TERM_END` have no defaults. Until both are set, "Live shops in a month" says so instead of showing a statement, and "Ready to invite shops?" shows a cross. The daily record of who is live is kept all the same. Once set, the cap and its credit line apply only to months that **end** inside the term.
+4. **Every comparison is now with the same weeks last year**: the league, the ad view in the console and in the shop's monthly email, the network summary, and the plain-words monthly report (if that switch is on). A listing with nothing from last year falls back to the old comparison and says so. The league does not rank such a shop.
+5. **A rise or a fall needs at least three more (or fewer) customer actions**, as well as ten in the earlier period. Ten to eleven is no longer a "clear rise".
+6. **The hourly figures job also notes each listing's review totals** (rating, count, how many answered). One more read of the listing's reviews per shop per day. No review text is stored.
+
+**New variables. All optional, none with a default:**
+
+| Variable | Value | When | Why |
+|---|---|---|---|
+| `HANDS_OFF_MODE` | Leave unset | **Only after the solicitor has seen `docs/hands-off-wording.md`, and after your own test** | `on` offers each connecting shop the choice of Hands-off or Ask me first, and for a shop that chose Hands-off, posts and replies go out without further approval (#64). Unset: every shop is asked first, as now |
+| `REVIEW_ALERT_EMAILS` | Leave unset | **After your own test, below** | `on` emails every connected shop about each new review, whether or not replies are on (#65). Unset: as now |
+| `EARLY_POST_PREVIEW_EMAILS` | Leave unset | **After your own test, below** | Already existed (#35). `on` emails a shop 24 hours before a post that is waiting for its approval |
+| `BILLING_TERM_START` | The first day of the term, like `2027-01-31` | **Before the first statement: without both there is no statement** | The cap and its credit line apply only to months that **end** on or between the two dates (#69). Not in the code: the repository is public |
+| `BILLING_TERM_END` | The last day of the term | With the one above | After it, the statement has no cap and no credit line, and says the term has ended |
+
+**Verify:**
+
+1. `/admin/pilot`, **Ready to invite shops? → Check now.** "Hands-off or ask me first, and Pause" and "Review totals per listing" both have a tick. "Hands-off mode" and "Email every shop about every new review" both say **Off**. "Monthly statement" says whether the term is set.
+2. The shop table has a **How we work** column. Every connected shop reads "Ask me first (not chosen yet)" with what it has switched on.
+3. **Needs help**: any live shop with nothing on is listed as **Nothing switched on**. It is still **Live** in the shop table and still on the statement.
+4. **Live shops in a month**: before the term dates are set, a message that no statement can be produced until they are. Once set, the statement, and with a cap, "The cap applies for the term ...".
+5. **Review cards for the counter → Download all cards (PDF)**: a file with one A6 page per connected shop, set in Lato, which is embedded in the file (open source; the licence is in `lib/fonts/`). Colours are RGB. Scan one with a phone, and send one to the printer before a batch.
+6. **Read the emails that are switched off**: each of the five opens with made-up content.
+7. Sign in as a shop: Settings looks as it did (the "How we work" card only appears with `HANDS_OFF_MODE=on`).
+8. The day after: `/console/summary` (if the console is on) shows "Reviews, across the network" once three live shops have reviews.
+
+### Switching on the two "silence" emails, after your own test
+
+Both are **plain text**, and go only to the address on the account the shop itself signed in with. A shop set up through an operator account is never sent one: the address on that account is not known to be the shop's own. The invitation and the monthly report stay as designed emails.
+
+Both are off. **Do not switch either on until you have done this once, on your own listing** (the one from `docs/test-listing-runbook.md`), with no other shop connected or with the other shops' owners warned.
+
+1. **Read them.** `/admin/pilot` → **Read the emails that are switched off**. Read all five. If any wording is wrong, stop here.
+2. **The preview email.** Set `EARLY_POST_PREVIEW_EMAILS=on` and redeploy. On your test shop, switch posts on and wait for a post to be written (Friday morning), or use one that is already waiting. Within an hour of the post being less than 24 hours away you should get **one** plain-text email, "Approve your Google post", with two links. Open the approve link: the page asks you to confirm, and only the confirm button approves. Check you get the email once, not hourly.
+3. **The review alert.** Set `REVIEW_ALERT_EMAILS=on` and redeploy. With replies **off** on your test shop, leave a review on your own listing from another Google account. Within 15 minutes (working hours) you should get **one** email saying there is a new review and that nothing was replied. Check on Google that nothing was replied. Then switch replies on and leave another: the email should show the reply we posted, and it should be on Google.
+4. **A low review.** Leave a 2-star review with replies off. You should get the "needs your input" email, in plain text, with the holding reply and two links, and **nothing on Google** until you open the first link and confirm.
+5. If all of that is right, leave both on. If anything is not, set the variable back to unset and redeploy: nothing else changes.
+
+What switching `REVIEW_ALERT_EMAILS` on does to the review job: it now looks at **every** connected shop every 15 minutes, not only those with replies on. At 92 shops that is within what the job can cover in a day (see `docs/scale-check.md`). Watch its log on the first day for "checked N of M shops this run".
+
+### Switching on hands-off mode
+
+Not until:
+
+1. the solicitor has reviewed `docs/hands-off-wording.md` (it has four questions for them), and the wording version has been changed if the words change;
+2. `SESSION_ACCEPT_LEGACY_COOKIE=false` is set. Until it is, the app refuses to record a hands-off choice at all, because a session could be forged;
+3. you have chosen Hands-off on your own test listing and watched one post and one low review go through, then pressed Pause, then chosen "Ask me first".
+
+Then `HANDS_OFF_MODE=on`. It changes nothing for a shop until that shop chooses. Switching it off again is safe: a shop that chose Hands-off is treated as "Ask me first", and a post booked for it among its first three goes back to waiting.
+
+---
+
+## All seventeen migrations, in order
 
 | # | File | PR | Apply before stage |
 |---|---|---|---|
@@ -658,15 +760,20 @@ In the rehearsal both merged with no conflicts and the result was identical to t
 | 12 | `20261117100000_welcome_email_marker.sql` | #56 | 11 |
 | 13 | `20261117110000_ad_spend_and_live_months.sql` | #58 | 11 |
 | 14 | `20261118090000_user_last_seen.sql` | #62 | 12 |
+| 15 | `20261119090000_automation_mode.sql` | #64 | 13 |
+| 16 | `20261119100000_review_snapshot.sql` | #68 | 13 |
+| 17 | `20261120090000_operator_rows_start_off.sql` | #69 | 13 |
 
-All fourteen only add things or tighten access. Each is on staging already. **On path A, apply all fourteen, in this order, before the merge.**
+The seventeenth adds one database rule: an account created through an operator account (a shop a rep sets up) starts with posts and replies **off**, whatever the insert says, until a mode is chosen. It changes no existing row.
+
+All seventeen only add things or tighten access. Each is on staging already. **On path A, apply the first fourteen, in this order, before merging #63.** The last two go on before stage 13 (or with the others, if you release everything at once).
 
 ## The documents and the legal PRs
 
 - **#41** (this runbook), **#45** (`docs/test-listing-runbook.md`) and **#51** (`docs/README.md`, the index of documents) change no code and can be merged at any time. **Run the test in #45 before stage 1 if you can:** its first step is the real model call that #24 is waiting on.
 - **#30** (legal drafts) and then **#44** (the solicitor briefing, which sits on #30): only after the solicitor. #30 changes the live privacy and terms pages, not only documents.
 
-**One migration to leave alone:** `20261116110000_change_log_add_media.sql` (in #39). Do not apply it anywhere, staging included, until all fourteen above are on production. It changes an existing constraint rather than adding something, and applying it early makes the production script refuse everything after migration 1. It is only needed if listing photos are ever switched on. The file explains this at the top.
+**One migration to leave alone:** `20261116110000_change_log_add_media.sql` (in #39). Do not apply it anywhere, staging included, until all seventeen above are on production. It changes an existing constraint rather than adding something, and applying it early makes the production script refuse everything after migration 1. It is only needed if listing photos are ever switched on. The file explains this at the top.
 
 ---
 
@@ -701,7 +808,7 @@ Nothing here has been deleted or closed. This is a list for you, for after the r
 
 - **A deploy misbehaves.** Netlify, Deploys, pick the last good one, "Publish deploy". That is instant and touches nothing else. Then tell me what you saw.
 - **Undo a merge that has been pushed.** `git revert -m 1 <the merge commit>` and push. Do not reset or force-push main.
-- **Migrations stay.** All fourteen only add things (tables, columns, indexes) or tighten access. Old code runs fine against them, so a code rollback never needs a database rollback.
+- **Migrations stay.** All seventeen only add things (tables, columns, indexes) or tighten access. Old code runs fine against them, so a code rollback never needs a database rollback.
 - **A merge conflict that is not described above.** Stop: `git merge --abort`. The rehearsal had exactly three conflicted merges (#27, #29, #36), none in stages 11 or 12, and none on path A. Anything else means a branch has changed since 18 November.
 
 ---

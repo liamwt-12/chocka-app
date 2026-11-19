@@ -20,13 +20,17 @@ const RESEND_API = 'https://api.resend.com/emails';
 interface SendEmailParams {
   to: string;
   subject: string;
-  html: string;
+  /** A designed email. Give this or `text`. */
+  html?: string;
+  /** A plain-text email (lib/shop-notices.ts). Sent with no HTML part at all. */
+  text?: string;
   /** Sender identity. Defaults to the primary tenant. */
   tenant?: Tenant;
 }
 
-export async function sendEmail({ to, subject, html, tenant }: SendEmailParams): Promise<boolean> {
+export async function sendEmail({ to, subject, html, text, tenant }: SendEmailParams): Promise<boolean> {
   try {
+    if (!html && !text) { console.error('Email not sent: it had no content'); return false; }
     const res = await fetch(RESEND_API, {
       method: 'POST',
       headers: {
@@ -37,7 +41,7 @@ export async function sendEmail({ to, subject, html, tenant }: SendEmailParams):
         from: (tenant ?? getTenant()).emailFrom,
         to,
         subject,
-        html,
+        ...(text ? { text } : { html }),
       }),
     });
     if (!res.ok) {
@@ -90,46 +94,6 @@ export function postPreviewEmail(
     <a href="${cancelUrl}" style="display: inline-block; background: #1A1A1A; color: #fff; padding: 12px 22px; border-radius: 8px; text-decoration: none; font-size: 14px; font-weight: 600;">Cancel This Post</a>
 
     <p style="font-size: 13px; color: #bbb; margin: 20px 0 0;">If you do nothing, it goes up automatically. Sorted.</p>
-  `, t);
-}
-
-export function reviewAlertEmail(params: {
-  businessName: string;
-  reviewerName: string;
-  rating: number;
-  comment: string;
-  suggestedReply: string;
-  approveUrl: string;
-  rejectUrl: string;
-  tenant?: Tenant;
-}): string {
-  const t = params.tenant ?? getTenant();
-  const brand = t.palette.brandStrong;
-  const stars = '★'.repeat(params.rating) + '☆'.repeat(5 - params.rating);
-  const firstName = params.businessName.split(' ')[0];
-  const isPositive = params.rating >= 4;
-
-  return emailWrapper(`
-    <p style="font-size: 15px; line-height: 1.6; margin: 0 0 6px;">Hi ${firstName},</p>
-    <p style="font-size: 15px; line-height: 1.6; margin: 0 0 24px; color: #555;">
-      ${isPositive ? "A new review just came in &mdash; a good one." : "You've got a new review. Not a great one, but we've drafted a reply."}
-    </p>
-
-    <div style="background: #F0EDE8; border-radius: 12px; padding: 18px; margin-bottom: 20px;">
-      <div style="margin-bottom: 8px;">
-        <span style="font-weight: 600; font-size: 14px;">${params.reviewerName}</span>
-        <span style="color: ${isPositive ? brand : '#B8860B'}; font-size: 14px; margin-left: 8px;">${stars}</span>
-      </div>
-      <p style="font-size: 14px; color: #555; line-height: 1.55; margin: 0;">${params.comment || '(no comment left)'}</p>
-    </div>
-
-    <p style="font-size: 13px; color: #999; margin: 0 0 8px;">Our suggested reply:</p>
-    <div style="background: #FFF0EB; border-left: 3px solid ${brand}; border-radius: 0 12px 12px 0; padding: 16px 16px 16px 14px; margin-bottom: 28px;">
-      <p style="font-size: 14px; color: #1A1A1A; line-height: 1.55; margin: 0;">${params.suggestedReply}</p>
-    </div>
-
-    <a href="${params.approveUrl}" style="display: inline-block; background: ${brand}; color: #fff; padding: 12px 20px; border-radius: 8px; text-decoration: none; font-size: 14px; font-weight: 600; margin-right: 8px;">Publish This Reply</a>
-    <a href="${params.rejectUrl}" style="display: inline-block; background: #1A1A1A; color: #fff; padding: 12px 20px; border-radius: 8px; text-decoration: none; font-size: 14px; font-weight: 600;">I'll Handle It</a>
   `, t);
 }
 
@@ -219,42 +183,5 @@ ${params.adComparisonHtml ?? ''}
 ${notYet}
 
     <p style="font-size: 14px; color: #555; line-height: 1.6; margin: 0;">All handled automatically. No effort from you. That's the point.</p>
-  `, t);
-}
-
-/**
- * The 24-hour preview for a post awaiting approval (a shop's first three). Sent
- * only by /api/cron/post-previews, and only when EARLY_POST_PREVIEW_EMAILS=on.
- * Unlike postPreviewEmail, nothing happens if the shop does nothing.
- */
-export function postApprovalEmail(params: {
-  businessName: string;
-  postContent: string;
-  scheduledFor: string;
-  approveUrl: string;
-  skipUrl: string;
-  approvalsLeft: number;
-  tenant?: Tenant;
-}): string {
-  const t = params.tenant ?? getTenant();
-  const brand = t.palette.brandStrong;
-  const firstName = params.businessName.split(' ')[0];
-  const when = new Date(params.scheduledFor).toLocaleString('en-GB', { timeZone: 'Europe/London', weekday: 'long', day: 'numeric', month: 'long', hour: 'numeric', minute: '2-digit' });
-  const after = params.approvalsLeft > 1
-    ? `This is one of your first ${params.approvalsLeft === 3 ? 'three' : params.approvalsLeft === 2 ? 'two' : ''} posts, so it only goes up if you approve it.`
-    : 'This is the last post we will ask you to approve. After this one, we will email each post in advance and it goes up unless you cancel it.';
-  return emailWrapper(`
-    <p style="font-size: 15px; line-height: 1.6; margin: 0 0 6px;">Hi ${firstName},</p>
-    <p style="font-size: 15px; line-height: 1.6; margin: 0 0 24px; color: #555;">Here's the Google post we've written for ${params.businessName}. If you approve it, it goes up on ${when}.</p>
-
-    <div style="background: #F0EDE8; border-left: 3px solid ${brand}; border-radius: 0 12px 12px 0; padding: 20px 20px 20px 18px; margin-bottom: 24px;">
-      <div style="font-size: 11px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: ${brand}; margin-bottom: 10px;">Your Google Post</div>
-      <p style="font-size: 15px; line-height: 1.65; margin: 0; color: #1A1A1A;">${params.postContent}</p>
-    </div>
-
-    <a href="${params.approveUrl}" style="display: inline-block; background: ${brand}; color: #fff; padding: 12px 20px; border-radius: 8px; text-decoration: none; font-size: 14px; font-weight: 600; margin-right: 8px;">Approve this post</a>
-    <a href="${params.skipUrl}" style="display: inline-block; background: #1A1A1A; color: #fff; padding: 12px 20px; border-radius: 8px; text-decoration: none; font-size: 14px; font-weight: 600;">Skip this week</a>
-
-    <p style="font-size: 13px; color: #777; margin: 20px 0 0; line-height: 1.6;"><strong>If you do nothing, nothing is posted.</strong> ${after}</p>
   `, t);
 }

@@ -1,6 +1,7 @@
 'use client';
 
 import ChangesList from '@/components/ChangesList';
+import AutomationChoice from '@/components/AutomationChoice';
 import ListingSettings from '@/components/ListingSettings';
 import { useState, useEffect, useCallback } from 'react';
 import { useTenant } from '@/lib/tenant-context';
@@ -97,6 +98,9 @@ export default function SettingsPage() {
 
       {/* Everything we have changed, with an Undo for each. */}
       <ChangesList cardStyle={card} labelStyle={lbl} supportEmail={tenant.supportEmail} />
+
+      {/* Hands-off or Ask me first, and Pause. Shows nothing while HANDS_OFF_MODE is off. */}
+      <AutomationChoice variant="settings" cardStyle={card} onChanged={() => window.location.reload()} />
 
       {/* Google connection */}
       <div style={{...card,animation:'fadeUp .5s .1s ease both'}}>

@@ -58,6 +58,8 @@ export default async function ReviewCardPage({ params, searchParams }: { params:
       <div className="review-card-tools">
         <p style={{ margin: '0 0 10px' }}>A card for the counter. It prints at A6 (a quarter of A4). Before printing a batch, scan it with a phone and check it opens the right shop.</p>
         <PrintButton />
+        <a href={`/api/review-card/${params.retailerId}?k=${encodeURIComponent(searchParams.k || '')}`} style={{ marginLeft: 12, color: '#1A1A1A', fontWeight: 600 }}>Download a print-ready PDF</a>
+        <p style={{ margin: '8px 0 0' }}>The PDF is for a print shop: A6 with 3 mm of bleed.</p>
       </div>
 
       <div className="review-card">

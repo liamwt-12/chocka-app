@@ -12,6 +12,7 @@ const mono = "'DM Mono',monospace";
 const C = { bg: '#F0EDE8', card: '#FAFAF8', text: '#1A1A1A', mid: '#555', soft: '#999', green: '#2D7A4F', greenL: '#E8F5EE', amber: '#B8860B', amberL: '#FFF8E6', red: '#D93025', redL: '#FDECEA' };
 const card: React.CSSProperties = { background: C.card, borderRadius: 14, padding: 16, boxShadow: '0 2px 12px rgba(0,0,0,0.06)', marginBottom: 16 };
 const input: React.CSSProperties = { background: C.bg, border: 'none', borderRadius: 8, padding: '9px 12px', fontSize: 14, fontFamily: sans, outline: 'none', boxSizing: 'border-box' };
+const EMAIL_SAMPLES: Array<[string, string]> = [['post_waiting', 'Post waiting for approval'], ['good_review_replied', 'Good review, replied'], ['good_review_not_replied', 'Good review, replies off'], ['low_review_needs_input', 'Low review, needs the shop'], ['low_review_replied', 'Low review, hands-off']];
 const btn: React.CSSProperties = { background: C.text, color: '#fff', border: 'none', borderRadius: 8, padding: '9px 14px', fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: sans };
 
 const STATE_LABEL: Record<string, [string, string, string]> = {
@@ -24,7 +25,7 @@ const STATE_LABEL: Record<string, [string, string, string]> = {
 
 type Help = { key: string; label: string; live: boolean; needsHelp: boolean; severity: number; why: string; action: string; since: string | null; buttons: string[] };
 type Change = { id: string; when: string; what: string; before: string; after: string; source: string; status: string; undone: boolean; canUndo: boolean; whyNot: string | null };
-type Row = { help: Help; note: string | null; adSpendPence: number | null; adEndDate: string | null; firstLiveOn: string | null; excludedFromCount: boolean; id: string; name: string; town: string | null; contactEmail: string | null; source: string; state: string; detail: string; joinedAt: string | null; delisted: boolean; adStartDate: string | null; connection: { status: string; label: string; detail: string | null; checkedAt: string | null; nextStep: string | null } | null; voice: Voice | null; voiceUpdatedAt: string | null; voiceUpdatedBy: string | null; photos: { pending: number; approved: number } | null; review: { link: string; cardPath: string; source: 'connected' | 'baseline' } | null };
+type Row = { working: { mode: string; label: string; paused: boolean; permissionOn: string | null; wordingVersion: string | null; postsOn: boolean; repliesOn: boolean } | null; help: Help; note: string | null; adSpendPence: number | null; adEndDate: string | null; firstLiveOn: string | null; excludedFromCount: boolean; id: string; name: string; town: string | null; contactEmail: string | null; source: string; state: string; detail: string; joinedAt: string | null; delisted: boolean; adStartDate: string | null; connection: { status: string; label: string; detail: string | null; checkedAt: string | null; nextStep: string | null } | null; voice: Voice | null; voiceUpdatedAt: string | null; voiceUpdatedBy: string | null; photos: { pending: number; approved: number } | null; review: { link: string; cardPath: string; pdfPath: string; source: 'connected' | 'baseline' } | null };
 type Voice = { tone: string | null; about: string | null; specialities: string[]; signOff: string | null; wordsToUse: string[]; wordsToAvoid: string[] };
 type Minted = { retailerId: string; name?: string; ok: boolean; link?: string; expiresAt?: string; error?: string };
 
@@ -196,6 +197,24 @@ export default function PilotAdminPage() {
 
   // Is everything in place to invite shops?
   const [ready, setReady] = useState<any>(null);
+  const [cardsNote, setCardsNote] = useState('');
+  const downloadCards = async (includeUnchecked: boolean) => {
+    setBusy(true); setMsg(''); setCardsNote('');
+    try {
+      const r = await call({ action: 'review_cards', includeUnchecked });
+      const left = [r.leftOut.notConnected.length && `${r.leftOut.notConnected.length} not connected yet`, r.leftOut.unconfirmed?.length && `${r.leftOut.unconfirmed.length} on a listing nobody has confirmed`, r.leftOut.noListing.length && `${r.leftOut.noListing.length} with no listing on record`].filter(Boolean).join(', ');
+      if (!r.pdfBase64) { setCardsNote(`No cards to print yet${left ? ` (left out: ${left})` : ''}.`); }
+      else {
+        const bytes = Uint8Array.from(atob(r.pdfBase64), (c) => c.charCodeAt(0));
+        const url = URL.createObjectURL(new Blob([bytes], { type: 'application/pdf' }));
+        const a = document.createElement('a'); a.href = url; a.download = r.fileName; a.click(); setTimeout(() => URL.revokeObjectURL(url), 60_000);
+        setCardsNote(`${r.cards} card${r.cards === 1 ? '' : 's'} in the file${r.unchecked ? `, ${r.unchecked} of them for shops not yet connected or on an unconfirmed listing: scan those before printing` : ''}.${left ? ` Left out: ${left}.` : ''}`);
+      }
+    } catch (e: any) { setMsg(e.message); }
+    setBusy(false);
+  };
+  const [emailSample, setEmailSample] = useState<{ subject: string; text: string } | null>(null);
+  const showEmail = async (key: string) => { setBusy(true); setMsg(''); try { setEmailSample(await call({ action: 'preview_email', key })); } catch (e: any) { setMsg(e.message); } setBusy(false); };
   const [retention, setRetention] = useState<any>(null);
   const loadRetention = async () => { setBusy(true); setMsg(''); try { setRetention(await call({ action: 'retention' })); } catch (e: any) { setMsg(e.message); } setBusy(false); };
   const downloadRetention = () => {
@@ -346,6 +365,33 @@ export default function PilotAdminPage() {
           </div>
         )}
 
+        {/* Every connected shop's review card in one print-ready file. Nothing is sent. */}
+        <div style={card}>
+          <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+            <strong style={{ fontSize: 15 }}>Review cards for the counter</strong>
+            <button onClick={() => downloadCards(false)} disabled={busy} style={btn}>Download all cards (PDF)</button>
+            <button onClick={() => { if (window.confirm('Include shops that have not connected yet?\n\nTheir link comes from the listing matched from the store list, which could be the wrong business. Scan each of those cards before printing.')) downloadCards(true); }} disabled={busy} style={{ ...btn, background: 'transparent', color: C.text, textDecoration: 'underline', padding: '2px 4px' }}>Include shops not yet connected</button>
+          </div>
+          <p style={{ color: C.mid, fontSize: 13, margin: '6px 0 0' }}>One A6 card per page, in name order, with 3 mm of bleed for a printer. Each has the shop&apos;s name, town and a code that opens its Google review page. No customer data and no contact details. Each shop&apos;s own card is under &ldquo;PDF&rdquo; in its row.</p>
+          {cardsNote && <p role="status" style={{ color: C.text, fontSize: 13, margin: '6px 0 0' }}>{cardsNote}</p>}
+        </div>
+
+        {/* Emails that are switched off, to read before switching them on. Nothing is sent. */}
+        <div style={card}>
+          <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+            <strong style={{ fontSize: 15 }}>Read the emails that are switched off</strong>
+            {EMAIL_SAMPLES.map(([key, label]) => <button key={key} onClick={() => showEmail(key)} disabled={busy} style={{ ...btn, background: 'transparent', color: C.text, textDecoration: 'underline', padding: '2px 4px' }}>{label}</button>)}
+          </div>
+          <p style={{ color: C.mid, fontSize: 13, margin: '6px 0 0' }}>Each opens with made-up content, in plain text as the shop would get it, and goes only to the shop's own address. Nothing is sent to anyone. The switches are EARLY_POST_PREVIEW_EMAILS, REVIEW_ALERT_EMAILS and HANDS_OFF_MODE.</p>
+          {emailSample && (
+            <div style={{ marginTop: 10 }}>
+              <div style={{ fontSize: 13, color: C.mid, marginBottom: 6 }}>Subject: <strong style={{ color: C.text }}>{emailSample.subject}</strong> <button onClick={() => setEmailSample(null)} style={{ ...btn, background: 'transparent', color: C.mid, textDecoration: 'underline', padding: '2px 4px' }}>Close</button></div>
+              {/* Plain text, shown as the shop gets it. */}
+              <pre style={{ whiteSpace: 'pre-wrap', fontFamily: 'ui-monospace, Menlo, monospace', fontSize: 13, lineHeight: 1.5, background: '#fff', border: '1px solid #ddd', borderRadius: 8, padding: 14, maxWidth: 620, margin: 0 }}>{emailSample.text}</pre>
+            </div>
+          )}
+        </div>
+
         {/* Which shops are drifting. Off unless RETENTION_VIEW=on. */}
         <div style={card}>
           <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
@@ -453,8 +499,10 @@ export default function PilotAdminPage() {
               <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', marginBottom: 8 }}>
                 <span><strong>{statement.liveShops}</strong> live</span>
 {statement.provisional && <span style={{ color: C.amber, fontWeight: 600 }}>provisional</span>}
-                {statement.money ? <span>{money(statement.money.grossPence)}{statement.settings.capPence !== null ? <> · cap {money(statement.settings.capPence)}</> : null}{statement.money.creditPence ? <> · credit {money(statement.money.creditPence)} ({statement.shopsAboveCap} above the cap)</> : null} = <strong>{money(statement.money.totalPence)}</strong></span> : <span style={{ color: C.soft }}>No price is set (BILLING_PRICE_PENCE_PER_SHOP), so counts only.</span>}
+                {statement.money ? <span>{money(statement.money.grossPence)}{statement.cap?.applies && statement.settings.capPence !== null ? <> · cap {money(statement.settings.capPence)}</> : null}{statement.money.creditPence ? <> · credit {money(statement.money.creditPence)} ({statement.shopsAboveCap} above the cap)</> : null} = <strong>{money(statement.money.totalPence)}</strong></span> : <span style={{ color: C.soft }}>No price is set (BILLING_PRICE_PENCE_PER_SHOP), so counts only.</span>}
               </div>
+              {statement.cap?.note && <div style={{ color: ['no_term', 'bad_term'].includes(statement.cap.reason) ? C.red : C.mid, fontWeight: ['no_term', 'bad_term'].includes(statement.cap.reason) ? 700 : 400, marginBottom: 6 }}>{statement.cap.note}</div>}
+              {statement.cap?.applies && <div style={{ color: C.mid, marginBottom: 6 }}>The cap applies for the term {statement.settings.termStart} to {statement.settings.termEnd}.</div>}
               {statement.noCountOnLastDay && <div style={{ color: C.red, fontWeight: 700, marginBottom: 6 }}>No count was taken on the last day of {statement.month} (the hourly job did not run that day), so nobody is shown as live. Do not use this statement as it stands: the shops live during the month are listed below as not counted.</div>}
               {statement.lines.length === 0 ? <div style={{ color: C.mid }}>No shop counts for {statement.month}.</div> : (
                 <table style={{ width: '100%', borderCollapse: 'collapse' }}>
@@ -490,7 +538,7 @@ export default function PilotAdminPage() {
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
               <thead>
                 <tr style={{ textAlign: 'left', color: C.soft, fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
-                  <th style={{ padding: 6 }}></th><th style={{ padding: 6 }}>Shop</th><th style={{ padding: 6 }}>Town</th><th style={{ padding: 6 }}>Status</th><th style={{ padding: 6 }}>Detail</th><th style={{ padding: 6 }}>Google connection</th><th style={{ padding: 6 }} title="When Tarkett's ads for this shop started, when they stopped, and what was spent. The dates feed the shop's 'change during your ads' section. The spend is seen by you and Tarkett only: it is never sent to the shop.">Ads: started, ended, spend</th><th style={{ padding: 6 }} title="How this shop's posts and replies should sound. Answered by the shop at onboarding, or set here by a rep.">Voice</th><th style={{ padding: 6 }} title="The shop's Google review link, and a card with a QR code to print for the counter. The same link for every customer: nothing is sent and no customer details are involved.">Review link</th>{photosEnabled && <th style={{ padding: 6 }} title="Photos of the shop's work. Uploaded through a link, used on posts only after you approve them.">Photos</th>}<th style={{ padding: 6 }}></th>
+                  <th style={{ padding: 6 }}></th><th style={{ padding: 6 }}>Shop</th><th style={{ padding: 6 }}>Town</th><th style={{ padding: 6 }}>Status</th><th style={{ padding: 6 }}>Detail</th><th style={{ padding: 6 }}>Google connection</th><th style={{ padding: 6 }} title="Hands-off: the shop gave permission for us to post and reply without asking each time. Ask me first: nothing goes up without its say-so. Also shows what is switched on, and whether the shop has pressed Pause.">How we work</th><th style={{ padding: 6 }} title="When Tarkett's ads for this shop started, when they stopped, and what was spent. The dates feed the shop's 'change during your ads' section. The spend is seen by you and Tarkett only: it is never sent to the shop.">Ads: started, ended, spend</th><th style={{ padding: 6 }} title="How this shop's posts and replies should sound. Answered by the shop at onboarding, or set here by a rep.">Voice</th><th style={{ padding: 6 }} title="The shop's Google review link, and a card with a QR code to print for the counter. The same link for every customer: nothing is sent and no customer details are involved.">Review link</th>{photosEnabled && <th style={{ padding: 6 }} title="Photos of the shop's work. Uploaded through a link, used on posts only after you approve them.">Photos</th>}<th style={{ padding: 6 }}></th>
                 </tr>
               </thead>
               <tbody>
@@ -511,6 +559,13 @@ export default function PilotAdminPage() {
                       <td style={{ padding: 6, color: C.mid }} title={r.connection?.nextStep || ''}>
                         {r.connection ? <><strong style={{ color: ['no_access', 'check_listing', 'waiting_google'].includes(r.connection.status) ? C.amber : C.text }}>{r.connection.label}</strong>{r.connection.detail ? <div style={{ fontSize: 12 }}>{r.connection.detail}</div> : null}</> : <span style={{ color: C.soft }}>&ndash;</span>}
                       </td>
+                      <td style={{ padding: 6, color: C.mid }}>
+                        {r.working ? <>
+                          <strong style={{ color: r.working.paused ? C.amber : r.working.mode === 'hands_off' ? C.green : C.text }}>{r.working.paused ? 'Paused by the shop' : r.working.label}</strong>
+                          <div style={{ fontSize: 12 }}>{[r.working.postsOn && 'posts on', r.working.repliesOn && 'replies on'].filter(Boolean).join(', ') || 'nothing switched on'}</div>
+                          {r.working.permissionOn && <div style={{ fontSize: 12 }} title={`Wording version ${r.working.wordingVersion}`}>permission given {String(r.working.permissionOn).slice(0, 10)}</div>}
+                        </> : <span style={{ color: C.soft }}>&ndash;</span>}
+                      </td>
                       <td style={{ padding: 6 }}>
                         <input type="date" aria-label={`Ads started for ${r.name}`} defaultValue={r.adStartDate ?? ''} disabled={busy} onBlur={(e) => { if ((e.target.value || null) !== r.adStartDate) setAdStart(r.id, e.target.value); }} style={{ ...input, padding: '4px 6px', fontSize: 12, display: 'block', marginBottom: 3 }} />
                         <input type="date" aria-label={`Ads ended for ${r.name}`} title="When the ads stopped (optional)" defaultValue={r.adEndDate ?? ''} disabled={busy || !r.adStartDate} onBlur={(e) => { if ((e.target.value || null) !== r.adEndDate) setAdEnd(r, e.target.value); }} style={{ ...input, padding: '4px 6px', fontSize: 12, display: 'block', marginBottom: 3 }} />
@@ -524,6 +579,7 @@ export default function PilotAdminPage() {
                           <>
                             <button onClick={() => copyReviewLink(r)} title={r.review.link} style={{ ...btn, background: 'transparent', color: C.text, padding: '2px 6px', textDecoration: 'underline' }}>Copy link</button>
                             {r.review.cardPath && <a href={r.review.cardPath} target="_blank" rel="noreferrer" style={{ color: C.text, fontSize: 13, fontWeight: 600, padding: '2px 6px' }}>Card</a>}
+                            {r.review.pdfPath && <a href={r.review.pdfPath} title="Print-ready A6 PDF, with bleed, for a printer" style={{ color: C.text, fontSize: 13, fontWeight: 600, padding: '2px 6px' }}>PDF</a>}
                             {r.review.source === 'baseline' && <span title="This shop has not connected its listing yet, so the link uses the listing matched from Tarkett's store list. Scan the card and check it opens the right shop before printing." style={{ color: C.amber, fontSize: 12 }}> check first</span>}
                           </>
                         ) : <span style={{ color: C.soft }} title="No Google place ID on record for this shop yet. It appears once the shop connects its listing.">No listing yet</span>}

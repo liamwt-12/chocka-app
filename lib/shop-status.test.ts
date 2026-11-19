@@ -1,11 +1,11 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
-import { shopStatus, liveRulesFromEnv, needsHelpOrder, automationHeld, DEFAULT_LIVE_RULES, type StatusInvite } from './shop-status';
+import { shopStatus, liveRulesFromEnv, needsHelpOrder, automationHeld, isActive, parseLiveRequires, STATUS_USER_COLUMNS, DEFAULT_LIVE_RULES, type StatusInvite } from './shop-status';
 import { pilotStatus } from './pilot';
 
 const NOW = new Date('2026-11-20T12:00:00Z');
 const ALL = DEFAULT_LIVE_RULES;
-const user = (o: any = {}) => ({ id: 'u1', google_refresh_token: 'v1.x', token_status: 'valid', profiles: [{ google_location_name: 'locations/1' }], ...o });
+const user = (o: any = {}) => ({ id: 'u1', google_refresh_token: 'v1.x', token_status: 'valid', auto_post_enabled: true, auto_reply_enabled: false, profiles: [{ google_location_name: 'locations/1' }], ...o });
 const inv = (o: Partial<StatusInvite> = {}): StatusInvite => ({ status: 'pending', expires_at: '2026-12-10T00:00:00Z', created_at: '2026-11-10T00:00:00Z', accepted_at: null, opened_at: null, ...o });
 const st = (r: any, u: any, i: StatusInvite[] = [], rules = ALL) => shopStatus({ user_id: null, ...r }, u, i, NOW, rules);
 
@@ -48,7 +48,7 @@ describe('LIVE is defined once: connected, matched, verified, access not lost', 
   });
 
   it('manager access counts, and says so', () => {
-    const managed = { id: 'u2', google_refresh_token: null, managed_by_user_id: 'op', manager: { id: 'op', google_refresh_token: 'v1.y', token_status: 'valid' }, profiles: [{ google_location_name: 'locations/2' }] };
+    const managed = { id: 'u2', google_refresh_token: null, auto_reply_enabled: true, managed_by_user_id: 'op', manager: { id: 'op', google_refresh_token: 'v1.y', token_status: 'valid' }, profiles: [{ google_location_name: 'locations/2' }] };
     expect(st({ user_id: 'u2' }, managed)).toMatchObject({ live: true, why: 'live (manager access)' });
   });
 
@@ -56,11 +56,82 @@ describe('LIVE is defined once: connected, matched, verified, access not lost', 
     expect(liveRulesFromEnv(undefined)).toEqual(ALL);
     expect(liveRulesFromEnv('')).toEqual(ALL);
     expect(liveRulesFromEnv('access')).toEqual({ matched: false, verified: false, access: true });
-    expect(liveRulesFromEnv('Matched, VERIFIED ,nonsense')).toEqual({ matched: true, verified: true, access: false });
+    expect(liveRulesFromEnv('Matched, VERIFIED ')).toEqual({ matched: true, verified: true, access: false });
+    // Anything that is not one of the four words is not trusted to relax what is billed: the full definition applies.
+    for (const bad of ['Matched, VERIFIED ,nonsense', 'matched; verified; access; active', '"matched,verified,access"', 'all', ',,']) {
+      expect(parseLiveRequires(bad).rules, bad).toEqual(ALL);
+      expect(parseLiveRequires(bad).problem, bad).toMatch(/has been ignored and the full definition applies/);
+    }
+    expect(parseLiveRequires('matched,verified,access').problem).toBeNull();
     const lax = liveRulesFromEnv('access');
     expect(st({ user_id: 'u1', connection_status: 'check_listing' }, user(), [], lax).live).toBe(true);
     expect(st({ user_id: 'u1', connection_status: 'waiting_google' }, user(), [], lax).live).toBe(true);
     expect(st({ user_id: 'u1' }, user({ profiles: [] }), [], { matched: false, verified: false, access: false }).live).toBe(false);
+  });
+});
+
+describe('live (and billable) does not depend on the switches; a quiet shop is still shown', () => {
+  const connected = { user_id: 'u1', connection_status: 'connected', connection_checked_at: '2026-11-18T09:00:00Z' };
+  const off = () => user({ auto_post_enabled: false, auto_reply_enabled: false });
+  it('posts on, or replies on, or both: live, and not quiet', () => {
+    for (const o of [{ auto_post_enabled: true, auto_reply_enabled: false }, { auto_post_enabled: false, auto_reply_enabled: true }, { auto_post_enabled: true, auto_reply_enabled: true }]) {
+      expect(st(connected, user(o))).toMatchObject({ key: 'live', live: true, quiet: false, needsHelp: false });
+    }
+  });
+  it('NOTHING switched on: still live and billable, and flagged so it is not invisible', () => {
+    const s = st(connected, off());
+    expect(s).toMatchObject({ key: 'nothing_on', label: 'Nothing switched on', live: true, quiet: true, connected: true, needsHelp: true, severity: 2 });
+    expect(s.why).toMatch(/It still counts as live/);
+    expect(s.action).toMatch(/Only the shop can switch these on/);
+    expect(s.buttons).toEqual([]);   // no button here does it for the shop
+  });
+  it('PAUSED: still live and billable (only disconnecting stops that), and flagged', () => {
+    const s = st(connected, user({ auto_post_enabled: true, auto_reply_enabled: true, automation_paused_at: '2026-11-19T10:00:00Z' }));
+    expect(s).toMatchObject({ key: 'paused', label: 'Paused by the shop', live: true, quiet: true, needsHelp: true, severity: 3 });
+    expect(s.why).toMatch(/19 Nov/);
+    expect(s.why).toMatch(/only disconnecting stops that/);
+  });
+  it('what does stop it: the wrong listing, an unverified one, lost access, no listing. Whatever is switched on', () => {
+    for (const u of [user(), off()]) {
+      expect(st({ user_id: 'u1', connection_status: 'check_listing' }, u)).toMatchObject({ key: 'check_listing', live: false });
+      expect(st({ user_id: 'u1', connection_status: 'waiting_google' }, u)).toMatchObject({ key: 'waiting_google', live: false });
+      expect(st(connected, { ...u, token_status: 'invalid' })).toMatchObject({ key: 'access_lost', live: false });
+      expect(st(connected, { ...u, profiles: [] })).toMatchObject({ key: 'no_listing_chosen', live: false });
+    }
+    expect(st({ user_id: null }, null).live).toBe(false);   // disconnected
+  });
+  it('an account row read without the switches is live but reads as quiet: unknown is not "on"', () => {
+    const bare = { id: 'u1', google_refresh_token: 'v1.x', token_status: 'valid', profiles: [{ google_location_name: 'locations/1' }] };
+    expect(st(connected, bare)).toMatchObject({ live: true, quiet: true });
+    expect(isActive(null)).toBe(false);
+    expect(isActive({ auto_post_enabled: 'true' as any })).toBe(false);
+  });
+  it('switches that were only turned on by a hands-off choice do not make a shop look busy once hands-off is not in force', () => {
+    const chose = user({ auto_post_enabled: true, auto_reply_enabled: true, automation_mode: 'hands_off', automation_consent_at: '2026-11-18T10:00:00Z', automation_consent_version: 'whatever' });
+    expect(st(connected, chose)).toMatchObject({ key: 'nothing_on', live: true, quiet: true });
+    expect(st(connected, { ...chose, automation_mode: 'ask_first' })).toMatchObject({ key: 'live', quiet: false });
+  });
+  it('is "live" in the five coarse states, and is on the needs-help list', () => {
+    expect(pilotStatus(connected, off() as any, [], NOW).state).toBe('live');
+    const rows = [{ id: 'a', status: st(connected, off()) }, { id: 'b', status: st(connected, user()) }];
+    expect(needsHelpOrder(rows).map((r) => r.id)).toEqual(['a']);
+  });
+  it('the setting has three words; "active" is no longer one, and is not trusted to mean anything', () => {
+    expect(DEFAULT_LIVE_RULES).toEqual({ matched: true, verified: true, access: true });
+    expect(parseLiveRequires('matched,verified,access')).toEqual({ rules: ALL, problem: null });
+    expect(parseLiveRequires('matched,verified,access,active').problem).toMatch(/has been ignored/);
+  });
+  it('nothing that decides "live" ever switches anything on for a shop', () => {
+    const code = readFileSync(new URL('./shop-status.ts', import.meta.url), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
+    expect(code).not.toMatch(/\.update\(|auto_post_enabled:\s*true|auto_reply_enabled:\s*true/);
+  });
+  it('every query that feeds the definition reads the switches, so a quiet shop can be told from a busy one', () => {
+    const src = (f: string) => readFileSync(new URL(f, import.meta.url), 'utf8');
+    expect(STATUS_USER_COLUMNS).toBe('auto_post_enabled, auto_reply_enabled, automation_paused_at, automation_mode, automation_consent_at, automation_consent_version');
+    for (const f of ['./billing.ts', './console-data.ts', './retention-data.ts', '../app/api/admin/pilot/route.ts']) {
+      expect(src(f), f).toMatch(/\$\{STATUS_USER_COLUMNS\}/);
+      expect(src(f), f).toMatch(/shopStatus\(|pilotStatus\(/);
+    }
   });
 });
 

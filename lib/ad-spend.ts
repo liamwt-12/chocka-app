@@ -12,18 +12,22 @@
  * never divides spend by anything. There is no "cost per call". Spend and
  * change are two facts shown side by side.
  *
- * THE "NO CLEAR CHANGE" RULE (proposed; change the two numbers below to move it).
- * Measured on customer actions (calls + website clicks + direction requests),
- * four weeks before the ads started against four weeks after:
+ * THE "NO CLEAR CHANGE" RULE (change the numbers below to move it).
+ * Measured on customer actions (calls + website clicks + direction requests):
+ * the four weeks after the ads started against the same four weeks last year
+ * (or, for a shop with no figures from last year, the four weeks before the
+ * ads; the sentence says which):
  *
  *   too early          the four weeks after are not complete yet
  *   not enough history Google has too few days either side to compare fairly
- *   too few to say     fewer than 10 actions in the four weeks before: a
+ *   too few to say     fewer than 10 actions in the earlier period: a
  *                      percentage on a base that small is noise
- *   clear rise         up 10% or more, AND at least 5 points better than the
- *                      shops with no ads over the same weeks (when there are
- *                      enough of those to compare; otherwise up 10% or more)
- *   fall               down 10% or more, and at least 5 points worse than them
+ *   clear rise         up 10% or more, AND at least 3 more actions, AND at
+ *                      least 5 points better than the shops with no ads
+ *                      measured the same way (when there are enough of those
+ *                      to compare; otherwise the first two)
+ *   fall               down 10% or more, at least 3 fewer actions, and at
+ *                      least 5 points worse than them
  *   no clear change    everything else
  *
  * A shop is FLAGGED when money has been spent on it and the answer is "no clear
@@ -33,9 +37,12 @@
  * Pure. No database, no network.
  */
 import { type AdComparison, type MetricChange } from './ad-comparison';
+import { MIN_BASE_ACTIONS, MIN_EXTRA_ACTIONS, movedEnough, BASIS_WORDS } from './year-on-year';
 
-/** Fewer customer actions than this in the four weeks before the ads, and the answer is "too few to say". */
-export const MIN_BASE_EVENTS = 10;
+/** Fewer customer actions than this in the earlier period, and the answer is "too few to say". */
+export const MIN_BASE_EVENTS = MIN_BASE_ACTIONS;
+/** A clear rise must also be at least this many more actions (and a fall this many fewer). */
+export const MIN_EXTRA_EVENTS = MIN_EXTRA_ACTIONS;
 /** A change smaller than this, either way, is not called a change. */
 export const CLEAR_CHANGE_PERCENT = 10;
 /** A rise must beat the shops with no ads by at least this many points to be called clear. */
@@ -69,10 +76,11 @@ export function adVerdict(spendPence: number | null | undefined, comparison: AdC
   const none = { change: null, noAdsChange: null, flag: false };
   if (!comparison) return { key: 'no_ads', label: 'No ad dates', detail: 'No ad start date has been entered for this shop.', ...none };
   if (comparison.status === 'too_early') return { key: 'too_early', label: 'Too early to say', detail: `Four full weeks of figures after the ads started are needed. Ready from ${comparison.readyOn}.`, ...none };
-  if (comparison.status === 'not_enough_history') return { key: 'not_enough_history', label: 'Not enough history', detail: 'Google does not hold enough figures from before the ads started to compare fairly.', ...none };
+  if (comparison.status === 'not_enough_history') return { key: 'not_enough_history', label: 'Not enough history', detail: 'Google does not hold enough figures for this listing, from the same weeks last year or the weeks before the ads, to compare fairly.', ...none };
 
   const before = sum(comparison.shop, 'before'), after = sum(comparison.shop, 'after');
-  if (before < MIN_BASE_EVENTS) return { key: 'too_few', label: 'Too few to say', detail: 'This shop had too few customer actions in the four weeks before its ads to give a meaningful percentage.', ...none };
+  const words = BASIS_WORDS[comparison.basis];
+  if (before < MIN_BASE_EVENTS) return { key: 'too_few', label: 'Too few to say', detail: `This shop had too few customer actions in the ${comparison.basis === 'last_year' ? 'same four weeks last year' : 'four weeks before its ads'} to give a meaningful percentage.`, ...none };
   const change = pct(before, after);
 
   let noAdsChange: number | null = null;
@@ -80,13 +88,16 @@ export function adVerdict(spendPence: number | null | undefined, comparison: AdC
     const nb = sum(comparison.network.changes, 'before'), na = sum(comparison.network.changes, 'after');
     if (nb >= MIN_BASE_EVENTS) noAdsChange = pct(nb, na);
   }
-  const against = noAdsChange === null ? 'There are not enough shops without ads to compare against.' : `Shops with no ads changed by ${signed(noAdsChange)} over the same weeks.`;
+  const against = noAdsChange === null ? 'There are not enough shops without ads to compare against.' : `Shops with no ads changed by ${signed(noAdsChange)}, measured the same way.`;
   const beats = noAdsChange === null || change - noAdsChange >= MARGIN_OVER_NO_ADS;
   const trails = noAdsChange === null || noAdsChange - change >= MARGIN_OVER_NO_ADS;
+  // 10 to 11 is "+10%" and is one phone call: a rise or fall must also be a real number of actions.
+  const enough = movedEnough(before, after);
+  const detail = `Customer actions ${signed(change)} in the four weeks after the ads started, ${words.against}. ${against}`;
 
-  if (change >= CLEAR_CHANGE_PERCENT && beats) return { key: 'clear_rise', label: 'Clear rise', detail: `Customer actions ${signed(change)} in the four weeks after the ads started. ${against}`, change, noAdsChange, flag: false };
-  if (change <= -CLEAR_CHANGE_PERCENT && trails) return { key: 'fall', label: 'Fall', detail: `Customer actions ${signed(change)} in the four weeks after the ads started. ${against}`, change, noAdsChange, flag: spent };
-  return { key: 'no_clear_change', label: 'No clear change', detail: `Customer actions ${signed(change)} in the four weeks after the ads started. ${against}`, change, noAdsChange, flag: spent };
+  if (change >= CLEAR_CHANGE_PERCENT && enough && beats) return { key: 'clear_rise', label: 'Clear rise', detail, change, noAdsChange, flag: false };
+  if (change <= -CLEAR_CHANGE_PERCENT && enough && trails) return { key: 'fall', label: 'Fall', detail, change, noAdsChange, flag: spent };
+  return { key: 'no_clear_change', label: 'No clear change', detail, change, noAdsChange, flag: spent };
 }
 
 /**

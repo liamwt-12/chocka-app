@@ -9,8 +9,8 @@
  * It reports whether a setting is PRESENT, never its value. Nothing secret
  * leaves the server. It reads; it changes nothing.
  */
-import { liveRulesFromEnv } from './shop-status';
-import { billingSettingsFromEnv } from './billing';
+import { parseLiveRequires } from './shop-status';
+import { billingSettingsFromEnv, termProblem } from './billing';
 
 export interface Check {
   key: string;
@@ -49,16 +49,22 @@ export function settingChecks(env: Env = process.env): Check[] {
   out.push({ key: 'CRON_ACCEPT_QUERY_SECRET', label: 'Job secret only accepted in a header', ok: querySecret ? null : true, detail: querySecret ? 'The secret is still accepted in the address as well. Set CRON_ACCEPT_QUERY_SECRET=false once the schedulers use the header.' : 'Header only.' });
   out.push({ key: 'WELCOME_EMAIL', label: 'Welcome email (one, after a shop connects)', ok: null, detail: isOn(env, 'WELCOME_EMAIL') ? 'ON. Each shop gets one email when it connects.' : 'Off. Set WELCOME_EMAIL=on to send it.' });
   out.push({ key: 'EARLY_POST_PREVIEW_EMAILS', label: 'Preview email for posts waiting for approval', ok: null, detail: isOn(env, 'EARLY_POST_PREVIEW_EMAILS') ? 'ON. Shops are emailed about posts waiting for approval.' : 'Off. Shops approve posts on their dashboard.' });
+  out.push({ key: 'REVIEW_ALERT_EMAILS', label: 'Email every shop about every new review', ok: null, detail: isOn(env, 'REVIEW_ALERT_EMAILS') ? 'ON. Every connected shop is emailed about a new review, whether or not replies are switched on.' : 'Off. Only shops with replies on hear about a review, and only a low one. Read the emails in this page first, then set REVIEW_ALERT_EMAILS=on.' });
+  out.push({ key: 'HANDS_OFF_MODE', label: 'Hands-off mode (the shop chooses: we post and reply without asking each time)', ok: null, detail: isOn(env, 'HANDS_OFF_MODE') ? 'ON. A shop that connects is offered Hands-off or Ask me first, and for a shop that chose Hands-off posts and replies go out without further approval. Check the wording was reviewed first.' : 'Off. Every shop is asked first, as before. Set HANDS_OFF_MODE=on once the wording has been reviewed.' });
   out.push({ key: 'SHOP_PHOTOS', label: 'Photos', ok: null, detail: isOn(env, 'SHOP_PHOTOS') ? `ON${isOn(env, 'SHOP_PHOTOS_TO_LISTING') ? ', and photos can be added to the listing itself' : ''}.` : 'Off.' });
   out.push({ key: 'RETENTION_VIEW', label: 'Retention view (which shops are drifting)', ok: null, detail: isOn(env, 'RETENTION_VIEW') ? 'ON. Admin can see it, and the app records when each shop last opened its dashboard.' : 'Off. Set RETENTION_VIEW=on to use it.' });
   out.push({ key: 'MONTHLY_REPORT_PLAIN_SUMMARY', label: 'Monthly report: "what we did, what changed" in words', ok: null, detail: isOn(env, 'MONTHLY_REPORT_PLAIN_SUMMARY') ? 'ON. The monthly report opens with a plain summary.' : 'Off. The monthly report is as it was.' });
   out.push({ key: 'TARKETT_CONSOLE_ENABLED', label: 'Tarkett console', ok: null, detail: isOn(env, 'TARKETT_CONSOLE_ENABLED') ? 'ON. Tarkett users can sign in and see per-shop figures. Check the privacy checklist was completed.' : 'Off.' });
 
-  const rules = liveRulesFromEnv(env.LIVE_REQUIRES);
+  const parsed = parseLiveRequires(env.LIVE_REQUIRES);
+  const rules = parsed.rules;
   const relaxed = (['matched', 'verified', 'access'] as const).filter((k) => !rules[k]);
-  out.push({ key: 'LIVE_REQUIRES', label: 'What counts as live', ok: null, detail: relaxed.length ? `Relaxed: a shop counts as live without ${relaxed.join(', ')}.` : 'Connected, right listing, verified by Google, access not lost.' });
+  // Relaxing what counts as live changes what is billed, so it is a cross, not a note.
+  out.push({ key: 'LIVE_REQUIRES', label: 'What counts as live', ok: parsed.problem || relaxed.length ? false : null, detail: parsed.problem ? parsed.problem : relaxed.length ? `RELAXED: a shop counts as live, and is counted on the statement, without ${relaxed.join(', ')}. Remove LIVE_REQUIRES unless that is intended.` : 'Connected, right listing, verified by Google, access not lost. It does not depend on what the shop has switched on: a live shop with nothing on is listed under Needs help.' });
   const b = billingSettingsFromEnv(env);
-  out.push({ key: 'BILLING', label: 'Monthly statement', ok: null, detail: `Price per shop ${b.pricePence === null ? 'not set (the statement shows counts only)' : 'set'}; monthly cap ${b.capPence === null ? 'not set' : 'set'}. A shop counts for a month if it is live on the month's last day.` });
+  // No statement is produced until the term is set, so a missing term is a cross.
+  const noStatement = termProblem(b);
+  out.push({ key: 'BILLING', label: 'Monthly statement', ok: noStatement ? false : null, detail: `${noStatement ? `${noStatement} ` : `The term is set. `}Price per shop ${b.pricePence === null ? 'not set (a statement shows counts only)' : 'set'}; monthly cap ${b.capPence === null ? 'not set' : 'set'}. The cap, and its credit line, apply only to months that end inside the term. A shop counts for a month if it is live on the month's last day.` });
   return out;
 }
 
@@ -80,6 +86,17 @@ export const SCHEMA_PROBES: Array<{ migration: string; label: string; table: str
   { migration: '20261117110000_ad_spend_and_live_months', label: 'Ad spend and first-live date', table: 'retailers', columns: 'ad_spend_pence, ad_end_date, first_live_on, exclude_from_count' },
   { migration: '20261117110000_ad_spend_and_live_months', label: 'Monthly count of live shops', table: 'live_months', columns: 'month, retailer_id, live_days' },
   { migration: '20261118090000_user_last_seen', label: 'When a shop last opened its dashboard', table: 'users', columns: 'last_seen_at' },
+  { migration: '20261119100000_review_snapshot', label: 'Review totals per listing (network rating)', table: 'profiles', columns: 'review_rating, review_count, reviews_read, reviews_answered, review_snapshot_at' },
+  { migration: '20261119090000_automation_mode', label: 'Hands-off or ask me first, and Pause', table: 'users', columns: 'automation_mode, automation_mode_chosen_at, automation_consent_at, automation_consent_version, automation_paused_at' },
+];
+
+/**
+ * Migrations that add a database rule and no column, so a read cannot show
+ * whether they have been applied. The launch check lists them to be confirmed
+ * by hand instead of pretending to have checked.
+ */
+export const NOT_PROBEABLE: Array<{ migration: string; label: string }> = [
+  { migration: '20261120090000_operator_rows_start_off', label: 'An account made through an operator account starts with posts and replies off' },
 ];
 
 export interface ReadinessDb { from(table: string): any }
@@ -94,6 +111,7 @@ export async function schemaChecks(db: ReadinessDb): Promise<Check[]> {
       out.push({ key: `${p.table}:${p.columns}`, label: p.label, ok: false, detail: `Could not check (${String((e as any)?.message).slice(0, 80)}).` });
     }
   }
+  for (const m of NOT_PROBEABLE) out.push({ key: `rule:${m.migration}`, label: m.label, ok: null, detail: `This cannot be checked from here (it is a database rule, not a column). Confirm migration ${m.migration} was applied.` });
   return out;
 }
 

@@ -5,7 +5,8 @@ import {
   postsDueForPreview, replyBreaksRules, AWAITING_APPROVAL,
 } from './safe-automation';
 import { validateContent } from './ai';
-import { postApprovalEmail } from './email';
+import { postWaitingNotice } from './shop-notices';
+import { getTenantBySlug } from './tenant';
 import { generatePostActionHash } from './cron';
 
 const writes: any[] = [];
@@ -80,11 +81,11 @@ describe('24-hour preview', () => {
     ];
     expect(postsDueForPreview(posts, now).map((p) => p.id)).toEqual(['a']);
   });
-  it('the email says nothing is posted if they do nothing', () => {
-    const html = postApprovalEmail({ businessName: 'Testwell Flooring', postContent: 'Hello', scheduledFor: '2026-11-16T10:30:00Z', approveUrl: 'https://a', skipUrl: 'https://s', approvalsLeft: 3 });
-    expect(html).toContain('If you do nothing, nothing is posted.');
-    expect(html).toContain('Approve this post');
-    expect(html).toContain('Monday 16 November');
+  it('the notice says nothing is posted if they do nothing', () => {
+    const n = postWaitingNotice({ businessName: 'Testwell Flooring', postContent: 'Hello', scheduledFor: '2026-11-16T10:30:00Z', approveUrl: 'https://a', skipUrl: 'https://s', approvalsLeft: 3, tenant: getTenantBySlug('stellar') });
+    expect(n.text).toContain('If you do nothing, nothing is posted.');
+    expect(n.text).toContain('To approve it (you will be asked to confirm):\nhttps://a');
+    expect(n.text).toContain('Monday 16 November');
   });
 });
 

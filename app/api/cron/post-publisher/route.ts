@@ -10,6 +10,8 @@ import { decryptSecret, userTokenAad } from '@/lib/secrets';
 import { resolveAccess, MANAGER_EMBED } from '@/lib/managed-access';
 import { photoUrlForPost } from '@/lib/shop-photos';
 import { startBudget } from '@/lib/cron-budget';
+import { isPaused, isHandsOff } from '@/lib/automation-mode';
+import { APPROVAL_REQUIRED_POSTS, AWAITING_APPROVAL } from '@/lib/safe-automation';
 
 /**
  * Most posts this route will publish in a single invocation.
@@ -72,6 +74,22 @@ export async function GET(request: NextRequest) {
       // The post is left exactly as it is and goes out once the hold lifts.
       const hold = automationHeld(user.retailers);
       if (hold) { console.log(`[cron:post-publisher] post ${post.id} held: ${hold}`); continue; }
+      // Paused by the shop (lib/automation-mode.ts): the post stays booked and
+      // goes out on the first run after the shop presses Resume.
+      if (isPaused(user)) { console.log(`[cron:post-publisher] post ${post.id} not published: the shop has paused`); continue; }
+
+      // Booked under hands-off, and hands-off is no longer in force for this
+      // shop (the switch was turned off, or its wording is no longer accepted):
+      // a post the shop never approved itself, among its first three, goes
+      // back to waiting for the shop instead of going up.
+      if (user.automation_mode === 'hands_off' && !isHandsOff(user) && !post.approved_at) {
+        const { count: publishedSoFar } = await supabaseAdmin.from('scheduled_posts').select('id', { count: 'exact', head: true }).eq('profile_id', profile.id).eq('status', 'published');
+        if ((publishedSoFar || 0) < APPROVAL_REQUIRED_POSTS) {
+          await supabaseAdmin.from('scheduled_posts').update({ status: AWAITING_APPROVAL }).eq('id', post.id).eq('status', 'pending_approval');
+          console.log(`[cron:post-publisher] post ${post.id} put back to waiting: hands-off is not in force for this shop`);
+          continue;
+        }
+      }
 
       // Per post, not per run — one pass serves every tenant.
       const t = getTenantForRow(user);

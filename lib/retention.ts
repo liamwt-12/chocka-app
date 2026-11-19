@@ -22,6 +22,8 @@ export interface RetentionFacts {
   live: boolean;
   /** The plain status label from lib/shop-status.ts ("Check listing", "Connection lost"...). */
   statusLabel: string;
+  /** The status key from lib/shop-status.ts, when known. */
+  statusKey?: string;
   invited: boolean;
   daysSinceInvited: number | null;
   daysSinceJoined: number | null;
@@ -54,7 +56,8 @@ export function retentionSignals(f: RetentionFacts): { signals: Signal[]; risk: 
     }
     return finish(out);
   }
-  if (!f.live) out.push({ key: 'held', label: `Connected but not live: ${f.statusLabel.toLowerCase()}`, serious: true });
+  // "Nothing switched on" is its own signal below, so it is not also listed here.
+  if (!f.live && f.statusKey !== 'nothing_on') out.push({ key: 'held', label: `Connected but not live: ${f.statusLabel.toLowerCase()}`, serious: true });
   const joined = f.daysSinceJoined ?? 0;
   // Visits only mean something for a shop that signs in itself, and "never"
   // only once visits have been recorded for long enough to have seen one.

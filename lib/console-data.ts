@@ -7,20 +7,23 @@
  *   everyone:            name, town (Tarkett's own published data), where they are
  *                        in the pilot, and their Google connection status
  *   participating shops: presence score at activation, posts and replies in the
- *                        last 30 days, change in customer actions and views since
- *                        joining (percentages, as in the league), ad start date
+ *                        last 30 days, change in customer actions and views against
+ *                        the same weeks last year (percentages, as in the league),
+ *                        ad start date
  * WHAT IS NEVER SHOWN: contact details, phone numbers, review text, anything
  * about a shop's customers, and any score for a shop that has not joined.
  */
 import { pilotStatus, type PilotInvite, type PilotUser } from './pilot';
-import { shopStatus, type StatusInvite } from './shop-status';
+import { shopStatus, STATUS_USER_COLUMNS, type StatusInvite } from './shop-status';
 import { ADMIN_LABELS, type ConnectionStatus } from './ownership';
 import { MANAGER_EMBED } from './managed-access';
-import { loadMetricRows, isoDate, totalsFor, previousMonth, lastReportableDate, type MetricRow } from './metrics';
+import { loadMetricRows, loadMetricRanges, isoDate, totalsFor, previousMonth, lastReportableDate, type MetricRow } from './metrics';
+import { sameMonthLastYear } from './year-on-year';
 import { inChunks } from './monthly-report';
 import { buildNetworkSummary, type NetworkSummary, type ShopMonth } from './network-summary';
-import { buildLeague, leagueWindows, type LeagueEntry, type LeagueExcluded } from './league';
-import { compareAdPeriod, comparisonRange } from './ad-comparison';
+import type { ShopReviews } from './review-snapshot';
+import { buildLeague, leagueRanges, type LeagueEntry, type LeagueExcluded } from './league';
+import { compareAdPeriod, comparisonRanges } from './ad-comparison';
 import { adVerdict, formatPounds } from './ad-spend';
 
 export interface ConsoleShop {
@@ -30,6 +33,8 @@ export interface ConsoleShop {
   pilotState: string;
   /** Why a shop is not live yet, and what would help, in plain words. Null when it is live. */
   statusNote: { label: string; why: string; action: string } | null;
+  /** Live, with nothing being done for it (posts and replies off, or paused). */
+  quiet: boolean;
   connection: string | null;
   participating: boolean;
   joinedOn: string | null;
@@ -72,16 +77,21 @@ export async function loadConsoleData(db: Db, tenantId: string, now: Date = new 
     ? await db.from('retailer_invites').select('id, retailer_id, status, expires_at, created_at, accepted_at, opened_at').in('retailer_id', ids)
     : { data: [] };
   // Tokens are read only to decide whether access works. They never leave this function.
-  const { data: users } = userIds.length
+  const { data: users, error: usersError } = userIds.length
     ? await db.from('users')
-        .select(`id, google_refresh_token, token_status, token_invalid_at, managed_by_user_id, ${MANAGER_EMBED}, profiles ( id, created_at, audit_score, google_location_name )`)
+        .select(`id, google_refresh_token, token_status, token_invalid_at, managed_by_user_id, ${STATUS_USER_COLUMNS}, ${MANAGER_EMBED}, profiles ( id, created_at, audit_score, google_location_name, review_rating, review_count, reviews_read, reviews_answered, review_snapshot_at )`)
         .in('id', userIds)
-    : { data: [] };
+    : { data: [], error: null };
+  // A failed read is an error, not "nobody has joined": without the accounts every shop would read as not connected.
+  if (usersError) throw new Error(`could not read the accounts: ${usersError.message}`);
   const userById = new Map<string, any>((users || []).map((u: any) => [u.id, u]));
 
   const since30 = new Date(now.getTime() - 30 * 86_400_000).toISOString();
   const leagueInputs: Parameters<typeof buildLeague>[0] = [];
   const withProfile: Array<{ shop: ConsoleShop; profileId: string; adStart: string | null; spend: number | null }> = [];
+  // Each live shop's review totals, for the network rating. Only ever shown added up.
+  const reviewTotals: ShopReviews[] = [];
+  const joined: Array<{ shop: ConsoleShop; profileId: string; joinedOn: string }> = [];
   const shops: ConsoleShop[] = [];
 
   for (const r of rows) {
@@ -95,7 +105,9 @@ export async function loadConsoleData(db: Db, tenantId: string, now: Date = new 
     const participating = !!(r.user_id && profile?.google_location_name);
     const shop: ConsoleShop = {
       retailerId: r.id, name: r.name, town: r.town, pilotState: state,
-      statusNote: full.live || full.key === 'not_invited' ? null : { label: full.label, why: full.why, action: full.action },
+      // A live shop with nothing switched on keeps its note: it is live, and it is quiet.
+      statusNote: (full.live && !full.quiet) || full.key === 'not_invited' ? null : { label: full.label, why: full.why, action: full.action },
+      quiet: full.quiet,
       connection: r.connection_status ? ADMIN_LABELS[r.connection_status as ConnectionStatus] ?? r.connection_status : null,
       participating, joinedOn: null, scoreAtActivation: null, postsLast30: null, repliesLast30: null,
       actionsChange: null, viewsChange: null, improvement: null, adStartDate: participating ? r.ad_start_date ?? null : null,
@@ -105,19 +117,33 @@ export async function loadConsoleData(db: Db, tenantId: string, now: Date = new 
       const joinedOn = isoDate(new Date(profile.created_at));
       shop.joinedOn = joinedOn;
       shop.scoreAtActivation = profile.audit_score ?? null;
-      const { count: posts } = await db.from('scheduled_posts').select('id', { count: 'exact', head: true })
-        .eq('profile_id', profile.id).eq('status', 'published').gte('published_at', since30);
-      const { count: replies } = await db.from('review_replies').select('id, reviews!inner(profile_id)', { count: 'exact', head: true })
-        .eq('reviews.profile_id', profile.id).eq('status', 'published').gte('published_at', since30);
-      shop.postsLast30 = posts ?? 0;
-      shop.repliesLast30 = replies ?? 0;
-      const w = leagueWindows(joinedOn, now);
-      const metricRows: MetricRow[] = await loadMetricRows(db, profile.id, w.baselineFrom, w.recentTo);
-      leagueInputs.push({ retailerId: r.id, name: r.name, town: r.town, activatedOn: joinedOn, rows: metricRows });
+      joined.push({ shop, profileId: profile.id, joinedOn });
       withProfile.push({ shop, profileId: profile.id, adStart: r.ad_start_date ?? null, spend: r.ad_spend_pence ?? null });
+      reviewTotals.push({ live: full.live, rating: profile.review_rating === null || profile.review_rating === undefined ? null : Number(profile.review_rating), count: profile.review_count, read: profile.reviews_read, answered: profile.reviews_answered, snapshotAt: profile.review_snapshot_at });
     }
     shops.push(shop);
   }
+
+  // Each joined shop's counts and league figures: ten shops at a time, not one
+  // after another, and one shop's failed read leaves that shop's figures blank
+  // instead of taking the page down.
+  await inChunks(joined, 10, async ({ shop, profileId, joinedOn }) => {
+    try {
+      const { count: posts, error: postsError } = await db.from('scheduled_posts').select('id', { count: 'exact', head: true })
+        .eq('profile_id', profileId).eq('status', 'published').gte('published_at', since30);
+      const { count: replies, error: repliesError } = await db.from('review_replies').select('id, reviews!inner(profile_id)', { count: 'exact', head: true })
+        .eq('reviews.profile_id', profileId).eq('status', 'published').gte('published_at', since30);
+      // A count that could not be read is shown as unknown, not as none.
+      shop.postsLast30 = postsError ? null : posts ?? 0;
+      shop.repliesLast30 = repliesError ? null : replies ?? 0;
+      // The latest four weeks, the same four weeks last year, and the weeks before joining (lib/league.ts).
+      const metricRows: MetricRow[] = await loadMetricRanges(db, profileId, leagueRanges(joinedOn, now));
+      leagueInputs.push({ retailerId: shop.retailerId, name: shop.name, town: shop.town, activatedOn: joinedOn, rows: metricRows });
+    } catch (e) {
+      shop.improvement = 'Not worked out: the figures could not be read just now';
+      console.error(`[console] figures failed for ${shop.retailerId}: ${String((e as any)?.message).slice(0, 160)}`);
+    }
+  });
 
   // Change alongside the ads (lib/ad-spend.ts): each shop with an ad start
   // date, against the shops with none over the same weeks. Rows for the
@@ -126,13 +152,10 @@ export async function loadConsoleData(db: Db, tenantId: string, now: Date = new 
   const noAdsRows = new Map<string, MetricRow[][]>();
   for (const x of withProfile.filter((y) => y.adStart)) {
     try {
-      const { from, to } = comparisonRange(x.adStart!);
-      if (!noAdsRows.has(x.adStart!)) {
-        const sets: MetricRow[][] = [];
-        for (const n of noAds) sets.push(await loadMetricRows(db, n.profileId, from, to));
-        noAdsRows.set(x.adStart!, sets);
-      }
-      const v = adVerdict(x.spend, compareAdPeriod(x.adStart!, await loadMetricRows(db, x.profileId, from, to), noAdsRows.get(x.adStart!)!, now));
+      const ranges = comparisonRanges(x.adStart!);
+      // Ten at a time, like the monthly report does.
+      if (!noAdsRows.has(x.adStart!)) noAdsRows.set(x.adStart!, await inChunks(noAds, 10, (n) => loadMetricRanges(db, n.profileId, ranges)));
+      const v = adVerdict(x.spend, compareAdPeriod(x.adStart!, await loadMetricRanges(db, x.profileId, ranges), noAdsRows.get(x.adStart!)!, now));
       x.shop.adChange = { label: v.label, detail: v.detail, flag: v.flag };
     } catch (e) { console.error(`[console] ad comparison failed for ${x.shop.retailerId}: ${String((e as any)?.message).slice(0, 160)}`); }
   }
@@ -144,28 +167,32 @@ export async function loadConsoleData(db: Db, tenantId: string, now: Date = new 
   }
   for (const e of league.excluded) {
     const s = shops.find((x) => x.retailerId === e.retailerId)!;
-    s.improvement = `Too early: ${e.reason}`;
+    s.improvement = `Not ranked: ${e.reason}`;
   }
 
-  // The last complete month and the one before, per shop, for the network
-  // totals. One read per shop covering both months.
+  // The last complete month, the same month a year earlier, and the month
+  // before, per shop, for the network totals. Two reads per shop.
   const month = previousMonth(now);
   const before = previousMonth(new Date(`${month.from}T12:00:00Z`));
+  const lastYear = sameMonthLastYear(month.from);
   const months: ShopMonth[] = [];
   // Ten at a time, not one after another: at 180 shops this is 18 short waits.
   await inChunks(withProfile, 10, async (x) => {
     try {
       const rows = await loadMetricRows(db, x.profileId, before.from, month.to);
-      months.push({ retailerId: x.shop.retailerId, thisMonth: totalsFor(rows, month.from, month.to), lastMonth: totalsFor(rows, before.from, before.to) });
+      const earlier = await loadMetricRows(db, x.profileId, lastYear.from, lastYear.to);
+      months.push({ retailerId: x.shop.retailerId, thisMonth: totalsFor(rows, month.from, month.to), lastMonth: totalsFor(rows, before.from, before.to), sameMonthLastYear: totalsFor(earlier, lastYear.from, lastYear.to) });
     } catch (e) { console.error(`[console] month figures failed for ${x.shop.retailerId}: ${String((e as any)?.message).slice(0, 160)}`); }
   });
   const dayOf = (iso: string) => Number(iso.slice(8, 10));
+  const monthName = (from: string) => new Date(`${from}T12:00:00Z`).toLocaleString('en-GB', { month: 'long', year: 'numeric', timeZone: 'UTC' });
   const summary = buildNetworkSummary(shops, league, months, {
-    label: new Date(`${month.from}T12:00:00Z`).toLocaleString('en-GB', { month: 'long', year: 'numeric', timeZone: 'UTC' }),
+    label: monthName(month.from),
     days: dayOf(month.to), daysBefore: dayOf(before.to),
+    lastYearLabel: monthName(lastYear.from), daysLastYear: lastYear.days,
     // Google's last few days arrive late. Until they are in, last month is understated.
     complete: lastReportableDate(now) >= month.to,
-  });
+  }, reviewTotals, now);
 
   const counts = shops.reduce((acc: Record<string, number>, s) => { acc[s.pilotState] = (acc[s.pilotState] || 0) + 1; return acc; }, {});
   return { generatedAt: now.toISOString(), counts, shops, league, summary };

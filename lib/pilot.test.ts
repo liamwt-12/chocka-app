@@ -29,14 +29,17 @@ describe('validateNewRetailer', () => {
 });
 
 describe('pilotStatus', () => {
-  const live = { id: 'u1', google_refresh_token: 'v1.x', token_status: 'valid', profiles: [{ google_location_name: 'locations/1' }] };
+  const live = { id: 'u1', google_refresh_token: 'v1.x', token_status: 'valid', auto_reply_enabled: true, profiles: [{ google_location_name: 'locations/1' }] };
   const inv = (o: Partial<PilotInvite>): PilotInvite => ({ id: 'i', status: 'pending', expires_at: '2026-12-01T00:00:00Z', created_at: '2026-11-01T00:00:00Z', accepted_at: null, ...o });
 
-  it('live: linked, working access, listing bound', () => {
+  it('live: linked, working access, listing bound, something switched on', () => {
     expect(pilotStatus({ user_id: 'u1' }, live, [], NOW).state).toBe('live');
   });
+  it('connected with nothing switched on is still live: what is switched on does not decide it', () => {
+    expect(pilotStatus({ user_id: 'u1' }, { ...live, auto_reply_enabled: false }, [], NOW).state).toBe('live');
+  });
   it('live through manager access', () => {
-    const managed = { id: 'u2', google_refresh_token: null, managed_by_user_id: 'op', manager: { id: 'op', google_refresh_token: 'v1.y', token_status: 'valid' }, profiles: [{ google_location_name: 'locations/2' }] };
+    const managed = { id: 'u2', google_refresh_token: null, auto_post_enabled: true, managed_by_user_id: 'op', manager: { id: 'op', google_refresh_token: 'v1.y', token_status: 'valid' }, profiles: [{ google_location_name: 'locations/2' }] };
     expect(pilotStatus({ user_id: 'u2' }, managed, [], NOW)).toEqual({ state: 'live', detail: 'live (manager access)' });
   });
   it('not live when access has failed, or no listing is chosen', () => {

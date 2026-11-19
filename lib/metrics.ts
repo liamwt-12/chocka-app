@@ -154,6 +154,17 @@ export async function loadMetricRows(db: MetricsDb, profileId: string, from: str
 }
 
 /**
+ * Read stored rows for several periods at once (this year's weeks and last
+ * year's, say). The caller passes ranges that do not overlap
+ * (lib/year-on-year.ts mergeRanges), so no day is read, and counted, twice.
+ */
+export async function loadMetricRanges(db: MetricsDb, profileId: string, ranges: Array<{ from: string; to: string }>): Promise<MetricRow[]> {
+  const out: MetricRow[] = [];
+  for (const r of ranges) out.push(...(await loadMetricRows(db, profileId, r.from, r.to)));
+  return out;
+}
+
+/**
  * Fetch from Google and store. The first sync for a profile pulls the full
  * history; later ones pull the last RESYNC_DAYS. Returns what happened.
  *

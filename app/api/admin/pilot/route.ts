@@ -7,13 +7,16 @@ import { shopPhotosEnabled } from '@/lib/shop-photos';
 import { googleReviewLink, reviewPlaceId, reviewCardPath } from '@/lib/review-link';
 import { parseVoiceProfile, readStoredVoice, isEmptyVoice } from '@/lib/voice';
 import { resetConnection } from '@/lib/connection-reset';
-import { shopStatus, liveRulesFromEnv } from '@/lib/shop-status';
+import { shopStatus, liveRulesFromEnv, STATUS_USER_COLUMNS } from '@/lib/shop-status';
 import { parseSpendPounds, adDatesProblem } from '@/lib/ad-spend';
-import { loadStatement, statementCsv, billingSettingsFromEnv } from '@/lib/billing';
+import { loadStatement, statementCsv, billingSettingsFromEnv, termProblem } from '@/lib/billing';
 import { describeChange, undoChange } from '@/lib/revert';
 import { settingChecks, schemaChecks, dataChecks, summary } from '@/lib/readiness';
 import { retentionEnabled, retentionCsv } from '@/lib/retention';
 import { loadRetention } from '@/lib/retention-data';
+import { describeMode, handsOffEnabled } from '@/lib/automation-mode';
+import { emailPreview, EMAIL_PREVIEWS } from '@/lib/email-previews';
+import { loadBulkCards, cardsPdfFor } from '@/lib/review-card-data';
 import {
   verifyAdminAuth, validateNewRetailer, pilotStatus, mintInvites, parseAdStartDate,
   PILOT_TENANT_SLUG, MANUAL_SOURCE, type PilotInvite, type PilotUser,
@@ -37,6 +40,8 @@ import {
  * POST { action: 'confirm_listing', retailerId }         a person confirms a "check listing" shop connected the right listing
  * POST { action: 'mark_bounced', retailerId, bounced }   the invitation bounced or went to the wrong person (we never see this ourselves)
  * POST { action: 'set_note', retailerId, note }          a short note from whoever is helping
+ * POST { action: 'review_cards', includeUnchecked? }      every connected shop's review card as one print-ready A6 PDF
+ * POST { action: 'preview_email', key? }                  read an email that is switched off, with made-up content; sends nothing
  * POST { action: 'set_voice', retailerId, voice }           save how a shop's posts and replies should sound (lib/voice.ts)
  *
  * There is deliberately no 'send' action. Tarkett makes first contact.
@@ -145,6 +150,25 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ enabled: true, ...r, csv: retentionCsv(r.rows) });
       }
 
+      case 'review_cards': {
+        // Every connected shop's review card in one print-ready A6 file, one
+        // card per page, in name order. Names, towns and public Google review
+        // links only: no customer data and no contact details. Nothing is sent.
+        const bulk = await loadBulkCards(supabaseAdmin, tenantRow.id, { includeUnchecked: body.includeUnchecked === true });
+        if (!bulk.cards.length) return NextResponse.json({ cards: 0, leftOut: bulk.leftOut, pdfBase64: null });
+        const pdf = cardsPdfFor(getTenantBySlug(PILOT_TENANT_SLUG), bulk.cards, 'Review cards');
+        return NextResponse.json({ cards: bulk.cards.length, unchecked: bulk.cards.filter((c) => c.source !== 'connected').length, leftOut: bulk.leftOut, fileName: `review-cards-${new Date().toISOString().slice(0, 10)}.pdf`, pdfBase64: pdf.toString('base64') });
+      }
+
+      case 'preview_email': {
+        // Read an email that is switched off, with made-up content, before
+        // deciding to switch it on. Returns HTML; sends nothing.
+        if (!body.key) return NextResponse.json({ previews: EMAIL_PREVIEWS });
+        const preview = emailPreview(String(body.key), getTenantBySlug(PILOT_TENANT_SLUG));
+        if (!preview) return NextResponse.json({ error: 'No such email' }, { status: 404 });
+        return NextResponse.json(preview);
+      }
+
       case 'readiness': {
         // Is everything in place to invite shops? Presence of settings only, never a value.
         const checks = { settings: settingChecks(), database: await schemaChecks(supabaseAdmin), shops: await dataChecks(supabaseAdmin, tenantRow.id) };
@@ -183,6 +207,9 @@ export async function POST(request: NextRequest) {
         // A statement to check, not an invoice: nothing is charged or sent.
         const month = typeof body.month === 'string' ? body.month : '';
         if (!/^\d{4}-\d{2}$/.test(month)) return NextResponse.json({ error: 'Use a month like 2026-12' }, { status: 400 });
+        // No statement until the term it belongs to is set. Said plainly, not as a failure.
+        const notYet = termProblem(billingSettingsFromEnv());
+        if (notYet) return NextResponse.json({ error: notYet, notAvailable: true }, { status: 409 });
         const statement = await loadStatement(supabaseAdmin, tenantRow.id, month, billingSettingsFromEnv());
         return NextResponse.json({ statement, csv: statementCsv(statement) });
       }
@@ -261,6 +288,11 @@ async function profileForRetailer(retailerId: unknown, tenantId: string): Promis
 function safeCardPath(retailerId: string): string {
   try { return reviewCardPath(retailerId); } catch { return ''; }
 }
+/** The same shop's card as a print-ready PDF: the same signed address, under /api. */
+function safeCardPdfPath(retailerId: string): string {
+  const p = safeCardPath(retailerId);
+  return p ? `/api${p}` : '';
+}
 
 async function list(tenantId: string) {
   const { data: retailers, error } = await supabaseAdmin
@@ -279,12 +311,14 @@ async function list(tenantId: string) {
     : { data: [] as any[] };
 
   // Tokens are read only to decide whether access works, and never leave this function.
-  const { data: users } = userIds.length
+  const { data: users, error: usersError } = userIds.length
     ? await supabaseAdmin
         .from('users')
-        .select(`id, created_at, onboarding_step, google_refresh_token, token_status, token_invalid_at, managed_by_user_id, ${MANAGER_EMBED}, profiles ( google_location_name, google_place_id )`)
+        .select(`id, created_at, onboarding_step, ${STATUS_USER_COLUMNS}, google_refresh_token, token_status, token_invalid_at, managed_by_user_id, ${MANAGER_EMBED}, profiles ( google_location_name, google_place_id )`)
         .in('id', userIds)
     : { data: [] as any[] };
+  // A failed read is an error, not "nobody is connected": without the accounts every shop would read as broken.
+  if (usersError) throw new Error(`could not read the accounts: ${(usersError as any).message}`);
   const userById = new Map<string, PilotUser>((users || []).map((u: any) => [u.id, u]));
 
   // Photo counts per shop, only when SHOP_PHOTOS is on. A failure here (for
@@ -331,7 +365,7 @@ async function list(tenantId: string) {
       voiceUpdatedAt: r.voice_updated_at ?? null,
       voiceUpdatedBy: r.voice_updated_by ?? null,
       photos: photoCounts.get(r.id) ?? null,
-      review: reviewLink && place ? { link: reviewLink, cardPath: safeCardPath(r.id), source: place.source } : null,
+      review: reviewLink && place ? { link: reviewLink, cardPath: safeCardPath(r.id), pdfPath: safeCardPdfPath(r.id), source: place.source } : null,
       connection: r.connection_status ? { status: r.connection_status, label: ADMIN_LABELS[r.connection_status as ConnectionStatus] ?? r.connection_status, detail: r.connection_detail, checkedAt: r.connection_checked_at, nextStep: SHOP_MESSAGES[r.connection_status as ConnectionStatus]?.nextStep ?? null } : null,
       state: status.state,
       detail: status.detail,
@@ -341,10 +375,12 @@ async function list(tenantId: string) {
       connectedListing: user?.profiles?.[0]?.google_location_name ? { placeId: user?.profiles?.[0]?.google_place_id ?? null } : null,
       joinedAt: user?.created_at ?? null,
       accessVia: user ? (resolveAccess(user).via ?? null) : null,
+      // Hands-off or ask me first, as in force (lib/automation-mode.ts), and what is switched on.
+      working: user ? { ...describeMode(user as any), postsOn: !!(user as any).auto_post_enabled, repliesOn: !!(user as any).auto_reply_enabled } : null,
     };
   });
 
   const counts = out.reduce((acc: Record<string, number>, r: any) => { acc[r.state] = (acc[r.state] || 0) + 1; return acc; }, {});
   const needsHelp = out.filter((r: any) => r.help.needsHelp).length;
-  return { retailers: out, counts, needsHelp, liveRules: rules, photosEnabled };
+  return { retailers: out, counts, needsHelp, liveRules: rules, photosEnabled, handsOffEnabled: handsOffEnabled() };
 }

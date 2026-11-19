@@ -74,37 +74,52 @@ export default function ConsoleClient({ view }: { view: 'console' | 'league' | '
       {nav}
       <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 16 }}>
         <div style={tile}><div style={{ ...big, color: C.green }}>{s.shops.live}</div><div style={{ fontSize: 13, color: C.mid }}>shops live, of {s.shops.total}</div></div>
+        <div style={tile}><div style={{ ...big, color: s.shops.liveQuiet ? C.amber : C.text }}>{s.shops.liveQuiet}</div><div style={{ fontSize: 13, color: C.mid }}>of those, with nothing switched on</div></div>
         <div style={tile}><div style={{ ...big, color: s.shops.connectedNotLive ? C.amber : C.text }}>{s.shops.connectedNotLive}</div><div style={{ fontSize: 13, color: C.mid }}>connected, not live yet</div></div>
         <div style={tile}><div style={big}>{s.shops.invited}</div><div style={{ fontSize: 13, color: C.mid }}>invited, not connected</div></div>
         <div style={tile}><div style={big}>{s.shops.notInvited}</div><div style={{ fontSize: 13, color: C.mid }}>not invited yet</div></div>
       </div>
+
+      <p style={{ fontSize: 13, color: C.mid, margin: '-6px 0 16px' }}>A shop is live when it is connected to the right listing, Google has verified that listing, and our access to it works. A live shop with posts and review replies both off (or paused) is counted separately, and is named on the Shops page.</p>
 
       <div style={card}>
         <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 2 }}>What customers did, across the network</div>
         <p style={{ fontSize: 13, color: C.mid, margin: '0 0 10px' }}>{s.totals.note}</p>
         {s.totals.lines.length > 0 && (
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-            <thead><tr><th style={th}></th><th style={th}>All shops, {s.monthLabel}</th><th style={th}>Shops with both months: {s.monthLabel}</th><th style={th}>The month before</th><th style={th}>Change per day</th></tr></thead>
+            <thead><tr><th style={th}></th><th style={th}>All shops, {s.monthLabel}</th><th style={th}>Shops with both months: {s.monthLabel}</th><th style={th}>{s.totals.basis === 'last_year' ? `Same shops, ${s.totals.beforeLabel}` : 'The month before'}</th><th style={th}>Change per day</th></tr></thead>
             <tbody>{s.totals.lines.map((l: any) => (
-              <tr key={l.label}><td style={td}>{l.label}</td><td style={{ ...td, fontWeight: 700 }}>{num(l.thisMonth)}</td><td style={td}>{l.sameShopsThisMonth === null ? '–' : num(l.sameShopsThisMonth)}</td><td style={td}>{l.lastMonth === null ? '–' : num(l.lastMonth)}</td><td style={{ ...td, color: l.change === null ? C.mid : l.change > 0 ? C.green : l.change < 0 ? C.red : C.mid }}>{pct(l.change)}</td></tr>
+              <tr key={l.label}><td style={td}>{l.label}</td><td style={{ ...td, fontWeight: 700 }}>{num(l.thisMonth)}</td><td style={td}>{l.sameShopsThisMonth === null ? '–' : num(l.sameShopsThisMonth)}</td><td style={td}>{l.before === null ? '–' : num(l.before)}</td><td style={{ ...td, color: l.change === null ? C.mid : l.change > 0 ? C.green : l.change < 0 ? C.red : C.mid }}>{pct(l.change)}</td></tr>
             ))}</tbody>
           </table>
         )}
         <p style={{ fontSize: 12, color: C.soft, margin: '10px 0 0' }}>These are Google&apos;s own figures for each listing, added up. They show what happened, not what caused it.</p>
       </div>
 
+      <div style={card}>
+        <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 2 }}>Reviews, across the network</div>
+        <p style={{ fontSize: 13, color: C.mid, margin: '0 0 10px' }}>{s.reviews.note}</p>
+        {(s.reviews.rating !== null || s.reviews.shareAnswered !== null) && (
+          <div style={{ display: 'flex', gap: 28, flexWrap: 'wrap' }}>
+            {s.reviews.rating !== null && <div><div style={big}>{s.reviews.rating.toFixed(1)} <span style={{ fontSize: 16, fontWeight: 400, color: C.mid }}>out of 5</span></div><div style={{ fontSize: 13, color: C.mid }}>network rating, from {num(s.reviews.totalReviews)} reviews</div></div>}
+            {s.reviews.shareAnswered !== null && <div><div style={big}>{s.reviews.shareAnswered}%</div><div style={{ fontSize: 13, color: C.mid }}>of reviews have a reply from the shop</div></div>}
+          </div>
+        )}
+        <p style={{ fontSize: 12, color: C.soft, margin: '10px 0 0' }}>Live shops only. Google&apos;s own rating and review count for each listing, added up. No review text and no single shop&apos;s figures are shown.</p>
+      </div>
+
       <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
         <div style={{ ...card, flex: '1 1 300px' }}>
-          <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 2 }}>Against each shop&apos;s own starting point</div>
-          <p style={{ fontSize: 13, color: C.mid, margin: '0 0 10px' }}>Customer actions (calls, website clicks, direction requests) in the latest four weeks, against the four weeks before the shop joined.</p>
-          {[['Rising', s.improvement.rising, C.green], ['Steady', s.improvement.steady, C.mid], ['Falling', s.improvement.falling, C.red], ['Too early to say', s.improvement.tooEarly, C.soft]].map(([label, n, colour]: any) => (
+          <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 2 }}>Against the same weeks last year</div>
+          <p style={{ fontSize: 13, color: C.mid, margin: '0 0 10px' }}>Customer actions (calls, website clicks, direction requests) in the latest four weeks, against each shop&apos;s own figures for the same four weeks a year ago, so the time of year is not counted as a change.</p>
+          {[['Rising', s.improvement.rising, C.green], ['Steady', s.improvement.steady, C.mid], ['Falling', s.improvement.falling, C.red], ['Too early, or no figures from last year', s.improvement.tooEarly, C.soft]].map(([label, n, colour]: any) => (
             <div key={label} style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', borderTop: '1px solid #eee', fontSize: 14 }}><span style={{ color: colour, fontWeight: 600 }}>{label}</span><span>{n} shop{n === 1 ? '' : 's'}</span></div>
           ))}
           {s.improvement.medianActionsChange !== null && <p style={{ fontSize: 13, color: C.mid, margin: '10px 0 0' }}>The middle shop is at <strong style={{ color: C.text }}>{pct(s.improvement.medianActionsChange)}</strong>.</p>}
         </div>
         <div style={{ ...card, flex: '1 1 300px' }}>
           <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 8 }}>Most improved</div>
-          {s.topMovers.length === 0 ? <p style={{ fontSize: 13, color: C.mid, margin: 0 }}>No shop has been connected long enough to rank yet.</p> : s.topMovers.map((m: any, i: number) => (
+          {s.topMovers.length === 0 ? <p style={{ fontSize: 13, color: C.mid, margin: 0 }}>No shop can be ranked yet: each needs four full weeks since joining, and figures from the same weeks last year.</p> : s.topMovers.map((m: any, i: number) => (
             <div key={i} style={{ display: 'flex', justifyContent: 'space-between', gap: 8, padding: '6px 0', borderTop: '1px solid #eee', fontSize: 14 }}><span>{i + 1}. {m.name}{m.town ? <span style={{ color: C.soft }}>, {m.town}</span> : null}</span><span style={{ color: bandColour(m.band), fontWeight: 600, whiteSpace: 'nowrap' }}>{m.band} ({pct(m.actionsChange)})</span></div>
           ))}
           <p style={{ fontSize: 12, margin: '10px 0 0' }}><a href="/console/league" style={{ color: C.mid }}>See the full league</a></p>
@@ -121,7 +136,7 @@ export default function ConsoleClient({ view }: { view: 'console' | 'league' | '
               <tr key={i}><td style={td}>{a.name}{a.town ? <span style={{ color: C.soft }}>, {a.town}</span> : null}</td><td style={td}>{a.from}</td><td style={td}>{a.spend || '–'}</td><td style={{ ...td, color: a.flag ? C.amber : undefined }}><strong>{a.label}</strong><div style={{ fontSize: 12, color: C.mid }}>{a.detail}</div></td></tr>
             ))}</tbody>
           </table>
-          <p style={{ fontSize: 12, color: C.soft, margin: '10px 0 0' }}>Four weeks before the ads started against four weeks after, set against shops with no ads over the same weeks. A shop is marked when money was spent and there is no clear change. It shows what changed, not what caused it.</p>
+          <p style={{ fontSize: 12, color: C.soft, margin: '10px 0 0' }}>The four weeks after the ads started against the same four weeks last year (or the four weeks before, where a row says the listing has nothing from last year), set against shops with no ads measured the same way. A shop is marked when money was spent and there is no clear change. It shows what changed, not what caused it.</p>
         </>)}
       </div>
 
@@ -140,7 +155,7 @@ export default function ConsoleClient({ view }: { view: 'console' | 'league' | '
     {nav}
     <div style={card}>
       <p style={{ fontSize: 13, color: C.mid, margin: '0 0 10px' }}>
-        Ranked by how much each shop has improved since it joined: customer actions (calls, website clicks and direction requests) over the latest four weeks, compared with the four weeks before joining. Bigger shops do not win by being bigger. This shows change, not what caused it.
+        Ranked by how much each shop has improved on last year: customer actions (calls, website clicks and direction requests) over the latest four weeks, compared with the same four weeks a year ago, so the time of year is not counted as a change. Bigger shops do not win by being bigger. This shows change, not what caused it.
       </p>
       <table style={{ width: '100%', borderCollapse: 'collapse' }}>
         <thead><tr><th style={th}>#</th><th style={th}>Shop</th><th style={th}>Town</th><th style={th}>Improvement</th><th style={th}>Customer actions</th><th style={th}>Views</th></tr></thead>
@@ -149,7 +164,7 @@ export default function ConsoleClient({ view }: { view: 'console' | 'league' | '
             <td style={{ ...td, color: bandColour(e.band), fontWeight: 600 }}>{e.band}</td><td style={td}>{pct(e.actionsChange)}</td><td style={td}>{pct(e.viewsChange)}</td></tr>
         ))}</tbody>
       </table>
-      {data.league.ranked.length === 0 && <p style={{ fontSize: 13, color: C.mid }}>No shop has been connected long enough to rank yet.</p>}
+      {data.league.ranked.length === 0 && <p style={{ fontSize: 13, color: C.mid }}>No shop can be ranked yet: each needs four full weeks since joining, and figures from the same weeks last year.</p>}
     </div>
     {data.league.excluded.length > 0 && <div style={card}>
       <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 6 }}>Not ranked yet</div>
@@ -164,7 +179,7 @@ export default function ConsoleClient({ view }: { view: 'console' | 'league' | '
     </div>
     <div style={{ ...card, overflowX: 'auto' }}>
       <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-        <thead><tr><th style={th}>Shop</th><th style={th}>Town</th><th style={th}>Status</th><th style={th}>Google</th><th style={th}>Score at start</th><th style={th}>Posts (30 days)</th><th style={th}>Replies (30 days)</th><th style={th}>Since joining</th><th style={th}>Ads from</th><th style={th}>Ad spend</th><th style={th}>Change alongside the ads</th></tr></thead>
+        <thead><tr><th style={th}>Shop</th><th style={th}>Town</th><th style={th}>Status</th><th style={th}>Google</th><th style={th}>Score at start</th><th style={th}>Posts (30 days)</th><th style={th}>Replies (30 days)</th><th style={th}>Against last year</th><th style={th}>Ads from</th><th style={th}>Ad spend</th><th style={th}>Change alongside the ads</th></tr></thead>
         <tbody>{data.shops.map((s: any) => (
           <tr key={s.retailerId}>
             <td style={td}>{s.name}</td><td style={{ ...td, color: C.mid }}>{s.town || ''}</td>
@@ -177,7 +192,7 @@ export default function ConsoleClient({ view }: { view: 'console' | 'league' | '
           </tr>
         ))}</tbody>
       </table>
-      <p style={{ fontSize: 12, color: C.soft, marginTop: 10 }}>Contact details, review text and anything about shops&apos; customers are not shown here. Scores are shown only for shops that have joined. “Change alongside the ads” compares customer actions (calls, website clicks, direction requests) in the four weeks before and after the ads started, against shops with no ads over the same weeks. It shows what changed, not what caused it.</p>
+      <p style={{ fontSize: 12, color: C.soft, marginTop: 10 }}>Contact details, review text and anything about shops&apos; customers are not shown here. Scores are shown only for shops that have joined. “Change alongside the ads” compares customer actions (calls, website clicks, direction requests) in the four weeks after the ads started with the same four weeks last year (or the four weeks before, where it says so), against shops with no ads measured the same way. It shows what changed, not what caused it.</p>
     </div>
   </>);
 }

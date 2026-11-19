@@ -7,13 +7,14 @@ The console and league are built behind `TARKETT_CONSOLE_ENABLED`, which is off.
 | Who | Shown | Never shown |
 |---|---|---|
 | Every shop in Tarkett's network on Stellar | Name and town (Tarkett's own published data), where it is in the pilot (invited, connected, live), Google connection status | Contact details, phone, any score |
-| Shops that have joined | Presence score at activation, posts and replies in the last 30 days, change in customer actions and views since joining (as percentages), improvement band, ad start date, league position | Contact details, phone, review text, raw view or call counts, anything about the shop's customers |
+| Shops that have joined | Presence score at activation, posts and replies in the last 30 days, change in customer actions and views against the same weeks last year (as percentages), improvement band, ad start date, league position | Contact details, phone, review text, raw view or call counts, anything about the shop's customers |
+| The network as a whole (monthly summary) | Totals added up across shops: times seen, calls, website clicks, direction requests; the network's rating and how many reviews it is from; the share of reviews with a reply from the shop. Review figures are from live shops only, and none is ever shown from fewer than three shops | Any single shop's rating or review count, review text, reviewers' names |
 
 ## What must change before the flag goes on
 
 1. **The in-app privacy page and terms (`app/privacy/page.tsx`, `app/terms/page.tsx`).**
    - PR #30's wording says Tarkett "can see a summary of how your Google listing is doing, such as your presence score and whether posts and review replies are going out".
-   - Extend it to name everything in the table above: the change in customer actions and views since joining, the league position, and the ad start date.
+   - Extend it to name everything in the table above: the change in customer actions and views against the same weeks last year, the league position, and the ad start date.
    - Merge #30 (after the solicitor) first.
 2. **The marketing site (`stellar-site/privacy/index.html`, line 44).** It says metrics go to Tarkett "at network level in aggregate". That becomes untrue the moment the console is on. Change it to match the in-app page.
 3. **The legitimate interests assessment (`LEGITIMATE_INTERESTS_ASSESSMENT.md`)** relied on "aggregate counts only" as a mitigation. Redo the balancing for per-shop visibility to Tarkett. (solicitor)

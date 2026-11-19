@@ -7,7 +7,9 @@
  * Everything below the confirmation is optional and can be done now, later
  * from the dashboard, or never:
  *   - see what we could improve on the listing (nothing changes unless ticked)
- *   - choose whether we write posts or reply to good reviews (both off)
+ *   - choose how we work: Hands-off or Ask me first (components/AutomationChoice),
+ *     or, while that choice is switched off, whether we write posts or reply
+ *     to good reviews (both off)
  *
  * No mobile number is asked for. Texts are off, and a shop with only a landline
  * used to be unable to finish at all.
@@ -15,6 +17,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useTenant } from '@/lib/tenant-context';
+import AutomationChoice from '@/components/AutomationChoice';
 
 const sans = "'DM Sans',sans-serif";
 const mono = "'DM Mono',monospace";
@@ -95,6 +98,9 @@ export default function ConnectedPage() {
         <a href="/onboarding" style={btn}>Look at my listing</a>
       </div>
 
+      {/* One choice: Hands-off or Ask me first (HANDS_OFF_MODE). While that is
+          off, or once the shop has chosen Ask me first, the two switches below. */}
+      <AutomationChoice variant="onboarding" cardStyle={card}>
       <div style={card}>
         <div style={{ fontSize: 17, fontWeight: 700, marginBottom: 4 }}>Want us to keep it up to date?</div>
         <p style={{ fontSize: 15, color: C.mid, margin: '0 0 12px' }}>Both are off. Turn on what you want. You can change either at any time in Settings.</p>
@@ -115,6 +121,7 @@ export default function ConnectedPage() {
         ))}
         {saveErr && <p role="alert" style={{ fontSize: 14, color: '#D93025', margin: '4px 0 0' }}>{saveErr}</p>}
       </div>
+      </AutomationChoice>
 
       <a href="/dashboard" style={{ ...btn, background: 'transparent', color: C.text, border: `1px solid ${C.border}` }}>Done for now</a>
       <p style={{ fontSize: 14, color: C.soft, textAlign: 'center', margin: '16px 0 0' }}>

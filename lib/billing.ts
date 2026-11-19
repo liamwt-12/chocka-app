@@ -2,7 +2,10 @@
  * A reliable monthly count of live shops, by name.
  *
  * THE RECORD. Once a day, every shop that is live (lib/shop-status.ts, the one
- * definition) has its row for the current month marked for that day. The row
+ * definition: connected, the right listing, verified by Google, access
+ * working) has its row for the current month marked for that day. What the
+ * shop has switched on does not come into it, and pausing does not stop it:
+ * only disconnecting does. The row
  * copies the shop's name and does not depend on the shop's record continuing
  * to exist, so a past month's count survives a shop leaving or deleting its
  * account. Marking is safe to repeat: a second run on the same day changes
@@ -23,30 +26,96 @@
  *     credit: above the monthly cap (whatever takes the total back to the cap)
  *     total
  *
- * NO PRICE AND NO CAP IS WRITTEN IN THIS CODE. The repository is public. Both
- * are settings, in whole pence:
- *     BILLING_PRICE_PENCE_PER_SHOP   unset = counts only, no money shown
- *     BILLING_MONTHLY_CAP_PENCE      unset = no cap
+ * THE CAP BELONGS TO A TERM. It applies only to months inside a term window,
+ * and stops applying, with its credit line, once the term has ended. A month
+ * is inside the term if its LAST DAY is on or between the two dates, which is
+ * the same day that decides who counts. A cap with no term dates is NOT
+ * applied, and the statement says so in words: a cap that quietly applied for
+ * ever would become the price.
+ *
+ * NO STATEMENT WITHOUT THE TERM. Until both term dates are set, no statement
+ * is produced at all (termProblem), and the launch check shows a cross. The
+ * daily record of who is live is still kept, so nothing is lost meanwhile.
+ *
+ * NO PRICE, NO CAP AND NO DATE IS WRITTEN IN THIS CODE. The repository is
+ * public. All four are settings, with no defaults:
+ *     BILLING_PRICE_PENCE_PER_SHOP   whole pence. Unset = counts only, no money shown
+ *     BILLING_MONTHLY_CAP_PENCE      whole pence. Unset = no cap
+ *     BILLING_TERM_START             a day, YYYY-MM-DD. The first day of the term
+ *     BILLING_TERM_END               a day, YYYY-MM-DD. The last day of the term
  *
  * It produces a statement for a person to check. It does not raise an invoice,
  * charge anything or send anything.
  */
-import { shopStatus, liveRulesFromEnv, type LiveRules, type StatusInvite, type StatusUser } from './shop-status';
+import { shopStatus, liveRulesFromEnv, STATUS_USER_COLUMNS, type LiveRules, type StatusInvite, type StatusUser } from './shop-status';
 import { MANAGER_EMBED } from './managed-access';
 
-export interface BillingSettings { pricePence: number | null; capPence: number | null }
+export interface BillingSettings { pricePence: number | null; capPence: number | null; /** First and last day of the term the cap belongs to. Optional so a caller with no cap need not name them. */ termStart?: string | null; termEnd?: string | null }
 
 const wholeNumber = (v: string | undefined, min: number): number | null => {
   if (v === undefined || v.trim() === '') return null;
+  // Digits only: "1e3" and "0x10" are numbers to a computer and typing mistakes to a person.
+  if (!/^\d+$/.test(v.trim())) return null;
   const n = Number(v.trim());
-  return Number.isInteger(n) && n >= min ? n : null;
+  return Number.isSafeInteger(n) && n >= min ? n : null;
+};
+
+/** A real calendar day written YYYY-MM-DD, or null. "2027-02-30" is not a day. */
+const dayOrNull = (v: string | undefined | null): string | null => {
+  const text = (v ?? '').trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(text)) return null;
+  const d = new Date(`${text}T00:00:00Z`);
+  return Number.isNaN(d.getTime()) || d.toISOString().slice(0, 10) !== text ? null : text;
 };
 
 export function billingSettingsFromEnv(env: Record<string, string | undefined> = process.env): BillingSettings {
   return {
     pricePence: wholeNumber(env.BILLING_PRICE_PENCE_PER_SHOP, 0),
     capPence: wholeNumber(env.BILLING_MONTHLY_CAP_PENCE, 0),
+    termStart: dayOrNull(env.BILLING_TERM_START),
+    termEnd: dayOrNull(env.BILLING_TERM_END),
   };
+}
+
+/**
+ * Why no statement can be produced yet, or null if one can. A statement needs
+ * the term it belongs to: BILLING_TERM_START and BILLING_TERM_END, both real
+ * days, in order. There are no defaults. Until they are set there is no
+ * statement at all, so that one cannot be produced, and used, on a guess
+ * about when the term runs.
+ */
+export function termProblem(settings: BillingSettings): string | null {
+  const start = dayOrNull(settings.termStart), end = dayOrNull(settings.termEnd);
+  if (!start && !end) return 'No statement can be produced until the term is set: BILLING_TERM_START and BILLING_TERM_END, each a day written YYYY-MM-DD.';
+  if (!start || !end) return `No statement can be produced until both ends of the term are set: ${!start ? 'BILLING_TERM_START' : 'BILLING_TERM_END'} is missing, or is not a real day written YYYY-MM-DD.`;
+  if (end < start) return 'No statement can be produced: the term ends before it starts (BILLING_TERM_START and BILLING_TERM_END).';
+  return null;
+}
+
+export type CapReason = 'no_cap' | 'in_term' | 'no_term' | 'bad_term' | 'before_term' | 'after_term';
+export interface CapForMonth {
+  /** Is the cap applied to this month? */
+  applies: boolean;
+  reason: CapReason;
+  /** A sentence for the statement when a cap is set and is NOT applied; otherwise null. */
+  note: string | null;
+}
+
+/**
+ * THE rule for whether the cap applies to a month. One place.
+ *
+ * It applies only when a cap is set, both term dates are set and in order,
+ * and the month's last day falls on or between them.
+ */
+export function capForMonth(settings: BillingSettings, month: string): CapForMonth {
+  if (settings.capPence === null) return { applies: false, reason: 'no_cap', note: null };
+  const start = dayOrNull(settings.termStart), end = dayOrNull(settings.termEnd);
+  if (!start || !end) return { applies: false, reason: 'no_term', note: 'A monthly cap is set but the term it belongs to is not (BILLING_TERM_START and BILLING_TERM_END), so the cap has NOT been applied. Set both dates, or remove the cap.' };
+  if (end < start) return { applies: false, reason: 'bad_term', note: 'The term ends before it starts (BILLING_TERM_START and BILLING_TERM_END), so the monthly cap has NOT been applied. Correct the dates.' };
+  const last = lastDayOfMonth(month);
+  if (last < start) return { applies: false, reason: 'before_term', note: `The monthly cap is not applied: this month ends before the term starts on ${start}.` };
+  if (last > end) return { applies: false, reason: 'after_term', note: `The monthly cap is not applied: the term ended on ${end}, and this month ends after it.` };
+  return { applies: true, reason: 'in_term', note: null };
 }
 
 export const monthOf = (isoDay: string) => isoDay.slice(0, 7);
@@ -94,14 +163,16 @@ export async function recordLiveToday(db: BillingDb, now: Date = new Date(), rul
     const today = ukDay(now);
     const { data: retailers, error } = await db.from('retailers')
       .select('id, tenant_id, name, town, user_id, connection_status, listing_confirmed_at, first_live_on, exclude_from_count')
-      .not('user_id', 'is', null);
+      .not('user_id', 'is', null)
+      // A shop no longer on the funder's list is not counted, like everywhere else.
+      .is('delisted_at', null);
     if (error) throw new Error(error.message);
     const candidates = (retailers || []).filter((r: any) => !r.exclude_from_count);
     if (!candidates.length) return { live: 0, marked: 0, firstLive: 0 };
 
     const userIds = candidates.map((r: any) => r.user_id);
     const { data: users, error: usersError } = await db.from('users')
-      .select(`id, google_refresh_token, token_status, token_invalid_at, managed_by_user_id, ${MANAGER_EMBED}, profiles ( google_location_name )`)
+      .select(`id, google_refresh_token, token_status, token_invalid_at, managed_by_user_id, ${STATUS_USER_COLUMNS}, ${MANAGER_EMBED}, profiles ( google_location_name )`)
       .in('id', userIds);
     if (usersError) throw new Error(usersError.message);
     const userById = new Map<string, StatusUser>((users || []).map((u: any) => [u.id, u]));
@@ -169,6 +240,8 @@ export interface Statement {
    * statement must not be used as it stands.
    */
   noCountOnLastDay: boolean;
+  /** Whether the cap applies to this month, and if a cap is set and does not, why (capForMonth). */
+  cap: CapForMonth;
   /** Shops whose charge falls wholly or partly above the cap. */
   shopsAboveCap: number;
   /** Money, only when a price is set. */
@@ -183,7 +256,10 @@ export function buildStatement(month: string, rows: LiveMonthRow[], settings: Bi
   const order = (a: LiveMonthRow, b: LiveMonthRow) => a.first_live_on.localeCompare(b.first_live_on) || a.name.localeCompare(b.name) || a.retailer_id.localeCompare(b.retailer_id);
   const counted = mine.filter((r) => countsForMonth(r, month, today)).sort(order);
   const liveShops = counted.length;
-  const { pricePence, capPence } = settings;
+  const { pricePence } = settings;
+  // The cap only counts inside its term. Outside it, the month is priced as if there were none.
+  const cap = capForMonth(settings, month);
+  const capPence = cap.applies ? settings.capPence : null;
   let money: Statement['money'] = null;
   let withinCap = liveShops;
   if (pricePence !== null) {
@@ -198,7 +274,7 @@ export function buildStatement(month: string, rows: LiveMonthRow[], settings: Bi
   return {
     month, provisional, decidedOn: provisional ? today : lastDayOfMonth(month), settings, lines,
     notCounted: mine.filter((r) => !countsForMonth(r, month, today)).sort(order).map((r) => line(r)),
-    liveShops, shopsAboveCap: liveShops - withinCap, money,
+    liveShops, cap, shopsAboveCap: liveShops - withinCap, money,
     noCountOnLastDay: !provisional && month < monthOf(today) && mine.length > 0 && liveShops === 0,
   };
 }
@@ -209,18 +285,22 @@ const csvCell = (v: unknown) => {
   // A plain number (including a negative credit) is safe as it is. Anything
   // else that starts like a formula is quoted with a leading apostrophe.
   if (/^-?\d+(\.\d+)?$/.test(s)) return s;
-  const risky = /^[=+\-@]/.test(s);
-  return risky || /[",\n]/.test(s) ? `"${(risky ? `'${s}` : s).replace(/"/g, '""')}"` : s;
+  // Leading spaces, tabs and returns do not stop a spreadsheet reading what follows as a formula.
+  const risky = /^[\s]*[=+\-@]/.test(s) || /^[\t\r]/.test(s);
+  return risky || /[",\n\r]/.test(s) ? `"${(risky ? `'${s}` : s).replace(/"/g, '""')}"` : s;
 };
 
 /** The statement as a spreadsheet file. Names are escaped so one cannot be read as a formula. Pure. */
 export function statementCsv(s: Statement): string {
-  const rows: unknown[][] = [...(s.noCountOnLastDay ? [['WARNING: no count was taken on the last day of this month, so nobody is shown as live. Do not use this statement as it stands.'], []] : []), ['Month', s.month], [s.provisional ? 'Provisional: shops live now' : 'Shops live on the last day of the month', s.decidedOn], [], ['Shop', 'Town', 'Days live', 'First live', 'Last live', 'Above the cap']];
+  const rows: unknown[][] = [...(s.noCountOnLastDay ? [['WARNING: no count was taken on the last day of this month, so nobody is shown as live. Do not use this statement as it stands.'], []] : []), ['Month', s.month], [s.provisional ? 'Provisional: shops live now' : 'Shops live on the last day of the month', s.decidedOn], ['Live means connected to a verified listing we can reach. It does not depend on what the shop has switched on.'], [], ['Shop', 'Town', 'Days live', 'First live', 'Last live', 'Above the cap']];
   for (const l of s.lines) rows.push([l.name, l.town ?? '', l.liveDays, l.firstLiveOn, l.lastLiveOn, l.aboveCap ? 'yes' : '']);
   rows.push([], ['Live shops', s.liveShops]);
   if (s.money && s.settings.pricePence !== null) {
     rows.push([], [`Live shops x ${pounds(s.settings.pricePence)}`, pounds(s.money.grossPence)]);
-    if (s.settings.capPence !== null) rows.push(['Monthly cap', pounds(s.settings.capPence)]);
+    if (s.cap.applies && s.settings.capPence !== null) {
+      rows.push(['Monthly cap', pounds(s.settings.capPence)]);
+      rows.push(['The cap applies for the term', `${s.settings.termStart} to ${s.settings.termEnd}`]);
+    } else if (s.cap.note) rows.push([s.cap.note]);
     if (s.money.creditPence) rows.push([`Credit: above the monthly cap (${s.shopsAboveCap} shop${s.shopsAboveCap === 1 ? '' : 's'})`, `-${pounds(s.money.creditPence)}`]);
     rows.push(['Total', pounds(s.money.totalPence)]);
   }
@@ -228,8 +308,13 @@ export function statementCsv(s: Statement): string {
   return rows.map((r) => r.map(csvCell).join(',')).join('\n') + '\n';
 }
 
+/** Thrown instead of a statement when the term has not been set. Not a fault: something to set. */
+export class StatementNotAvailable extends Error {}
+
 export async function loadStatement(db: BillingDb, tenantId: string, month: string, settings: BillingSettings = billingSettingsFromEnv()): Promise<Statement> {
-  if (!/^\d{4}-\d{2}$/.test(month)) throw new Error('Use a month like 2026-12');
+  if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(month)) throw new Error('Use a month like 2026-12');
+  const problem = termProblem(settings);
+  if (problem) throw new StatementNotAvailable(problem);
   const { data, error } = await db.from('live_months').select('*').eq('tenant_id', tenantId).eq('month', month);
   if (error) throw new Error(error.message);
   return buildStatement(month, data || [], settings, ukDay());

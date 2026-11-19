@@ -5,7 +5,8 @@ import { generatePost } from '@/lib/ai';
 import { sendEmail, postPreviewEmail } from '@/lib/email';
 import { getTenantForRow } from '@/lib/tenant';
 import { nextMondaySlot } from '@/lib/post-schedule';
-import { requiresPostApproval, AWAITING_APPROVAL, PUBLISHABLE } from '@/lib/safe-automation';
+import { APPROVAL_REQUIRED_POSTS, AWAITING_APPROVAL, PUBLISHABLE } from '@/lib/safe-automation';
+import { postNeedsApproval, isPaused, switchesInForce } from '@/lib/automation-mode';
 import { loadVoiceForUser } from '@/lib/voice';
 import { reservePhotoForUser } from '@/lib/shop-photos';
 import { startBudget, selectAll, rotateForRun, runIndex } from '@/lib/cron-budget';
@@ -59,8 +60,9 @@ export async function GET(request: NextRequest) {
       .order('id', { ascending: true })
       .range(from, to));
     for (const p of stillWaiting) hasPost.add(p.profile_id);
+    // A shop that has pressed Pause is written nothing (lib/automation-mode.ts).
     // Rotated each run, so one shop whose post keeps failing its checks is not at the front every time.
-    const todo = rotateForRun<any>(users.filter((u: any) => u.auto_post_enabled && u.profiles?.[0] && !hasPost.has(u.profiles[0].id)), runIndex(5), 3);
+    const todo = rotateForRun<any>(users.filter((u: any) => switchesInForce(u).posts && !isPaused(u) && u.profiles?.[0] && !hasPost.has(u.profiles[0].id)), runIndex(5), 3);
     let remaining = todo.length;
 
     for (const user of todo) {
@@ -103,12 +105,15 @@ export async function GET(request: NextRequest) {
         // A new shop approves its first three posts (lib/safe-automation.ts).
         // Until then the post waits as awaiting_approval, which the publisher
         // never picks up, and no "publishes unless you cancel" email is sent.
+        // A shop that chose hands-off (lib/automation-mode.ts) has given its
+        // permission in advance: its posts are booked straight away, and it is
+        // sent each one first, with a link to stop it, like any booked post.
         const { count: publishedCount } = await supabaseAdmin
           .from('scheduled_posts')
           .select('id', { count: 'exact', head: true })
           .eq('profile_id', profile.id)
           .eq('status', 'published');
-        const needsApproval = requiresPostApproval(publishedCount || 0);
+        const needsApproval = postNeedsApproval(user, publishedCount || 0, APPROVAL_REQUIRED_POSTS);
 
         // An approved photo of the shop's work, if SHOP_PHOTOS is on and there
         // is one to use (lib/shop-photos.ts). Null otherwise, and then the row

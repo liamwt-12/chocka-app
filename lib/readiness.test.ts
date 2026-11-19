@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync, readdirSync } from 'node:fs';
-import { settingChecks, schemaChecks, dataChecks, summary, SCHEMA_PROBES } from './readiness';
+import { settingChecks, schemaChecks, dataChecks, summary, SCHEMA_PROBES, NOT_PROBEABLE } from './readiness';
 
-const FULL = { SESSION_SECRET: 's'.repeat(32), SECRET_ENCRYPTION_KEY: 'k', CANCEL_HASH_SECRET: 'c', CRON_SECRET: 'x', GOOGLE_CLIENT_ID: 'id', GOOGLE_CLIENT_SECRET: 'sec', ANTHROPIC_API_KEY: 'a', STELLAR_APP_URL: 'https://app.example', ADMIN_PASSWORD: 'p'.repeat(24), RESEND_API_KEY: 'r', SESSION_ACCEPT_LEGACY_COOKIE: 'false', CRON_ACCEPT_QUERY_SECRET: 'false' };
+const FULL = { BILLING_TERM_START: '2030-01-01', BILLING_TERM_END: '2030-12-31', SESSION_SECRET: 's'.repeat(32), SECRET_ENCRYPTION_KEY: 'k', CANCEL_HASH_SECRET: 'c', CRON_SECRET: 'x', GOOGLE_CLIENT_ID: 'id', GOOGLE_CLIENT_SECRET: 'sec', ANTHROPIC_API_KEY: 'a', STELLAR_APP_URL: 'https://app.example', ADMIN_PASSWORD: 'p'.repeat(24), RESEND_API_KEY: 'r', SESSION_ACCEPT_LEGACY_COOKIE: 'false', CRON_ACCEPT_QUERY_SECRET: 'false' };
 
 describe('settings', () => {
   it('everything set: nothing to fix', () => {
@@ -28,8 +28,17 @@ describe('settings', () => {
     const on = settingChecks({ ...FULL, WELCOME_EMAIL: 'on', SHOP_PHOTOS: 'on', TARKETT_CONSOLE_ENABLED: 'on', LIVE_REQUIRES: 'access' });
     expect(on.find((c) => c.key === 'WELCOME_EMAIL')).toMatchObject({ ok: null, detail: expect.stringMatching(/^ON/) });
     expect(on.find((c) => c.key === 'TARKETT_CONSOLE_ENABLED')!.detail).toMatch(/privacy checklist/);
-    expect(on.find((c) => c.key === 'LIVE_REQUIRES')!.detail).toMatch(/without matched, verified/);
-    expect(summary(on).ready).toBe(true);
+    // Relaxing what counts as live changes what is billed: a cross, not a note.
+    expect(on.find((c) => c.key === 'LIVE_REQUIRES')).toMatchObject({ ok: false, detail: expect.stringMatching(/RELAXED: .*without matched, verified/) });
+    expect(summary(on).ready).toBe(false);
+    expect(summary(settingChecks({ ...FULL, WELCOME_EMAIL: 'on' })).ready).toBe(true);
+    // The full definition, spelt out, is fine; a typo is ignored and flagged.
+    expect(settingChecks({ ...FULL, LIVE_REQUIRES: 'matched,verified,access' }).find((c) => c.key === 'LIVE_REQUIRES')!.ok).toBeNull();
+    expect(settingChecks({ ...FULL, LIVE_REQUIRES: 'matched;verified' }).find((c) => c.key === 'LIVE_REQUIRES')).toMatchObject({ ok: false, detail: expect.stringMatching(/has been ignored/) });
+    // No term set means no statement can be produced: a cross, cap or no cap.
+    expect(settingChecks({ ...FULL, BILLING_TERM_START: '', BILLING_TERM_END: '' }).find((c) => c.key === 'BILLING')).toMatchObject({ ok: false, detail: expect.stringMatching(/No statement can be produced until the term is set/) });
+    expect(settingChecks({ ...FULL, BILLING_TERM_START: '2030-01-01', BILLING_TERM_END: '' }).find((c) => c.key === 'BILLING')!.ok).toBe(false);
+    expect(settingChecks({ ...FULL, BILLING_MONTHLY_CAP_PENCE: '2500', BILLING_TERM_START: '2030-01-01', BILLING_TERM_END: '2030-12-31' }).find((c) => c.key === 'BILLING')!.ok).toBeNull();
     expect(settingChecks(FULL).find((c) => c.key === 'WELCOME_EMAIL')!.detail).toMatch(/^Off/);
   });
 });
@@ -44,7 +53,9 @@ describe('database', () => {
   it('every migration this work adds is probed, and every probe names a migration that exists', () => {
     const files = readdirSync(new URL('../supabase/migrations', import.meta.url)).map((f) => f.replace(/\.sql$/, ''));
     for (const p of SCHEMA_PROBES) expect(files).toContain(p.migration);
-    for (const mine of files.filter((f) => f >= '20261117')) expect(SCHEMA_PROBES.some((p) => p.migration === mine)).toBe(true);
+    // Each is either probed, or named as one that cannot be (a rule, not a column) and listed for a person to confirm.
+    for (const mine of files.filter((f) => f >= '20261117')) expect(SCHEMA_PROBES.some((p) => p.migration === mine) || NOT_PROBEABLE.some((p) => p.migration === mine), mine).toBe(true);
+    for (const p of NOT_PROBEABLE) expect(files).toContain(p.migration);
   });
   it('the columns probed are really in the migration named', () => {
     for (const p of SCHEMA_PROBES.filter((x) => x.migration >= '20261117')) {
