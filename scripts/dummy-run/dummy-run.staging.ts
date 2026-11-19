@@ -926,11 +926,11 @@ describe('dummy run on staging', () => {
       need(plain.data.statement.provisional === true, 'the month in progress should be marked provisional');
       process.env.BILLING_PRICE_PENCE_PER_SHOP = '1000'; process.env.BILLING_MONTHLY_CAP_PENCE = '2500';
       try {
-        // A term that ended last month: no cap, no credit line, and it says the term has ended.
+        // A term that ended last month: NO statement (not full price, not free), and it says the next term must be set.
         const lastMonthEnd = iso(new Date(Date.UTC(Number(month.slice(0, 4)), Number(month.slice(5, 7)) - 1, 0)));
         process.env.BILLING_TERM_START = iso(new Date(Date.parse(lastMonthEnd) - 400 * DAY)); process.env.BILLING_TERM_END = lastMonthEnd;
-        const ended = (await admin('admin/pilot', { action: 'statement', month })).data;
-        need(ended.statement.cap.reason === 'after_term' && ended.statement.money.creditPence === 0 && ended.statement.shopsAboveCap === 0 && /the term ended on/.test(ended.csv), `after the term: ${JSON.stringify(ended.statement.cap)}`);
+        const ended = await admin('admin/pilot', { action: 'statement', month });
+        need(ended.status === 409 && ended.data.notAvailable === true && !ended.data.statement && /the term ended on/.test(ended.data.error) && /set the next term/.test(ended.data.error), `after the term: ${ended.status} ${ended.text.slice(0, 200)}`);
         // A term this month falls inside: the cap applies, as below.
         process.env.BILLING_TERM_START = iso(new Date(Date.now() - 500 * DAY)); process.env.BILLING_TERM_END = iso(new Date(Date.now() + 500 * DAY));
         const r = await admin('admin/pilot', { action: 'statement', month });

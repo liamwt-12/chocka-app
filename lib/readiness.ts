@@ -66,6 +66,13 @@ export function settingChecks(env: Env = process.env): Check[] {
   // No statement is produced until the term is set, so a missing term is a cross.
   const noStatement = termProblem(b);
   out.push({ key: 'BILLING', label: 'Monthly statement', ok: noStatement ? false : null, detail: `${noStatement ? `${noStatement} ` : `The term is set. `}Price per shop ${b.pricePence === null ? 'not set (a statement shows counts only)' : 'set'}; monthly cap ${b.capPence === null ? 'not set' : 'set'}. The cap, and its credit line, apply only to months that end inside the term. A shop counts for a month if it is live on the month's last day.` });
+  // The total ceiling: present or absent, never its value. Typed wrongly, or set without the term, it is a cross: no statement is produced.
+  const ceilingSet = b.totalCeilingPence != null;
+  out.push({ key: 'BILLING_TOTAL_CEILING', label: 'Total ceiling for the term', ok: b.totalCeilingInvalid || (ceilingSet && noStatement) ? false : null, detail:
+    b.totalCeilingInvalid ? 'BILLING_TOTAL_CEILING_PENCE is set but is not a whole number of pence above nought, so no statement is produced. Correct it, or remove it.'
+    : !ceilingSet ? 'Not set. Fees across the term have no total ceiling; only the monthly cap, if set, limits them.'
+    : noStatement ? 'Set, but the term it belongs to is not, so no statement is produced. Set BILLING_TERM_START and BILLING_TERM_END.'
+    : `Set. Fees across the term, after the monthly cap, stop at it: the term ends at BILLING_TERM_END or in the month the ceiling is reached, whichever comes first.${b.pricePence === null ? ' No price is set, so there is nothing for it to limit yet.' : ''}` });
   return out;
 }
 

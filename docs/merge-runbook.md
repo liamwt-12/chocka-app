@@ -169,6 +169,12 @@ PRs #46 to #53 add no new variables. #54 to #60 add these, **all optional, all o
 | `RETENTION_VIEW` | Leave unset, or `on` | After the privacy notice mentions it | `on` opens the retention view in `/admin/pilot` and starts recording when each shop last opened its dashboard: one date per shop (#62) |
 | `MONTHLY_REPORT_PLAIN_SUMMARY` | Leave unset, or `on` | When you have read one | `on` opens the shop's monthly report with "what we did" and "what changed" in sentences (#62). Unset: the report is exactly as before |
 
+Added after the November release, also **optional and unset by default**:
+
+| Variable | Value | When | Why |
+|---|---|---|---|
+| `BILLING_TOTAL_CEILING_PENCE` | Whole pence for the whole term, or leave unset | Before the first statement, if the agreement has a total ceiling | The most the term can charge, after the monthly cap. The term then ends at `BILLING_TERM_END` or in the month the fees reach the ceiling, whichever comes first: that month charges only what is left, with the rest as one credit line, and later months get **no statement** (not a free one): the page says the term ended and the next term must be set. Needs both term dates, or there is no statement; anything but a whole number above nought also stops the statement. Set `BILLING_TERM_END` to the agreed term length as before. Not in the code: the repository is public. Unset: no total ceiling |
+
 `BILLING_MONTHLY_CAP_SHOPS` and `BILLING_MIN_LIVE_DAYS` from #58 **no longer exist** (#61). If you set either, remove it. A shop now counts for a month only if it is live on the month's last day.
 
 After stage 11, `/admin/pilot` has a **Ready to invite shops?** button that checks every variable is present (never its value), every migration is applied and the scheduled jobs are running.
@@ -704,7 +710,7 @@ To take them one at a time instead, merge `origin/retention/1-hands-off`, then `
 | `REVIEW_ALERT_EMAILS` | Leave unset | **After your own test, below** | `on` emails every connected shop about each new review, whether or not replies are on (#65). Unset: as now |
 | `EARLY_POST_PREVIEW_EMAILS` | Leave unset | **After your own test, below** | Already existed (#35). `on` emails a shop 24 hours before a post that is waiting for its approval |
 | `BILLING_TERM_START` | The first day of the term, like `2027-01-31` | **Before the first statement: without both there is no statement** | The cap and its credit line apply only to months that **end** on or between the two dates (#69). Not in the code: the repository is public |
-| `BILLING_TERM_END` | The last day of the term | With the one above | After it, the statement has no cap and no credit line, and says the term has ended |
+| `BILLING_TERM_END` | The last day of the term | With the one above | After it there is **no statement**, at any price: the page says the term has ended and the next term must be set |
 
 **Verify:**
 
