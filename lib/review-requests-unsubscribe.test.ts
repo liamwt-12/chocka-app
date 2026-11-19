@@ -41,7 +41,7 @@ describe('unsubscribe link', () => {
     expect(await res.text()).toContain('You will not be sent any more review requests');
     expect(calls).toHaveLength(1);
     expect(calls[0].table).toBe('review_request_suppressions');
-    expect(calls[0].args[0]).toEqual({ email_hash: H(), reason: 'unsubscribe' });
+    expect(calls[0].args[0]).toEqual({ email_hash: H(), source: 'link' });
     expect(JSON.stringify(calls)).not.toContain('@');
   });
   it('works whether or not REVIEW_REQUESTS is on', async () => {

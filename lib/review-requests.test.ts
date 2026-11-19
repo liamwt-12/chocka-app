@@ -8,8 +8,9 @@ import {
 } from './review-requests';
 import {
   prepareRequests, sendRequests, composeRequest, confirmationMatches, purgeReviewRequests, loadRequestShop,
-  type RequestStore, type RequestShop, type Composed,
+  type RequestShop,
 } from './review-requests-data';
+import { memoryStore, stubMailer } from './review-requests-test-fixtures';
 import { handleReviewRequestAction } from './review-requests-admin';
 import { fromWithName, safeHeaders, sendEmail } from './email';
 import { getTenantBySlug } from './tenant';
@@ -24,24 +25,6 @@ const OFF = {};
 const empty = (): PlanContext => ({ shopEmail: SHOP.contactEmail, suppressed: new Set(), askedBefore: new Map(), sentTodayShop: 0, sentTodayPlatform: 0 });
 const csvOf = (n: number, start = 0) => Array.from({ length: n }, (_, i) => `person${start + i}@example.invalid`).join('\n');
 
-/** An in-memory stand-in for the three tables. */
-function memoryStore(init: { suppressed?: string[]; history?: Array<[string, string, string]>; sent?: Array<{ retailer_id: string; created_at: string }> } = {}) {
-  const suppressed = new Set(init.suppressed || []);
-  const history = new Map<string, string>((init.history || []).map(([r, h, at]) => [`${r}|${h}`, at]));
-  const rows: Array<{ retailer_id: string; email_hash: string; status: string; created_at: string; batch_id: string }> = (init.sent || []).map((s) => ({ ...s, email_hash: 'x', status: 'sent', batch_id: 'b' }));
-  const store: RequestStore & { suppressed: Set<string>; history: Map<string, string>; rows: typeof rows } = {
-    suppressed, history, rows,
-    async suppressedAmong(hs) { return new Set(hs.filter((h) => suppressed.has(h))); },
-    async isSuppressed(h) { return suppressed.has(h); },
-    async askedBefore(r, hs, since) { const m = new Map<string, string>(); for (const h of hs) { const at = history.get(`${r}|${h}`); if (at && at >= since) m.set(h, at); } return m; },
-    async sentSince(r, since) { return rows.filter((x) => x.status === 'sent' && x.created_at >= since && (!r || x.retailer_id === r)).length; },
-    async claim(r, _t, h, at, since) { const k = `${r}|${h}`; const was = history.get(k); if (was && was >= since) return false; history.set(k, at); return true; },
-    async release(r, h, at) { if (history.get(`${r}|${h}`) === at) history.delete(`${r}|${h}`); },
-    async record(row) { rows.push(row); },
-  };
-  return store;
-}
-const stubMailer = (ok: (e: Composed) => boolean = () => true) => { const sent: Composed[] = []; return { sent, send: vi.fn(async (e: Composed) => { sent.push(e); return ok(e); }) }; };
 const fastDeps = (mailer: ReturnType<typeof stubMailer>, env: Record<string, string> = ON) => ({ send: mailer.send, sleep: async () => {}, now: () => NOW, env, gapMs: 0 });
 
 beforeEach(() => { process.env.CANCEL_HASH_SECRET = 'test-secret'; });

@@ -11,7 +11,7 @@ import type { Tenant } from './tenant';
 import { shopContactEmail } from './shop-notices';
 import { googleReviewLink, isPlaceId } from './review-link';
 import {
-  reviewRequestsEnabled, parseRequestCsv, planRequests, hashEmail, retentionCutoffs,
+  reviewRequestsEnabled, parseRequestCsv, planRequests, hashEmail, emailProblem, retentionCutoffs,
   requestFromName, requestSubject, requestText, unsubscribeHeaders, unsubscribeUrl,
   REASK_DAYS, SEND_GAP_MS, SEND_BUDGET_MS, type Plan, type ParsedFile, type PlanLine,
 } from './review-requests';
@@ -24,6 +24,8 @@ const T_SUPPRESS = 'review_request_suppressions';
 export interface RequestStore {
   suppressedAmong(hashes: string[]): Promise<Set<string>>;
   isSuppressed(hash: string): Promise<boolean>;
+  /** Put a hash on the do-not-email list. Idempotent. False only if it could not be recorded. */
+  suppress(hash: string, source: SuppressionSource): Promise<boolean>;
   /** Hashes this shop asked on or after `since`, with when. */
   askedBefore(retailerId: string, hashes: string[], since: string): Promise<Map<string, string>>;
   /** Emails sent since `since`: for one shop, or for every shop when retailerId is null. */
@@ -58,6 +60,7 @@ export function supabaseStore(db: any): RequestStore {
       fail('read the unsubscribe list', error);
       return !!data?.length;
     },
+    suppress: (hash, source) => suppress(db, hash, source),
     async askedBefore(retailerId, hashes, since) {
       const out = new Map<string, string>();
       for (const part of chunks(hashes)) {
@@ -213,10 +216,16 @@ export async function sendRequests(store: RequestStore, shop: RequestShop, plan:
     const line = plan.toSend[i];
     if (!line.hash) continue;
     if (now().getTime() - started >= budget) { result.notReached.push(...plan.toSend.slice(i).map((l) => ({ row: l.row, email: l.email }))); break; }
-    if (await store.isSuppressed(line.hash)) { result.skipped.push({ row: line.row, email: line.email, reason: 'unsubscribed' }); continue; }
     const at = now().toISOString();
     const windowStart = new Date(now().getTime() - REASK_DAYS * 86_400_000).toISOString();
     if (!(await store.claim(shop.id, shop.tenantId, line.hash, at, windowStart))) { result.skipped.push({ row: line.row, email: line.email, reason: 'already asked by this shop' }); continue; }
+    // The do-not-email list, read again for this one address as the very last
+    // step before its email goes: whatever the dry run said, someone added
+    // since (by their link, or by an operator) is not sent to. If the list
+    // cannot be read, the claim is given back and nothing more is sent.
+    let suppressed: boolean;
+    try { suppressed = await store.isSuppressed(line.hash); } catch (e) { await store.release(shop.id, line.hash, at); throw e; }
+    if (suppressed) { await store.release(shop.id, line.hash, at); result.skipped.push({ row: line.row, email: line.email, reason: 'unsubscribed' }); continue; }
     const ok = await deps.send(composeRequest(shop, line, tenant));
     await store.record({ retailer_id: shop.id, tenant_id: shop.tenantId, email_hash: line.hash, batch_id: batchId, status: ok ? 'sent' : 'failed', created_at: at });
     if (ok) result.sent++;
@@ -230,7 +239,8 @@ export async function sendRequests(store: RequestStore, shop: RequestShop, plan:
 
 /**
  * Delete per-email rows older than 30 days, and "already asked" entries older
- * than 365 days. The unsubscribe list is never cleared. Called once a day by
+ * than 365 days. The do-not-email list is NEVER touched, here or anywhere: an
+ * unsubscribe is permanent (a test reads the code to hold it to that). Called once a day by
  * the onboarding-sequence job (two deletes, well inside its time). Never
  * throws: a failure is returned and logged, and tried again the next day.
  */
@@ -247,9 +257,35 @@ export async function purgeReviewRequests(db: any, now: Date): Promise<{ ok: boo
   }
 }
 
-/** Add an address's hash to the unsubscribe list. Doing it twice is harmless. */
-export async function suppress(db: any, emailHash: string): Promise<boolean> {
-  const { error } = await db.from(T_SUPPRESS).upsert({ email_hash: emailHash, reason: 'unsubscribe' }, { onConflict: 'email_hash', ignoreDuplicates: true });
-  if (error) { console.error(`[review-requests] unsubscribe not recorded: ${error.message}`); return false; }
+// ── The do-not-email list ───────────────────────────────────────────────────
+
+/** How an address came to be on the list: its own unsubscribe link, or an operator by hand. */
+export type SuppressionSource = 'link' | 'operator';
+
+/**
+ * Add an address's hash to the do-not-email list. Doing it twice is harmless:
+ * the first entry, with its time and source, is kept, and the answer is the
+ * same either way. There is deliberately no function that takes one off: an
+ * unsubscribe is permanent.
+ */
+export async function suppress(db: any, emailHash: string, source: SuppressionSource): Promise<boolean> {
+  if (!/^[0-9a-f]{64}$/.test(emailHash)) return false;
+  const { error } = await db.from(T_SUPPRESS).upsert({ email_hash: emailHash, source }, { onConflict: 'email_hash', ignoreDuplicates: true });
+  if (error) { console.error(`[review-requests] do-not-email entry not recorded: ${error.message}`); return false; }
   return true;
+}
+
+/**
+ * An operator adds an address by hand (someone replied "stop" to a shop).
+ * The address goes through exactly the same emailProblem and hashEmail as a
+ * row in an uploaded file, so case and surrounding spaces never matter and the
+ * hash is the one every send checks. The answer never says whether it was on
+ * the list already. Works whether or not REVIEW_REQUESTS is on.
+ */
+export async function addToDoNotEmail(store: Pick<RequestStore, 'suppress'>, raw: unknown): Promise<{ ok: true } | { ok: false; status: 400 | 500; error: string }> {
+  if (typeof raw !== 'string' || raw.length > 320) return { ok: false, status: 400, error: 'That is not an email address. Nothing was added.' };
+  const problem = emailProblem(raw);
+  if (problem) return { ok: false, status: 400, error: problem === 'no email address' ? 'Type an email address first. Nothing was added.' : `That is ${problem}. Nothing was added.` };
+  if (!(await store.suppress(hashEmail(raw), 'operator'))) return { ok: false, status: 500, error: 'Could not record it just now. Try again in a minute.' };
+  return { ok: true };
 }

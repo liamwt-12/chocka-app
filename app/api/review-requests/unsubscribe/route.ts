@@ -37,7 +37,7 @@ export async function POST(request: NextRequest) {
   const tenant = getTenantBySlug(request.headers.get('x-tenant-slug'));
   const hash = verifyUnsubscribeToken(new URL(request.url).searchParams.get('t'));
   if (!hash) return invalid(tenant);
-  if (!(await suppress(supabaseAdmin, hash))) {
+  if (!(await suppress(supabaseAdmin, hash, 'link'))) {
     return html(resultPage(tenant, 'Something went wrong', `We could not record that just now. Please try the link again in a minute, or write to ${tenant.privacyEmail}.`), 500);
   }
   console.log('[review-requests] an address unsubscribed');

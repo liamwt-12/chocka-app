@@ -101,7 +101,7 @@ export const SCHEMA_PROBES: Array<{ migration: string; label: string; table: str
   // Needed only once review requests are switched on: until then a missing table is a note, not a cross.
   { migration: '20261121100000_review_requests', label: 'Review requests: emails sent', table: 'review_requests', columns: 'id, retailer_id, email_hash, batch_id, status, created_at', onlyWhenOn: 'REVIEW_REQUESTS' },
   { migration: '20261121100000_review_requests', label: 'Review requests: who each shop has asked', table: 'review_request_history', columns: 'retailer_id, email_hash, first_asked_at', onlyWhenOn: 'REVIEW_REQUESTS' },
-  { migration: '20261121100000_review_requests', label: 'Review requests: unsubscribed', table: 'review_request_suppressions', columns: 'email_hash, created_at, reason', onlyWhenOn: 'REVIEW_REQUESTS' },
+  { migration: '20261121100000_review_requests', label: 'Review requests: do-not-email list', table: 'review_request_suppressions', columns: 'email_hash, added_at, source', onlyWhenOn: 'REVIEW_REQUESTS' },
 ];
 
 /**

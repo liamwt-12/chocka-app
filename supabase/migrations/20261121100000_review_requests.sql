@@ -12,7 +12,7 @@
 -- onboarding-sequence job):
 --   review_requests               30 days
 --   review_request_history        365 days
---   review_request_suppressions   not deleted: an unsubscribe must keep working
+--   review_request_suppressions   never deleted: an unsubscribe is permanent
 
 -- One row per email sent (or tried). For the daily limits and the record.
 create table if not exists public.review_requests (
@@ -47,12 +47,22 @@ create index if not exists review_request_history_asked_idx on public.review_req
 alter table public.review_request_history enable row level security;
 revoke all on table public.review_request_history from anon, authenticated;
 
--- Unsubscribed addresses. Platform-wide: no shop column, on purpose. Anyone on
+-- The do-not-email list. Platform-wide: no shop column, on purpose. Anyone on
 -- this list is never sent a review request by any shop.
+--
+-- PERMANENT. No code path deletes from this table: the daily clear-out leaves
+-- it alone, and a test fails if any app code is written that deletes from it.
+-- A second add of the same address changes nothing (the first row, with its
+-- added_at and source, is kept).
+--
+--   source  'link'      the person pressed the unsubscribe link in an email,
+--                       or their mail client's own one-click unsubscribe
+--           'operator'  an operator added it by hand in /admin/pilot, for
+--                       example after the person replied "stop" to a shop
 create table if not exists public.review_request_suppressions (
   email_hash  text primary key check (email_hash ~ '^[0-9a-f]{64}$'),
-  created_at  timestamptz not null default now(),
-  reason      text not null default 'unsubscribe' check (reason in ('unsubscribe', 'operator'))
+  added_at    timestamptz not null default now(),
+  source      text not null check (source in ('link', 'operator'))
 );
 
 alter table public.review_request_suppressions enable row level security;

@@ -12,6 +12,7 @@ import { handleReviewRequestAction } from '@/lib/review-requests-admin';
  * two actions. Kept out of the pilot route on purpose: that route sends nothing,
  * ever, and its tests hold it to that.
  *
+ * POST { action: 'suppress', email }                          adds it to the do-not-email list; works with the switch off; answers "Done" either way
  * POST { action: 'dry_run', retailerId, csv }                 sends nothing, writes nothing
  * POST { action: 'send', retailerId, csv, confirmCount }      only with REVIEW_REQUESTS=on and the count typed back
  */
@@ -39,6 +40,7 @@ export async function POST(request: NextRequest) {
     });
     return NextResponse.json(out.body, { status: out.status });
   } catch (err: any) {
+    // The message never carries an address: the store's errors name the table and the migration only.
     console.error('[admin/review-requests]', err?.message || err);
     return NextResponse.json({ error: String(err?.message || 'Failed').slice(0, 300) }, { status: 500 });
   }

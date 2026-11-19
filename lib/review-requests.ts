@@ -26,8 +26,12 @@
  *
  * UNSUBSCRIBE. Every email has a one-click unsubscribe link (and the
  * List-Unsubscribe headers mail clients use). Anyone who unsubscribes is never
- * sent a review request again by ANY shop on the platform. The suppression list
- * is checked before every single send.
+ * sent a review request again by ANY shop on the platform. An operator can also
+ * add an address by hand (someone who replied "stop" to the shop), from the
+ * same panel, with the switch on or off. Both go through hashEmail below, so
+ * case and spaces never matter. The do-not-email list is read in every dry run
+ * and again for each address immediately before its email is sent. There is
+ * no file export anywhere in this feature.
  *
  * WHAT IS STORED. No address is ever stored. Each address is reduced to a hash
  * of its normalised form (hashEmail below) and only the hash is kept:
@@ -36,8 +40,9 @@
  *   - review_request_history: "this shop has asked this address", so the same
  *     address is never asked twice by the same shop. Deleted after REASK_DAYS
  *     (365 days); until then the address is refused for that shop.
- *   - review_request_suppressions: unsubscribed addresses. Kept for as long as
- *     the feature exists: an unsubscribe has to keep working.
+ *   - review_request_suppressions: the do-not-email list, with when each was
+ *     added and whether by its link or an operator. Permanent: no code deletes
+ *     from it, and a test holds every file to that.
  * The uploaded file itself is never stored: it is read, checked and sent from
  * in the same request, and the operator posts it again to send.
  *

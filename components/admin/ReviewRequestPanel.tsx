@@ -111,6 +111,41 @@ export default function ReviewRequestPanel({ shop, password, onClose }: { shop: 
           {[...result.failed.map((f) => `Row ${f.row}: ${f.email}: not sent`), ...result.skipped.map((s) => `Row ${s.row}: ${s.email}: ${s.reason}`), ...result.notReached.map((n) => `Row ${n.row}: ${n.email}: not reached`)].map((l) => <div key={l} style={{ color: C.mid }}>{l}</div>)}
         </div>
       )}
+
+      <DoNotEmailForm password={password} />
+    </div>
+  );
+}
+
+/**
+ * "Add to the do-not-email list": for someone who said stop some other way,
+ * such as replying "stop" to the shop. Platform-wide, not just this shop, and
+ * it works with REVIEW_REQUESTS off. The answer is "Done" whether or not the
+ * address was on the list already, and the box is cleared.
+ */
+function DoNotEmailForm({ password }: { password: string }) {
+  const [email, setEmail] = useState('');
+  const [line, setLine] = useState<{ ok: boolean; text: string } | null>(null);
+  const [busy, setBusy] = useState(false);
+  const add = async () => {
+    setBusy(true); setLine(null);
+    try {
+      const res = await fetch('/api/admin/review-requests', { method: 'POST', headers: { Authorization: `Bearer ${password}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'suppress', email }) });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok) { setLine({ ok: true, text: data.message || 'Done.' }); setEmail(''); }
+      else setLine({ ok: false, text: data.error || `Failed (${res.status}). Nothing was added.` });
+    } catch { setLine({ ok: false, text: 'Could not reach the server. Nothing was added.' }); }
+    setBusy(false);
+  };
+  return (
+    <div style={{ marginTop: 16, paddingTop: 10, borderTop: `1px solid ${C.bg}` }}>
+      <strong>Add to the do-not-email list</strong>
+      <p style={{ color: C.mid, margin: '2px 0 6px' }}>For anyone who asked not to be sent review requests some other way, for example by replying &quot;stop&quot; to the shop. No shop will send that address a review request again. Capitals and spaces do not matter.</p>
+      <form onSubmit={(e) => { e.preventDefault(); if (email.trim()) add(); }}>
+        <input type="text" inputMode="email" value={email} onChange={(e) => { setEmail(e.target.value); setLine(null); }} placeholder="name@example.com" autoComplete="off" disabled={busy} style={{ width: 260, padding: '6px 8px', border: `1px solid ${C.soft}`, borderRadius: 6 }} />
+        <button type="submit" disabled={busy || !email.trim()} style={{ ...btn, marginLeft: 8 }}>Add</button>
+      </form>
+      {line && <p role="status" style={{ margin: '6px 0 0', color: line.ok ? C.green : C.red }}>{line.text}</p>}
     </div>
   );
 }
