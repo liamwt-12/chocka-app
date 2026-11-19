@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { resolveRetailerScore, BADGE_LABEL, BADGE_DESCRIPTION } from './retailer-score';
+import { resolveRetailerScore, inviteScore, inviteScoreForRetailer, JUNE_SCORE_LABEL, NO_INVITE_SCORE_LABEL, BADGE_LABEL, BADGE_DESCRIPTION } from './retailer-score';
 
 const batch = (score: number | null, extra: Record<string, unknown> = {}) => ({
   score,
@@ -119,5 +119,44 @@ describe('badge copy', () => {
 
   it('the connected description warns that the two are not comparable', () => {
     expect(BADGE_DESCRIPTION.connected).toMatch(/not directly comparable/i);
+  });
+});
+
+describe('inviteScore: the score shown next to an invite link', () => {
+  it('a confident June batch score is quoted, labelled June public data', () => {
+    const s = inviteScore(resolveRetailerScore(batch(62)));
+    expect(s).toEqual({ kind: 'june', score: 62, text: '62 · June public data' });
+    expect(JUNE_SCORE_LABEL).toBe('June public data');
+  });
+
+  it('a genuine 0 from a confident match is still a score, not "no score"', () => {
+    expect(inviteScore(resolveRetailerScore(batch(0))).text).toBe('0 · June public data');
+  });
+
+  it('an unconfident match gets the no-score wording, whatever the number', () => {
+    for (const confidence of ['review', 'not_found', null, undefined, 'anything-new']) {
+      const s = inviteScore(resolveRetailerScore(batch(82, { match_confidence: confidence })));
+      expect(s).toEqual({ kind: 'none', score: null, text: 'No score: use the no-score wording' });
+    }
+  });
+
+  it('no score at all gets the no-score wording', () => {
+    expect(inviteScore(resolveRetailerScore(batch(null)))).toEqual({ kind: 'none', score: null, text: NO_INVITE_SCORE_LABEL });
+    expect(inviteScore(resolveRetailerScore(null))).toMatchObject({ kind: 'none' });
+  });
+
+  it('a live score is never labelled June, and never shown beside the June one', () => {
+    for (const live of [{ score: 61 }, { score: 0 }, { score: 95, scored_at: '2026-11-01T00:00:00Z' }]) {
+      const s = inviteScore(resolveRetailerScore(batch(82), live));
+      expect(s).toEqual({ kind: 'none', score: null, text: NO_INVITE_SCORE_LABEL });
+      expect(s.text).not.toMatch(/June|\d/);
+    }
+  });
+
+  it('the admin page\'s helper reads the retailers row only, so it can only ever give the June score', () => {
+    expect(inviteScoreForRetailer(batch(62)).text).toBe('62 · June public data');
+    expect(inviteScoreForRetailer(batch(62, { match_confidence: 'review' })).text).toBe(NO_INVITE_SCORE_LABEL);
+    expect(inviteScoreForRetailer(batch(null)).text).toBe(NO_INVITE_SCORE_LABEL);
+    expect(inviteScoreForRetailer.length).toBe(1);
   });
 });
