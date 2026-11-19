@@ -16,7 +16,19 @@ import { resolveTenantSlug } from '@/lib/tenant-registry';
 //
 // Fail-open: any error serves the request unchanged (i.e. as Chocka) rather than
 // taking the site down. No DB and no Node APIs — Edge-runtime safe.
+//
+// THE IMAGE ENDPOINT IS SHUT. Nothing in the app uses next/image, and several
+// published Next.js advisories (some only fixed in 15.5 or later) are in the
+// image optimiser behind /_next/image. So any request for it gets a plain 404
+// here, before Next or the host's image service sees it. If an image component
+// is ever wanted, remove this and the `images` setting in next.config.js
+// together, on a Next version without those advisories.
+export const IMAGE_ENDPOINT = '/_next/image';
+
 export function middleware(req: NextRequest) {
+  if (req.nextUrl.pathname === IMAGE_ENDPOINT || req.nextUrl.pathname.startsWith(`${IMAGE_ENDPOINT}/`)) {
+    return new NextResponse('Not found', { status: 404, headers: { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' } });
+  }
   try {
     const slug = resolveTenantSlug(req.headers.get('host') || '');
     const headers = new Headers(req.headers);
@@ -28,8 +40,8 @@ export function middleware(req: NextRequest) {
 }
 
 // Run on everything except static assets, so we never sit in the hot path for
-// images / _next output. `/api/*` is included so the header is available
-// app-wide for later slices.
+// _next output. `/api/*` is included so the header is available app-wide for
+// later slices. /_next/image is matched on its own, only to refuse it (above).
 export const config = {
-  matcher: ['/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico)$).*)'],
+  matcher: ['/_next/image', '/_next/image/:path*', '/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico)$).*)'],
 };
