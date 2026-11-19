@@ -42,11 +42,23 @@
         <tr><td>A Google authorisation token (OAuth refresh token)</td><td>To act on the retailer's Google Business Profile on their behalf. It travels over encrypted connections and is held in an access-controlled database, and is never shown to anyone. Encryption at rest is being rolled out.</td></tr>
         <tr><td>Profile content from Google (business details, posts, reviews, photos)</td><td>To audit the listing, generate posts and replies, and show the retailer what has been done.</td></tr>
         <tr><td>Performance metrics from Google (how often the profile was found, calls, direction requests, review counts)</td><td>To report results to the retailer and to Tarkett at network level in aggregate.</td></tr>
+        <tr><td>A customer's email address and, if given, first name, <em>supplied by the retailer</em>, when the retailer asks us to request reviews</td><td>Only to send that customer one email asking for a review of the retailer on Google. See "Review requests" below.</td></tr>
       </tbody>
     </table>
 
+    <h2>Review requests</h2>
+    <p>A retailer can ask us to invite its customers to review it on Google. The retailer supplies each customer's email address and, if it wishes, their first name. We then send each customer one email on the retailer's behalf. It comes from "<em>the retailer's name</em> via Stellar Local", and a reply goes straight to the retailer. Everyone on the retailer's list gets the same email: an honest review is asked for, whatever the customer's experience was. We never offer anything in return for a review, and we do not choose whom to ask by how happy they seem. We send one request only, with no reminders.</p>
+    <p><strong>Who is responsible.</strong> The customer list belongs to the retailer, which is the controller of it and decides whom to ask. We act as the retailer's processor: we use the details only to send the request the retailer asked for, and for nothing else. We do not pass customers' details to Tarkett, use them to advertise, or sell them. Keeping the "do not email" list described below is our own responsibility: we keep it so that a customer who has said no is never asked again by any retailer that uses Stellar Local.</p>
+    <p><strong>What we keep, and for how long.</strong> We do not keep customers' email addresses or names, and we do not keep the retailer's list. They are used only while the emails are being sent. What we keep instead is a one-way code made from each email address, which cannot be turned back into the address:</p>
+    <ul>
+      <li>a record that a request was sent, for 30 days;</li>
+      <li>a record that this retailer has already asked this address, for 12 months, so that the same retailer cannot ask the same customer twice;</li>
+      <li>the "do not email" list, for as long as the service runs, so that an unsubscribe is honoured for good.</li>
+    </ul>
+    <p><strong>How to stop them.</strong> Every request has an unsubscribe link. One click adds the address to our "do not email" list, and no retailer that uses Stellar Local will send it a review request again. You can also reply to the email, or write to <a href="mailto:privacy@stellarlocal.co.uk">privacy@stellarlocal.co.uk</a>, and we will add it for you.</p>
+
     <h2>Legal basis</h2>
-    <p>For retailer account data and acting on the Google profile, our legal basis is the performance of our contract with the retailer (and Tarkett as the funder of the service). For service and security communications, our basis is our legitimate interest in running the service safely.</p>
+    <p>For retailer account data and acting on the Google profile, our legal basis is the performance of our contract with the retailer (and Tarkett as the funder of the service). For review requests, we act on the retailer's instructions as its processor; the retailer is responsible for having a lawful basis to contact its customers. We keep the "do not email" list because we must respect a person's objection to being contacted. For service and security communications, our basis is our legitimate interest in running the service safely.</p>
 
     <h2>Who processes data for us</h2>
     <p>We use a small number of trusted providers to run the service. They process data on our instructions:</p>
@@ -56,7 +68,7 @@
         <tr><td>Google (Business Profile APIs)</td><td>The listing we manage and the source of profile and performance data.</td></tr>
         <tr><td>Supabase</td><td>Database and storage for account and profile data.</td></tr>
         <tr><td>Netlify</td><td>Application hosting and content delivery.</td></tr>
-        <tr><td>Resend</td><td>Sending service and report emails.</td></tr>
+        <tr><td>Resend</td><td>Sending service and report emails, and review requests.</td></tr>
         <tr><td>Twilio</td><td>Sending SMS messages.</td></tr>
         <tr><td>Anthropic (Claude)</td><td>Generating draft posts and review replies from the profile's own information. Drafts are produced for the retailer; customer contact details are not sent for this purpose.</td></tr>
       </tbody>
@@ -68,10 +80,10 @@
     </div>
 
     <h2>How long we keep it</h2>
-    <p>We keep account and profile data for as long as the retailer uses the service. If a retailer disconnects or asks us to close their account, we remove our Google access and delete their account data within 30 days, except where we must keep limited records to meet a legal obligation.</p>
+    <p>We keep account and profile data for as long as the retailer uses the service. If a retailer disconnects or asks us to close their account, we remove our Google access and delete their account data within 30 days, except where we must keep limited records to meet a legal obligation. For review requests, see "Review requests" above.</p>
 
     <h2>Your rights</h2>
-    <p>Retailers, and anyone else whose personal data we hold, have the right to access their data, to have it corrected or deleted, to restrict or object to processing, and to data portability. To exercise any of these, email <a href="mailto:privacy@stellarlocal.co.uk">privacy@stellarlocal.co.uk</a>. You can also complain to the Information Commissioner's Office at <a href="https://ico.org.uk" target="_blank" rel="noopener">ico.org.uk</a>, though we would like the chance to help first.</p>
+    <p>Retailers, customers who have been sent a review request, and anyone else whose personal data we hold, have the right to access their data, to have it corrected or deleted, to restrict or object to processing, and to data portability. To exercise any of these, email <a href="mailto:privacy@stellarlocal.co.uk">privacy@stellarlocal.co.uk</a>. You can also complain to the Information Commissioner's Office at <a href="https://ico.org.uk" target="_blank" rel="noopener">ico.org.uk</a>, though we would like the chance to help first.</p>
 
     <h2>Changes to this policy</h2>
     <p>If we change this policy we will update the date at the top of this page and, for material changes, let retailers know by email.</p>
