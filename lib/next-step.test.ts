@@ -64,10 +64,13 @@ describe('the other small improvements, wired safely', () => {
     expect(f).not.toMatch(/fetch\(/);
   });
   it('the needs-help file has no contact details in it', () => {
+    // The file is built by lib/needs-help-csv.ts, from only the fields it needs.
+    const lib = src('./needs-help-csv.ts');
+    expect(/'shop,town,status,waiting since,what happened,what to do,note'/.exec(lib)).not.toBeNull();
+    expect(lib.slice(lib.indexOf('export interface NeedsHelpRow'))).not.toMatch(/contactEmail|phone/);
     const p = src('../app/admin/pilot/page.tsx');
-    const header = /'shop,town,status,waiting since,what happened,what to do,note'/.exec(p);
-    expect(header).not.toBeNull();
     const fn = p.slice(p.indexOf('const downloadHelp'), p.indexOf('const openVoice'));
+    expect(fn).toMatch(/needsHelpCsv\(/);
     expect(fn).not.toMatch(/contactEmail|phone/);
   });
   it('the readiness check sits behind the admin password like everything else there', () => {

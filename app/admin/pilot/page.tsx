@@ -3,6 +3,7 @@
 import { useState, useMemo } from 'react';
 import PhotoPanel from '@/components/admin/PhotoPanel';
 import ReviewRequestPanel from '@/components/admin/ReviewRequestPanel';
+import { needsHelpCsv } from '@/lib/needs-help-csv';
 import VoiceFields, { draftFromVoice, EMPTY_DRAFT, type VoiceDraft } from '@/components/VoiceFields';
 
 // Pilot admin: add a retailer, generate invite links (never sends), see who is live.
@@ -237,11 +238,11 @@ export default function PilotAdminPage() {
   };
   const checkReady = async () => { setBusy(true); setMsg(''); try { setReady(await call({ action: 'readiness' })); } catch (e: any) { setMsg(e.message); } setBusy(false); };
 
-  // The needs-help list as a file, to hand to whoever is ringing round. No contact details in it.
+  // The needs-help list as a file, to hand to whoever is ringing round. No contact details in it (lib/needs-help-csv.ts):
+  // only the fields it needs are passed, never the row with its contact address.
   const downloadHelp = () => {
-    const esc = (v: string) => { const t = String(v ?? ''); const risky = /^[=+\-@]/.test(t); return `"${(risky ? `'${t}` : t).replace(/"/g, '""')}"`; };
-    const lines = ['shop,town,status,waiting since,what happened,what to do,note', ...helpRows.map((r) => [r.name, r.town || '', r.help.label, (r.help.since || '').slice(0, 10), r.help.why, r.help.action, r.note || ''].map(esc).join(','))];
-    const url = URL.createObjectURL(new Blob([lines.join('\n')], { type: 'text/csv' }));
+    const file = needsHelpCsv(helpRows.map((r) => ({ name: r.name, town: r.town, help: r.help, note: r.note })));
+    const url = URL.createObjectURL(new Blob([file], { type: 'text/csv' }));
     const a = document.createElement('a'); a.href = url; a.download = `stellar-needs-help-${new Date().toISOString().slice(0, 10)}.csv`; a.click();
     URL.revokeObjectURL(url);
   };
