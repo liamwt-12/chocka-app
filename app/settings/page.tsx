@@ -3,6 +3,7 @@
 import ChangesList from '@/components/ChangesList';
 import AutomationChoice from '@/components/AutomationChoice';
 import ListingSettings from '@/components/ListingSettings';
+import VoiceSettings from '@/components/VoiceSettings';
 import { useState, useEffect, useCallback } from 'react';
 import { useTenant } from '@/lib/tenant-context';
 
@@ -95,6 +96,9 @@ export default function SettingsPage() {
 
       {/* Opening hours, holiday hours and website: changed here, checked on Google. */}
       <ListingSettings cardStyle={card} labelStyle={lbl} />
+
+      {/* How posts and replies sound. Only for a shop with a retailers row (Stellar); renders nothing otherwise. */}
+      <VoiceSettings cardStyle={card} labelStyle={lbl} />
 
       {/* Everything we have changed, with an Undo for each. */}
       <ChangesList cardStyle={card} labelStyle={lbl} supportEmail={tenant.supportEmail} />

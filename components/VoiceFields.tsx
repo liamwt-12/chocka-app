@@ -4,8 +4,8 @@ import type { CSSProperties } from 'react';
 import { TONE_LABELS, VOICE_LIMITS, type Tone } from '@/lib/voice';
 
 /**
- * The voice questions, shared by onboarding (the shop answers) and /admin/pilot
- * (a rep answers for them). Lists are typed as comma-separated text and split by
+ * The voice questions, shared by onboarding and Settings (the shop answers) and
+ * /admin/pilot (a rep answers for them). Lists are typed as comma-separated text and split by
  * the server (lib/voice.ts), which is also where every answer is validated:
  * nothing here is a check, only a form.
  */
