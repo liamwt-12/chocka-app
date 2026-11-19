@@ -1,11 +1,15 @@
+import { automationHeld } from '@/lib/shop-status';
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
 import { verifyCronSecret, unauthorizedResponse } from '@/lib/cron';
-import { refreshAccessToken, createLocalPost } from '@/lib/google';
+import { refreshAccessToken, isDeadGrant } from '@/lib/google';
+import { loggedCreatePost } from '@/lib/change-log';
 import { sendSMS, logSMS } from '@/lib/twilio';
 import { getTenantForRow } from '@/lib/tenant';
 import { decryptSecret, userTokenAad } from '@/lib/secrets';
 import { resolveAccess, MANAGER_EMBED } from '@/lib/managed-access';
+import { photoUrlForPost } from '@/lib/shop-photos';
+import { startBudget } from '@/lib/cron-budget';
 
 /**
  * Most posts this route will publish in a single invocation.
@@ -27,7 +31,7 @@ export async function GET(request: NextRequest) {
         *,
         profiles!inner (
           *,
-          users:user_id ( *, tenants ( slug ), ${MANAGER_EMBED} )
+          users:user_id ( *, tenants ( slug ), retailers ( connection_status, listing_confirmed_at ), ${MANAGER_EMBED} )
         )
       `)
       .eq('status', 'pending_approval')
@@ -51,11 +55,23 @@ export async function GET(request: NextRequest) {
       .limit(MAX_POSTS_PER_RUN);
 
     let published = 0;
+    // Each post costs about a second and a quarter, so a full batch of 40 is
+    // 50 seconds: inside Netlify's limit, but past the 25 the scheduler waits,
+    // which raised a failure alert for a run that was working. Stop when the
+    // budget is spent; this job runs every 15 minutes and picks up the rest.
+    const budget = startBudget();
+    let leftForNextRun = 0;
 
     for (const post of pendingPosts || []) {
+      if (budget.exhausted()) { leftForNextRun++; continue; }
       const profile = post.profiles;
       const user = profile?.users;
       if (!user || !profile) continue;
+
+      // Held: the listing is unconfirmed or unverified (lib/shop-status.ts).
+      // The post is left exactly as it is and goes out once the hold lifts.
+      const hold = automationHeld(user.retailers);
+      if (hold) { console.log(`[cron:post-publisher] post ${post.id} held: ${hold}`); continue; }
 
       // Per post, not per run — one pass serves every tenant.
       const t = getTenantForRow(user);
@@ -79,8 +95,33 @@ export async function GET(request: NextRequest) {
           decryptSecret(access.encryptedToken, userTokenAad(access.aadUserId)),
         );
 
+        // The post's photo, if it has one, SHOP_PHOTOS is on, and the photo is
+        // still approved right now (lib/shop-photos.ts). Otherwise null, and
+        // the post goes out as text, exactly as before.
+        const photoUrl = await photoUrlForPost(supabaseAdmin, supabaseAdmin.storage, post.photo_id);
+        const ctx = { db: supabaseAdmin, source: 'post-publisher' as const, userId: user.id, profileId: profile.id };
+
         // Publish to GBP
-        const result = await createLocalPost(accessToken, profile.google_location_name, post.content, profile.google_account_id);
+        let result: any;
+        try {
+          result = await loggedCreatePost(
+            ctx, accessToken, profile.google_location_name, post.content, profile.google_account_id,
+            photoUrl ? { id: post.photo_id, url: photoUrl } : null,
+          );
+        } catch (err: any) {
+          // Google refused the post WITH its photo (a non-OK answer, so nothing
+          // was created). A photo must never be the reason a shop's post does
+          // not go out, so try once more as text. Token failures are not
+          // retried: they go to the handler below as they always did.
+          // Only a 4xx that is not about the credential (401, 403) or pacing
+          // (429) counts as "refused". After a 5xx or a timeout Google may have
+          // created the post anyway, and trying again would publish it twice.
+          const status = Number(/Failed to create post \((\d{3})\)/.exec(String(err?.message))?.[1] || 0);
+          const refused = status >= 400 && status < 500 && ![401, 403, 429].includes(status);
+          if (!photoUrl || !refused) throw err;
+          console.warn(`[cron:post-publisher] post ${post.id}: Google refused the photo, publishing as text. ${String(err?.message).slice(0, 200)}`);
+          result = await loggedCreatePost(ctx, accessToken, profile.google_location_name, post.content, profile.google_account_id);
+        }
 
         // Update post status
         await supabaseAdmin
@@ -114,7 +155,9 @@ export async function GET(request: NextRequest) {
         console.error(`Post publish failed for post ${post.id}:`, err);
 
         // Check if it's a token error
-        if (err.message?.includes('Token refresh failed') || err.message?.includes('401')) {
+        // A dead grant, or Google refusing the token outright (401). A 429 or 5xx
+        // on the refresh is NOT this: the connection is fine and the post is retried.
+        if (isDeadGrant(err) || (!err.message?.includes('Token refresh failed') && err.message?.includes('401'))) {
           // Against the row the credential lives on, NOT necessarily this user.
           // For a managed retailer the dead token is the operator's, and marking
           // the retailer invalid would flag every shop in the estate as broken
@@ -148,7 +191,8 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    return NextResponse.json({ success: true, published });
+    if (leftForNextRun > 0) console.log(`[cron:post-publisher] published ${published}; ${leftForNextRun} more were due and will go on the next run`);
+    return NextResponse.json({ success: true, published, remaining: leftForNextRun, partial: leftForNextRun > 0 });
   } catch (err) {
     console.error('Post publisher cron failed:', err);
     return NextResponse.json({ error: 'Cron failed' }, { status: 500 });

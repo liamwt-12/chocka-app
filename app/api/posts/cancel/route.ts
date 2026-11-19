@@ -1,10 +1,31 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
-import { generateCancelHash } from '@/lib/cron';
+import { generateCancelHash, linkHashMatches } from '@/lib/cron';
 import { getTenantBySlug, getTenantForRow } from '@/lib/tenant';
-import { resultPage } from '@/lib/result-page';
+import { resultPage, confirmPage } from '@/lib/result-page';
 
+/**
+ * GET only shows a confirmation page. Email security scanners open every link in
+ * a message, so acting on GET meant a scanner could cancel a retailer's post. The
+ * button on that page POSTs back here, to the same URL, and POST does the work.
+ */
 export async function GET(request: NextRequest) {
+  const tenant = getTenantBySlug(request.headers.get('x-tenant-slug'));
+  const url = new URL(request.url);
+  const postId = url.searchParams.get('id');
+  const hash = url.searchParams.get('hash');
+  if (!postId || !hash || !linkHashMatches(hash, generateCancelHash(postId))) {
+    return new NextResponse(resultPage(tenant, 'Invalid link', 'This cancel link has expired or is invalid.'), {
+      headers: { 'Content-Type': 'text/html' },
+    });
+  }
+  return new NextResponse(
+    confirmPage(tenant, 'Cancel this post?', 'Nothing will be published this week if you cancel.', 'Yes, cancel this post', `${url.pathname}${url.search}`),
+    { headers: { 'Content-Type': 'text/html', 'Cache-Control': 'no-store' } },
+  );
+}
+
+export async function POST(request: NextRequest) {
   const { searchParams } = new URL(request.url);
 
   // The brand for every page this route renders. Read from the Host (via the
@@ -31,7 +52,7 @@ export async function GET(request: NextRequest) {
 
   // Verify hash
   const expectedHash = generateCancelHash(postId);
-  if (hash !== expectedHash) {
+  if (!linkHashMatches(hash, expectedHash)) {
     return new NextResponse(resultPage(tenant, 'Invalid link', 'This cancel link has expired or is invalid.'), {
       headers: { 'Content-Type': 'text/html' },
     });
@@ -56,11 +77,22 @@ export async function GET(request: NextRequest) {
     });
   }
 
-  // Cancel the post
-  await supabaseAdmin
+  // Cancel the post: only if it is still waiting, and only say so if the write
+  // happened. Before, a failed write, or the publisher getting there first,
+  // still produced "Post cancelled".
+  const { data: cancelled, error: cancelError } = await supabaseAdmin
     .from('scheduled_posts')
     .update({ status: 'cancelled' })
-    .eq('id', postId);
+    .eq('id', postId)
+    .eq('status', 'pending_approval')
+    .select('id');
+  if (cancelError) {
+    console.error('[posts/cancel] update failed:', cancelError.message);
+    return new NextResponse(resultPage(tenant, 'Something went wrong', 'We could not cancel that post. Please try the link again in a minute.'), { headers: { 'Content-Type': 'text/html' } });
+  }
+  if (!cancelled?.length) {
+    return new NextResponse(resultPage(tenant, 'Already handled', 'This post has already been published or cancelled.'), { headers: { 'Content-Type': 'text/html' } });
+  }
 
   // SMS confirmation
   const user = post.profiles?.users;

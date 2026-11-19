@@ -1,3 +1,4 @@
+import { DAILY_METRICS, parseMultiDailyMetrics, totalsFor, isoDate, addDaysIso, type MetricRow } from './metrics';
 const GOOGLE_TOKEN_URL = 'https://oauth2.googleapis.com/token';
 const GBP_API_BASE = 'https://mybusinessbusinessinformation.googleapis.com/v1';
 const GBP_POSTS_BASE = 'https://mybusiness.googleapis.com/v4';
@@ -20,6 +21,30 @@ export class GbpError extends Error {
     this.status = status;
     this.googleStatus = googleStatus;
   }
+}
+
+/**
+ * A failed sign-in refresh. `deadGrant` is true only when Google said the
+ * stored permission itself is gone (invalid_grant: revoked, expired, password
+ * changed). Anything else, a 429 or a 5xx, means Google could not answer just
+ * now and the connection is still good. Only a dead grant may ever mark a shop
+ * as disconnected; see isDeadGrant.
+ */
+export class GoogleAuthError extends Error {
+  status: number;
+  deadGrant: boolean;
+  constructor(message: string, status: number, deadGrant: boolean) {
+    super(message);
+    this.name = 'GoogleAuthError';
+    this.status = status;
+    this.deadGrant = deadGrant;
+  }
+}
+
+/** Is this error Google telling us the shop's permission is gone for good? */
+export function isDeadGrant(err: unknown): boolean {
+  if (err instanceof GoogleAuthError) return err.deadGrant;
+  return /invalid_grant/.test(String((err as any)?.message ?? ''));
 }
 
 async function gbpError(res: Response, context: string): Promise<GbpError> {
@@ -50,6 +75,14 @@ export interface Listing {
    * treat it as a bonus, never as a guarantee.
    */
   placeId?: string;
+
+  /**
+   * Google's own flag for "this account has authority over the listing", which
+   * is false for a listing that is not verified yet. Read from `metadata`, which
+   * the enumeration already requests, so it costs nothing. Undefined when Google
+   * omits it, which is treated as unknown, never as unverified.
+   */
+  hasVoiceOfMerchant?: boolean;
 }
 
 export function formatAddress(address: any): string {
@@ -88,7 +121,7 @@ export function getGoogleAuthUrl(state?: string, redirectUri?: string): string {
 // authorisation — Google validates that the two match and rejects the exchange
 // otherwise. See the note there.
 export async function exchangeCodeForTokens(code: string, redirectUri?: string) {
-  const res = await fetch(GOOGLE_TOKEN_URL, {
+  const res = await googleFetch(GOOGLE_TOKEN_URL, {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body: new URLSearchParams({
@@ -103,7 +136,7 @@ export async function exchangeCodeForTokens(code: string, redirectUri?: string) 
 }
 
 export async function refreshAccessToken(refreshToken: string): Promise<string> {
-  const res = await fetch(GOOGLE_TOKEN_URL, {
+  const res = await googleFetch(GOOGLE_TOKEN_URL, {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body: new URLSearchParams({
@@ -112,48 +145,81 @@ export async function refreshAccessToken(refreshToken: string): Promise<string> 
       grant_type: 'refresh_token',
     }),
   });
-  if (!res.ok) throw new Error(`Token refresh failed: ${await res.text()}`);
+  if (!res.ok) {
+    const text = await res.text();
+    throw new GoogleAuthError(`Token refresh failed: ${text}`, res.status, /invalid_grant/.test(text));
+  }
   const data = await res.json();
   return data.access_token;
 }
 
-// ── Transient-failure retry for the enumeration calls ───────────────────────
-// getManageableListings is deliberately all-or-nothing: if any account's
-// locations call fails it throws, so a partial enumeration is never mistaken for
-// the complete set and cannot auto-bind the wrong listing. Correct, but it means
-// one blip from Google turns a signup into a dead end.
+// ── One door for every request to Google ───────────────────────────────────
+// Every call in this file goes through googleFetch, so a "too many requests"
+// answer (429) or a bad moment on Google's side (5xx, or a dropped connection)
+// is retried with a growing wait before it becomes an outcome anybody sees.
 //
-// So the blip gets retried before it becomes an outcome. Only 429 and 5xx — and
-// a network-level throw — are retried. Every 4xx is a decision Google has already
-// made and will make again identically; retrying a 403 just makes the user wait
-// longer for the same answer.
+// Until now only the listing enumeration retried. Scoring a listing, applying
+// a change and refreshing a sign-in did not, so with many shops joining at
+// once one refusal failed a step outright, and a refusal on the sign-in refresh
+// marked a perfectly good connection as dead.
 //
-// COST: up to +1s on the failure path, which is on the signup critical path.
-// That is the trade — a second of latency in the rare failure case against a
-// retailer who cannot connect at all. The success path is untouched: no delay is
-// incurred unless a request actually fails.
-const RETRY_DELAYS_MS = [250, 750];
+// What is retried:
+//   429                     always: Google refused before doing anything
+//   5xx, dropped connection only when repeating the request is safe: every
+//                           read, PATCH, PUT and DELETE here is idempotent, and
+//                           so is the token exchange. A POST that creates a
+//                           post or a photo is NOT repeated on these, because
+//                           the first attempt may have landed.
+// Every other 4xx is a decision Google will make again identically.
+//
+// COST: at most about 3.5 seconds of waiting by default, and only on the
+// failure path. Google's Retry-After is honoured but capped at 2 seconds a
+// time, so one request waits 6 seconds at the very most and a job with a time
+// budget cannot be held past it by a run of refusals.
+let RETRY_DELAYS_MS = [300, 900, 2200];
+const RETRY_AFTER_CAP_MS = 2000;
+
+/** Tests only: shorten or remove the waits. Returns the previous value. */
+export function setGoogleRetryDelaysForTests(delays: number[]): number[] {
+  const before = RETRY_DELAYS_MS;
+  RETRY_DELAYS_MS = delays;
+  return before;
+}
 
 function sleep(ms: number) {
   return new Promise((r) => setTimeout(r, ms));
 }
 
-async function fetchRetryingTransient(url: string, init: RequestInit): Promise<Response> {
+function retryAfterMs(res: Response, fallback: number): number {
+  const raw = res.headers?.get?.('retry-after');
+  const secs = raw ? Number(raw) : NaN;
+  return Number.isFinite(secs) && secs >= 0 ? Math.min(secs * 1000, RETRY_AFTER_CAP_MS) : fallback;
+}
+
+export async function googleFetch(url: string, init: RequestInit = {}): Promise<Response> {
+  const method = (init.method || 'GET').toUpperCase();
+  // The token endpoint is a POST but exchanging a refresh token is repeatable.
+  const repeatable = method !== 'POST' || url.startsWith(GOOGLE_TOKEN_URL);
   for (let attempt = 0; ; attempt++) {
+    const last = attempt >= RETRY_DELAYS_MS.length;
+    let res: Response;
     try {
-      const res = await fetch(url, init);
-      // Out of retries, succeeded, or failed permanently — hand it back and let
-      // the caller build its own error from the response.
-      if (res.ok || attempt >= RETRY_DELAYS_MS.length) return res;
-      if (res.status !== 429 && res.status < 500) return res;
+      res = await fetch(url, init);
     } catch (err) {
-      // A thrown fetch is a connection-level failure (DNS, TLS, socket) and is
-      // exactly the kind of thing that succeeds on a second attempt.
-      if (attempt >= RETRY_DELAYS_MS.length) throw err;
+      // A thrown fetch is a connection-level failure (DNS, TLS, socket).
+      if (last || !repeatable) throw err;
+      await sleep(RETRY_DELAYS_MS[attempt]);
+      continue;
     }
-    await sleep(RETRY_DELAYS_MS[attempt]);
+    if (res.ok || last) return res;
+    const transient = res.status === 429 || (res.status >= 500 && repeatable);
+    if (!transient) return res;
+    await sleep(retryAfterMs(res, RETRY_DELAYS_MS[attempt]));
   }
 }
+
+/** Kept under its old name for the enumeration calls that already used it. */
+const fetchRetryingTransient = googleFetch;
 
 export async function getAccounts(accessToken: string) {
   const accounts: any[] = [];
@@ -237,7 +303,8 @@ export async function getManageableListings(accessToken: string): Promise<Listin
         latitude: loc.latlng?.latitude,
         longitude: loc.latlng?.longitude,
         category: loc.categories?.primaryCategory?.displayName || '',
-        placeId: placeIdFromMapsUri(loc.metadata?.mapsUri),
+        placeId: loc.metadata?.placeId || placeIdFromMapsUri(loc.metadata?.mapsUri),
+        hasVoiceOfMerchant: typeof loc.metadata?.hasVoiceOfMerchant === 'boolean' ? loc.metadata.hasVoiceOfMerchant : undefined,
       });
     }
   }
@@ -323,7 +390,7 @@ export async function getLocationFull(accessToken: string, locationName: string)
     'profile','serviceItems','serviceArea','openInfo','metadata',
     'labels','moreHours',
   ].join(',');
-  const res = await fetch(
+  const res = await googleFetch(
     `${GBP_API_BASE}/${locationName}?readMask=${mask}`,
     { headers: { Authorization: `Bearer ${accessToken}` } }
   );
@@ -333,7 +400,7 @@ export async function getLocationFull(accessToken: string, locationName: string)
 
 export async function getGoogleUpdated(accessToken: string, locationName: string) {
   const mask = 'name,title,phoneNumbers,storefrontAddress,websiteUri,regularHours,categories,profile';
-  const res = await fetch(
+  const res = await googleFetch(
     `${GBP_API_BASE}/${locationName}:getGoogleUpdated?readMask=${mask}`,
     { headers: { Authorization: `Bearer ${accessToken}` } }
   );
@@ -343,7 +410,7 @@ export async function getGoogleUpdated(accessToken: string, locationName: string
 }
 
 export async function getAttributes(accessToken: string, locationName: string) {
-  const res = await fetch(
+  const res = await googleFetch(
     `${GBP_API_BASE}/${locationName}/attributes`,
     { headers: { Authorization: `Bearer ${accessToken}` } }
   );
@@ -353,7 +420,7 @@ export async function getAttributes(accessToken: string, locationName: string) {
 
 export async function getMedia(accessToken: string, locationName: string, accountId?: string) {
   const v4Path = accountId ? `${accountId}/${locationName}` : locationName;
-  const res = await fetch(
+  const res = await googleFetch(
     `${GBP_POSTS_BASE}/${v4Path}/media`,
     { headers: { Authorization: `Bearer ${accessToken}` } }
   );
@@ -363,12 +430,95 @@ export async function getMedia(accessToken: string, locationName: string, accoun
 
 export async function getLocalPosts(accessToken: string, locationName: string, accountId?: string) {
   const v4Path = accountId ? `${accountId}/${locationName}` : locationName;
-  const res = await fetch(
+  const res = await googleFetch(
     `${GBP_POSTS_BASE}/${v4Path}/localPosts`,
     { headers: { Authorization: `Bearer ${accessToken}` } }
   );
   if (!res.ok) throw new Error(`Failed to get posts: ${await res.text()}`);
   return res.json();
+}
+
+/**
+ * Read exactly the fields named in an update mask, so lib/change-log.ts can
+ * snapshot a listing's values immediately before the app changes them. `name`
+ * is always added because the API requires a non-empty read mask and it is
+ * harmless. Throws GbpError, so a failed snapshot stops the write.
+ */
+export async function getLocationFields(accessToken: string, locationName: string, fields: string[]) {
+  const mask = Array.from(new Set(['name', ...fields])).join(',');
+  const res = await googleFetch(
+    `${GBP_API_BASE}/${locationName}?readMask=${mask}`,
+    { headers: { Authorization: `Bearer ${accessToken}` } }
+  );
+  if (!res.ok) throw await gbpError(res, 'Failed to snapshot location');
+  return res.json();
+}
+
+/**
+ * Look a category up in Google's own list by its display name ("Carpet store").
+ * Google accepts categories only by its id for them, never by name, so a
+ * suggested name has to be resolved before it can be written. Returns null if
+ * Google has no category with exactly that name.
+ *
+ * NOT YET SEEN AGAINST REAL GOOGLE: the endpoint and its `filter` are taken
+ * from Google's reference for categories.list. If the shape differs, this
+ * returns null, the category is left out, and the shop is told so. Nothing is
+ * written on a guess.
+ */
+export async function findCategoryByName(accessToken: string, displayName: string): Promise<{ name: string; displayName: string } | null> {
+  const qs = new URLSearchParams({ regionCode: 'GB', languageCode: 'en', view: 'BASIC', pageSize: '20', filter: `displayName=${displayName}` });
+  const res = await googleFetch(`${GBP_API_BASE}/categories?${qs}`, { headers: { Authorization: `Bearer ${accessToken}` } });
+  if (!res.ok) {
+    if (res.status === 429 || res.status >= 500) throw await gbpError(res, 'Failed to look up category');
+    return null;
+  }
+  const data = await res.json().catch(() => null);
+  const want = displayName.trim().toLowerCase();
+  const hit = (data?.categories || []).find((c: any) => String(c?.displayName || '').trim().toLowerCase() === want && typeof c?.name === 'string');
+  return hit ? { name: hit.name, displayName: hit.displayName } : null;
+}
+
+/** Delete a local post by its full v4 resource name. Used only by the revert script. */
+export async function deleteLocalPost(accessToken: string, postName: string) {
+  const res = await googleFetch(`${GBP_POSTS_BASE}/${postName}`, {
+    method: 'DELETE',
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  if (!res.ok) throw await gbpError(res, 'Failed to delete post');
+}
+
+/**
+ * Add one photo to the listing itself (its photo gallery), from an address
+ * Google can fetch. Only ever called through lib/change-log.ts, and only when
+ * SHOP_PHOTOS_TO_LISTING=on (lib/shop-photos.ts).
+ */
+export async function createLocationMedia(accessToken: string, locationName: string, sourceUrl: string, accountId?: string) {
+  const v4Path = accountId ? `${accountId}/${locationName}` : locationName;
+  const res = await googleFetch(`${GBP_POSTS_BASE}/${v4Path}/media`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ mediaFormat: 'PHOTO', locationAssociation: { category: 'ADDITIONAL' }, sourceUrl }),
+  });
+  if (!res.ok) throw await gbpError(res, 'Failed to add photo');
+  return res.json();
+}
+
+/** Delete a listing photo by its full v4 resource name. Used only by the revert script. */
+export async function deleteLocationMedia(accessToken: string, mediaName: string) {
+  const res = await googleFetch(`${GBP_POSTS_BASE}/${mediaName}`, {
+    method: 'DELETE',
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  if (!res.ok) throw await gbpError(res, 'Failed to delete photo');
+}
+
+/** Delete the owner's reply to a review. Used only by the revert script. */
+export async function deleteReviewReply(accessToken: string, reviewName: string) {
+  const res = await googleFetch(`${GBP_POSTS_BASE}/${reviewName}/reply`, {
+    method: 'DELETE',
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  if (!res.ok) throw await gbpError(res, 'Failed to delete reply');
 }
 
 // ── NEW: Update functions ──
@@ -379,7 +529,7 @@ export async function updateLocation(
 ) {
   const url = `${GBP_API_BASE}/${locationName}?updateMask=${updateMask}`;
   console.log('[GBP PATCH]', url, JSON.stringify(locationData).slice(0, 200));
-  const res = await fetch(url, {
+  const res = await googleFetch(url, {
     method: 'PATCH',
     headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
     body: JSON.stringify(locationData),
@@ -387,7 +537,9 @@ export async function updateLocation(
   if (!res.ok) {
     const errText = await res.text();
     console.error('[GBP PATCH ERROR]', res.status, errText.slice(0, 300));
-    throw new Error(`Update failed (${updateMask}): ${errText}`);
+    let googleStatus: string | null = null;
+    try { googleStatus = JSON.parse(errText)?.error?.status ?? null; } catch {}
+    throw new GbpError(`Update failed (${updateMask}): ${errText}`, res.status, googleStatus);
   }
   return res.json();
 }
@@ -396,7 +548,7 @@ export async function updateAttributes(
   accessToken: string, locationName: string,
   attributes: Array<{ name: string; values?: unknown[] }>
 ) {
-  const res = await fetch(
+  const res = await googleFetch(
     `${GBP_API_BASE}/${locationName}/attributes`,
     {
       method: 'PATCH',
@@ -410,29 +562,83 @@ export async function updateAttributes(
 
 // ── Existing: Posts, reviews, metrics ──
 
-export async function createLocalPost(accessToken: string, locationName: string, content: string, accountId?: string) {
+/**
+ * `photoUrl` is optional: an address Google can fetch one photo from, attached
+ * to the post. Without it the request body is exactly what it always was.
+ */
+export async function createLocalPost(accessToken: string, locationName: string, content: string, accountId?: string, photoUrl?: string | null) {
   const v4Path = accountId ? `${accountId}/${locationName}` : locationName;
-  const res = await fetch(`${GBP_POSTS_BASE}/${v4Path}/localPosts`, {
+  const res = await googleFetch(`${GBP_POSTS_BASE}/${v4Path}/localPosts`, {
     method: 'POST',
     headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ languageCode: 'en-GB', summary: content, topicType: 'STANDARD' }),
+    body: JSON.stringify({
+      languageCode: 'en-GB', summary: content, topicType: 'STANDARD',
+      ...(photoUrl ? { media: [{ mediaFormat: 'PHOTO', sourceUrl: photoUrl }] } : {}),
+    }),
   });
-  if (!res.ok) throw new Error(`Failed to create post: ${await res.text()}`);
+  // The status is in the message so the publisher can tell "Google refused
+  // this request" (4xx) from "Google is having a bad moment" (429, 5xx).
+  if (!res.ok) throw new Error(`Failed to create post (${res.status}): ${await res.text()}`);
   return res.json();
 }
 
-export async function getReviews(accessToken: string, locationName: string, accountId?: string) {
+/** Google's maximum page size for reviews.list. */
+export const REVIEWS_PAGE_SIZE = 50;
+/**
+ * Safety cap: 40 pages = 2,000 reviews. No flooring retailer is anywhere near it,
+ * and it stops a looping nextPageToken from running a cron function out of time.
+ * Hitting it is reported as `truncated: true`, never silently.
+ */
+export const REVIEWS_MAX_PAGES = 40;
+
+/**
+ * Every review on a location, across all pages.
+ *
+ * This used to fetch only the first page, so for any listing with more reviews
+ * than one page holds, the rest were invisible: review-alerts never saw them,
+ * onboarding never offered to reply to them, and reply-rate stats were computed
+ * from a partial set. The response shape is unchanged (`reviews`,
+ * `averageRating`, `totalReviewCount`), plus `truncated` if the cap was hit.
+ * Google returns newest first, so page one is still what any "latest" view reads.
+ */
+export async function getReviews(
+  accessToken: string,
+  locationName: string,
+  accountId?: string,
+  maxPages: number = REVIEWS_MAX_PAGES,
+) {
   const v4Path = accountId ? `${accountId}/${locationName}` : locationName;
-  const res = await fetch(
-    `${GBP_POSTS_BASE}/${v4Path}/reviews`,
-    { headers: { Authorization: `Bearer ${accessToken}` } }
-  );
-  if (!res.ok) throw new Error(`Failed to get reviews: ${await res.text()}`);
-  return res.json();
+  const reviews: any[] = [];
+  let averageRating: number | undefined;
+  let totalReviewCount: number | undefined;
+  let pageToken: string | undefined;
+  let truncated = false;
+
+  for (let page = 0; ; page++) {
+    if (page >= maxPages) { truncated = true; break; }
+    const qs = new URLSearchParams({ pageSize: String(REVIEWS_PAGE_SIZE) });
+    if (pageToken) qs.set('pageToken', pageToken);
+    const res = await googleFetch(
+      `${GBP_POSTS_BASE}/${v4Path}/reviews?${qs}`,
+      { headers: { Authorization: `Bearer ${accessToken}` } }
+    );
+    if (!res.ok) throw new Error(`Failed to get reviews: ${await res.text()}`);
+    const data = await res.json();
+    reviews.push(...(data.reviews || []));
+    if (averageRating === undefined) averageRating = data.averageRating;
+    if (totalReviewCount === undefined) totalReviewCount = data.totalReviewCount;
+    pageToken = data.nextPageToken;
+    if (!pageToken) break;
+  }
+
+  if (truncated) {
+    console.warn(`[getReviews] ${locationName}: stopped at ${maxPages} pages (${reviews.length} of ${totalReviewCount ?? '?'} reviews)`);
+  }
+  return { reviews, averageRating, totalReviewCount, truncated };
 }
 
 export async function replyToReview(accessToken: string, reviewName: string, comment: string) {
-  const res = await fetch(`${GBP_POSTS_BASE}/${reviewName}/reply`, {
+  const res = await googleFetch(`${GBP_POSTS_BASE}/${reviewName}/reply`, {
     method: 'PUT',
     headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({ comment }),
@@ -446,51 +652,57 @@ export async function replyToReview(accessToken: string, reviewName: string, com
   return res.json();
 }
 
+/**
+ * Last-28-days totals, for the dashboard and the Monday text. "views" is Google
+ * Search plus Google Maps impressions; until 2026-11-14 it was Maps only, which
+ * left out the Search figure that matters most for "people found you".
+ * Monthly and before-and-after figures come from daily_metrics instead (lib/metrics.ts).
+ */
 export async function getPerformanceMetrics(accessToken: string, locationName: string) {
   const now = new Date();
-  const monthAgo = new Date(now.getTime() - 28 * 86400000);
-
-  // Fetch each metric separately to avoid the single-object vs array ambiguity
-  const metricNames = [
-    'BUSINESS_IMPRESSIONS_DESKTOP_MAPS',
-    'BUSINESS_IMPRESSIONS_MOBILE_MAPS', 
-    'CALL_CLICKS',
-    'WEBSITE_CLICKS',
-    'BUSINESS_DIRECTION_REQUESTS',
-  ];
-
-  const results: Record<string, number> = { views: 0, calls: 0, directions: 0, websiteClicks: 0 };
-
-  for (const metric of metricNames) {
-    try {
-      const url = `https://businessprofileperformance.googleapis.com/v1/${locationName}:getDailyMetricsTimeSeries?dailyMetric=${metric}&dailyRange.start_date.year=${monthAgo.getFullYear()}&dailyRange.start_date.month=${monthAgo.getMonth()+1}&dailyRange.start_date.day=${monthAgo.getDate()}&dailyRange.end_date.year=${now.getFullYear()}&dailyRange.end_date.month=${now.getMonth()+1}&dailyRange.end_date.day=${now.getDate()}`;
-      
-      const res = await fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } });
-      if (!res.ok) continue;
-      
-      const data = await res.json();
-      
-      // timeSeries can be an object or array — handle both
-      const seriesData = data.timeSeries;
-      const datedValues = Array.isArray(seriesData) 
-        ? seriesData.flatMap((s: any) => s.datedValues || [])
-        : seriesData?.datedValues || [];
-      
-      const total = datedValues.reduce((sum: number, d: any) => sum + (parseInt(d.value || '0') || 0), 0);
-      
-      if (metric === 'BUSINESS_IMPRESSIONS_DESKTOP_MAPS' || metric === 'BUSINESS_IMPRESSIONS_MOBILE_MAPS') results.views += total;
-      if (metric === 'CALL_CLICKS') results.calls = total;
-      if (metric === 'WEBSITE_CLICKS') results.websiteClicks = total;
-      if (metric === 'BUSINESS_DIRECTION_REQUESTS') results.directions = total;
-    } catch (e) {
-      console.error(`[GBP Metrics] Failed for ${metric}:`, (e as Error).message);
-    }
+  const to = isoDate(new Date(now.getTime() - 86400000));
+  const from = addDaysIso(to, -27);
+  const results = { views: 0, searchViews: 0, mapsViews: 0, calls: 0, directions: 0, websiteClicks: 0 };
+  try {
+    const t = totalsFor(await fetchDailyMetrics(accessToken, locationName, from, to), from, to);
+    Object.assign(results, { views: t.views, searchViews: t.searchViews, mapsViews: t.mapsViews, calls: t.calls, directions: t.directions, websiteClicks: t.websiteClicks });
+  } catch (e) {
+    // Null, not zeros. A failed read used to come back as all zeros, which the
+    // Monday text then reported to the shop as "0 views".
+    console.error('[GBP Metrics] failed:', (e as Error).message);
+    return null;
   }
-
-  console.log('[GBP Metrics] Final:', JSON.stringify(results));
   return results;
 }
 
+function dateParams(prefix: string, iso: string): string {
+  const [y, m, d] = iso.split('-').map(Number);
+  return `${prefix}.year=${y}&${prefix}.month=${m}&${prefix}.day=${d}`;
+}
+
+/**
+ * Every daily metric in DAILY_METRICS for [from, to], in one request
+ * (fetchMultiDailyMetricsTimeSeries). If Google refuses a long range with a 400,
+ * it retries with 12 months, then 6, so a first sync still gets what history
+ * there is rather than nothing.
+ */
+export async function fetchDailyMetrics(accessToken: string, locationName: string, from: string, to: string): Promise<MetricRow[]> {
+  const attempts = [from];
+  for (const days of [365, 180]) {
+    const shorter = addDaysIso(to, -days);
+    if (shorter > from) attempts.push(shorter);
+  }
+  let lastError = '';
+  for (const start of attempts) {
+    const metrics = DAILY_METRICS.map((m) => `dailyMetrics=${m}`).join('&');
+    const url = `https://businessprofileperformance.googleapis.com/v1/${locationName}:fetchMultiDailyMetricsTimeSeries?${metrics}&${dateParams('dailyRange.startDate', start)}&${dateParams('dailyRange.endDate', to)}`;
+    const res = await googleFetch(url, { headers: { Authorization: `Bearer ${accessToken}` } });
+    if (res.ok) return parseMultiDailyMetrics(await res.json());
+    lastError = `${res.status} ${(await res.text()).slice(0, 300)}`;
+    if (res.status !== 400) break;
+  }
+  throw new Error(`Failed to fetch daily metrics: ${lastError}`);
+}
 export function parseStarRating(rating: string): number {
   const map: Record<string, number> = { ONE: 1, TWO: 2, THREE: 3, FOUR: 4, FIVE: 5 };
   return map[rating] || 0;
@@ -502,7 +714,7 @@ export async function getPlaceReviews(placeId: string) {
   const apiKey = process.env.GOOGLE_PLACES_API_KEY;
   if (!apiKey) throw new Error('GOOGLE_PLACES_API_KEY not set');
 
-  const res = await fetch(
+  const res = await googleFetch(
     `https://places.googleapis.com/v1/places/${placeId}?languageCode=en`,
     {
       headers: {
@@ -525,7 +737,7 @@ export async function findPlaceId(businessName: string, address?: string) {
   if (!apiKey) throw new Error('GOOGLE_PLACES_API_KEY not set');
 
   const query = address ? `${businessName} ${address}` : businessName;
-  const res = await fetch(
+  const res = await googleFetch(
     `https://places.googleapis.com/v1/places:searchText`,
     {
       method: 'POST',

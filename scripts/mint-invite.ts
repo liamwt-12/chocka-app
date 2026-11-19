@@ -25,7 +25,7 @@
  * USAGE (tsx does not read .env.local by itself):
  *   npx tsx --env-file=.env.local scripts/mint-invite.ts --source-ref 29438
  *   npx tsx --env-file=.env.local scripts/mint-invite.ts --source-ref 29438 --commit
- *   npx tsx --env-file=.env.local scripts/mint-invite.ts --name "Arbons" --commit
+ *   npx tsx --env-file=.env.local scripts/mint-invite.ts --name "Testwell" --commit
  */
 import { createClient } from '@supabase/supabase-js';
 import { generateInviteToken, hashInviteToken, inviteExpiresAt, DEFAULT_TTL_DAYS } from '../lib/invite-token';

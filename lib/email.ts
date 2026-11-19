@@ -1,4 +1,6 @@
 import { getTenant, type Tenant } from './tenant';
+import { redact } from './redact';
+import { presenceComparison } from './presence-score';
 
 const RESEND_API = 'https://api.resend.com/emails';
 
@@ -39,7 +41,8 @@ export async function sendEmail({ to, subject, html, tenant }: SendEmailParams):
       }),
     });
     if (!res.ok) {
-      console.error('Resend email failed:', await res.text());
+      // The provider's error can quote the address it refused. Keep the reason, not the address.
+      console.error('Resend email failed:', res.status, redact(await res.text()));
       return false;
     }
     return true;
@@ -75,7 +78,7 @@ export function postPreviewEmail(
   const firstName = businessName.split(' ')[0];
   return emailWrapper(`
     <p style="font-size: 15px; line-height: 1.6; margin: 0 0 6px;">Hi ${firstName},</p>
-    <p style="font-size: 15px; line-height: 1.6; margin: 0 0 28px; color: #555;">Here's your Google post for this week. Going live Friday at 10am &mdash; if you're happy with it, do nothing.</p>
+    <p style="font-size: 15px; line-height: 1.6; margin: 0 0 28px; color: #555;">Here's your Google post for this week. It goes live on Monday morning &mdash; if you're happy with it, do nothing.</p>
 
     <div style="background: #F0EDE8; border-left: 3px solid ${brand}; border-radius: 0 12px 12px 0; padding: 20px 20px 20px 18px; margin-bottom: 28px;">
       <div style="font-size: 11px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: ${brand}; margin-bottom: 10px;">Your Google Post</div>
@@ -135,16 +138,58 @@ export function monthlyReportEmail(params: {
   month: string;
   postsPublished: number;
   reviewsReplied: number;
-  totalViews: number;
-  totalCalls: number;
+  /** Google Search plus Maps impressions for the month; null = not enough stored days to report. */
+  totalViews: number | null;
+  totalCalls: number | null;
+  /** The Search share of totalViews, shown under it when known. */
+  searchViews?: number | null;
+  totalWebsiteClicks?: number | null;
+  /** Direction requests from weekly_stats. Optional so older callers still compile. */
+  totalDirections?: number | null;
+  /** Live presence score 0-100, or null if Google could not be reached this month. */
+  presenceScore?: number | null;
+  presenceBand?: string | null;
+  /** Score at activation (profiles.audit_score), for the comparison line. */
+  presenceScoreAtStart?: number | null;
+  /** Pre-rendered "Change during your ads" section (lib/ad-comparison.ts), or empty. */
+  adComparisonHtml?: string;
+  /** Pre-rendered "What we did / What changed" in words (lib/report-narrative.ts), or empty. */
+  narrativeHtml?: string;
   tenant?: Tenant;
 }): string {
   const t = params.tenant ?? getTenant();
   const brand = t.palette.brandStrong;
   const firstName = params.businessName.split(' ')[0];
+  const scoreBlock = typeof params.presenceScore === 'number' ? `
+    <div style="background: #F0EDE8; border-radius: 12px; padding: 20px; text-align: center; margin-bottom: 12px;">
+      <div style="font-size: 11px; color: #999; text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 6px;">Your Google presence score</div>
+      <div style="font-size: 40px; font-weight: 700; color: ${brand}; font-family: 'Courier New', monospace;">${params.presenceScore}<span style="font-size: 18px; color: #999;">/100</span></div>
+      ${params.presenceBand ? `<div style="font-size: 13px; color: #555; margin-top: 2px;">${params.presenceBand}</div>` : ''}
+      <div style="font-size: 13px; color: #555; margin-top: 8px;">${presenceComparison(params.presenceScore, params.presenceScoreAtStart)}</div>
+    </div>` : '';
+  const fmt = (n: number | null | undefined) => (typeof n === 'number' ? n.toLocaleString() : '&ndash;');
+  const metricsKnown = typeof params.totalViews === 'number';
+  const extraRow = metricsKnown && (typeof params.totalDirections === 'number' || typeof params.totalWebsiteClicks === 'number') ? `
+      <tr><td colspan="3" style="padding: 5px 0;"></td></tr>
+      <tr>
+        <td width="48%" style="background: #F0EDE8; border-radius: 12px; padding: 18px; text-align: center;">
+          <div style="font-size: 32px; font-weight: 700; color: #1A1A1A; font-family: 'Courier New', monospace;">${fmt(params.totalDirections)}</div>
+          <div style="font-size: 11px; color: #999; margin-top: 4px; text-transform: uppercase; letter-spacing: 0.06em;">Direction Requests</div>
+        </td>
+        <td width="4%"></td>
+        <td width="48%" style="background: #F0EDE8; border-radius: 12px; padding: 18px; text-align: center;">
+          <div style="font-size: 32px; font-weight: 700; color: #1A1A1A; font-family: 'Courier New', monospace;">${fmt(params.totalWebsiteClicks)}</div>
+          <div style="font-size: 11px; color: #999; margin-top: 4px; text-transform: uppercase; letter-spacing: 0.06em;">Website Clicks</div>
+        </td>
+      </tr>` : '';
+  const searchLine = metricsKnown && typeof params.searchViews === 'number'
+    ? `<div style="font-size: 11px; color: #999; margin-top: 2px;">${params.searchViews.toLocaleString()} from Google Search</div>` : '';
+  const notYet = metricsKnown ? '' : `<p style="font-size: 13px; color: #999; margin: -16px 0 24px;">Google hasn't given us a full month of figures for you yet. They'll appear in next month's report.</p>`;
   return emailWrapper(`
     <p style="font-size: 15px; line-height: 1.6; margin: 0 0 6px;">Hi ${firstName},</p>
-    <p style="font-size: 15px; line-height: 1.6; margin: 0 0 28px; color: #555;">Here's what ${t.brandName} did for ${params.businessName} in ${params.month}.</p>
+    <p style="font-size: 15px; line-height: 1.6; margin: 0 0 28px; color: #555;">Here's what ${t.brandName} did for ${params.businessName} in ${params.month}.</p>${params.narrativeHtml ? `\n${params.narrativeHtml}` : ''}
+${scoreBlock}
+${params.adComparisonHtml ?? ''}
 
     <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom: 28px;">
       <tr>
@@ -161,17 +206,55 @@ export function monthlyReportEmail(params: {
       <tr><td colspan="3" style="padding: 5px 0;"></td></tr>
       <tr>
         <td width="48%" style="background: #F0EDE8; border-radius: 12px; padding: 18px; text-align: center;">
-          <div style="font-size: 32px; font-weight: 700; color: #1A1A1A; font-family: 'Courier New', monospace;">${params.totalViews.toLocaleString()}</div>
-          <div style="font-size: 11px; color: #999; margin-top: 4px; text-transform: uppercase; letter-spacing: 0.06em;">People Found You</div>
+          <div style="font-size: 32px; font-weight: 700; color: #1A1A1A; font-family: 'Courier New', monospace;">${fmt(params.totalViews)}</div>
+          <div style="font-size: 11px; color: #999; margin-top: 4px; text-transform: uppercase; letter-spacing: 0.06em;">People Found You</div>${searchLine}
         </td>
         <td width="4%"></td>
         <td width="48%" style="background: #E8F5EE; border-radius: 12px; padding: 18px; text-align: center;">
-          <div style="font-size: 32px; font-weight: 700; color: #2D7A4F; font-family: 'Courier New', monospace;">${params.totalCalls}</div>
+          <div style="font-size: 32px; font-weight: 700; color: #2D7A4F; font-family: 'Courier New', monospace;">${fmt(params.totalCalls)}</div>
           <div style="font-size: 11px; color: #2D7A4F; margin-top: 4px; text-transform: uppercase; letter-spacing: 0.06em;">Phone Calls</div>
         </td>
-      </tr>
+      </tr>${extraRow}
     </table>
+${notYet}
 
     <p style="font-size: 14px; color: #555; line-height: 1.6; margin: 0;">All handled automatically. No effort from you. That's the point.</p>
+  `, t);
+}
+
+/**
+ * The 24-hour preview for a post awaiting approval (a shop's first three). Sent
+ * only by /api/cron/post-previews, and only when EARLY_POST_PREVIEW_EMAILS=on.
+ * Unlike postPreviewEmail, nothing happens if the shop does nothing.
+ */
+export function postApprovalEmail(params: {
+  businessName: string;
+  postContent: string;
+  scheduledFor: string;
+  approveUrl: string;
+  skipUrl: string;
+  approvalsLeft: number;
+  tenant?: Tenant;
+}): string {
+  const t = params.tenant ?? getTenant();
+  const brand = t.palette.brandStrong;
+  const firstName = params.businessName.split(' ')[0];
+  const when = new Date(params.scheduledFor).toLocaleString('en-GB', { timeZone: 'Europe/London', weekday: 'long', day: 'numeric', month: 'long', hour: 'numeric', minute: '2-digit' });
+  const after = params.approvalsLeft > 1
+    ? `This is one of your first ${params.approvalsLeft === 3 ? 'three' : params.approvalsLeft === 2 ? 'two' : ''} posts, so it only goes up if you approve it.`
+    : 'This is the last post we will ask you to approve. After this one, we will email each post in advance and it goes up unless you cancel it.';
+  return emailWrapper(`
+    <p style="font-size: 15px; line-height: 1.6; margin: 0 0 6px;">Hi ${firstName},</p>
+    <p style="font-size: 15px; line-height: 1.6; margin: 0 0 24px; color: #555;">Here's the Google post we've written for ${params.businessName}. If you approve it, it goes up on ${when}.</p>
+
+    <div style="background: #F0EDE8; border-left: 3px solid ${brand}; border-radius: 0 12px 12px 0; padding: 20px 20px 20px 18px; margin-bottom: 24px;">
+      <div style="font-size: 11px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: ${brand}; margin-bottom: 10px;">Your Google Post</div>
+      <p style="font-size: 15px; line-height: 1.65; margin: 0; color: #1A1A1A;">${params.postContent}</p>
+    </div>
+
+    <a href="${params.approveUrl}" style="display: inline-block; background: ${brand}; color: #fff; padding: 12px 20px; border-radius: 8px; text-decoration: none; font-size: 14px; font-weight: 600; margin-right: 8px;">Approve this post</a>
+    <a href="${params.skipUrl}" style="display: inline-block; background: #1A1A1A; color: #fff; padding: 12px 20px; border-radius: 8px; text-decoration: none; font-size: 14px; font-weight: 600;">Skip this week</a>
+
+    <p style="font-size: 13px; color: #777; margin: 20px 0 0; line-height: 1.6;"><strong>If you do nothing, nothing is posted.</strong> ${after}</p>
   `, t);
 }

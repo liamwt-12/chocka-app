@@ -1,5 +1,7 @@
 'use client';
 
+import ChangesList from '@/components/ChangesList';
+import ListingSettings from '@/components/ListingSettings';
 import { useState, useEffect, useCallback } from 'react';
 import { useTenant } from '@/lib/tenant-context';
 
@@ -74,7 +76,7 @@ export default function SettingsPage() {
         <div style={lbl}>Account</div>
         <InfoRow label="Business" value={d.profile?.business_name || '—'} />
         <InfoRow label="Email" value={d.user.email || '—'} />
-        <InfoRow label="Phone" value={d.user.phone || '—'} />
+        <MobileRow initial={d.user.phone || ''} />
         {/* "No active plan" is accurate for Chocka and alarming nonsense for a
             free retailer, whose subscription_status is 'none' permanently and by
             design — they were told the service is free, then told they have no
@@ -90,13 +92,19 @@ export default function SettingsPage() {
         <InfoRow label="Member since" value={d.profile?.streak_weeks ? `${d.profile.streak_weeks} weeks` : 'New'} />
       </div>
 
+      {/* Opening hours, holiday hours and website: changed here, checked on Google. */}
+      <ListingSettings cardStyle={card} labelStyle={lbl} />
+
+      {/* Everything we have changed, with an Undo for each. */}
+      <ChangesList cardStyle={card} labelStyle={lbl} supportEmail={tenant.supportEmail} />
+
       {/* Google connection */}
       <div style={{...card,animation:'fadeUp .5s .1s ease both'}}>
         <div style={lbl}>Google Connection</div>
         <div style={{display:'flex',alignItems:'center',justifyContent:'space-between'}}>
           <div style={{display:'flex',alignItems:'center',gap:8}}>
-            <span style={{width:8,height:8,borderRadius:'50%',background:V.green}}/>
-            <span style={{fontSize:13,fontFamily:sans,color:V.text}}>Connected</span>
+            <span style={{width:8,height:8,borderRadius:'50%',background:d.lostAccess?'#D93025':V.green}}/>
+            <span style={{fontSize:13,fontFamily:sans,color:V.text}}>{d.lostAccess?'Connection lost: press Reconnect':'Connected'}</span>
           </div>
           <button onClick={()=>window.location.href='/api/auth/callback/google?action=reconnect'} style={{background:V.card2,border:'none',borderRadius:10,padding:'7px 14px',fontSize:12,fontWeight:500,cursor:'pointer',fontFamily:sans,color:V.textMid}}>Reconnect</button>
         </div>
@@ -186,6 +194,40 @@ function Toggle({label,desc,enabled,loading,onChange}:{label:string;desc:string;
       <button onClick={()=>onChange(!enabled)} style={{width:44,height:24,borderRadius:12,border:'none',cursor:'pointer',flexShrink:0,marginTop:2,background:enabled?'#2D7A4F':'#E0DDD8',position:'relative',opacity:loading?.5:1}}>
         <span style={{position:'absolute',top:2,left:enabled?22:2,width:20,height:20,borderRadius:10,background:'#fff',boxShadow:'0 1px 3px rgba(0,0,0,.15)',transition:'left .2s'}}/>
       </button>
+    </div>
+  );
+}
+
+/**
+ * The shop's mobile number: optional, changeable, removable. It is only used
+ * for texts, which are off unless the shop turns them on.
+ */
+function MobileRow({ initial }: { initial: string }) {
+  const [value, setValue] = useState(initial);
+  const [saved, setSaved] = useState(initial);
+  const [note, setNote] = useState('');
+  const [busy, setBusy] = useState(false);
+  const sansF = "'DM Sans',sans-serif";
+  const save = async (next: string) => {
+    setBusy(true); setNote('');
+    try {
+      const res = await fetch('/api/account/delete', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ phone_number: next }) });
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok) { setNote(d.error === 'Not a valid UK mobile number' ? 'That does not look like a UK mobile number (07…).' : 'We could not save that. Please try again.'); }
+      else { setSaved(next.replace(/\s/g, '')); setValue(next.replace(/\s/g, '')); setNote(next ? 'Saved.' : 'Removed. We will not text you.'); }
+    } catch { setNote('We could not save that. Please try again.'); }
+    setBusy(false);
+  };
+  return (
+    <div style={{ padding: '8px 0' }}>
+      <label style={{ display: 'block', fontSize: 13, color: '#999', fontFamily: sansF, marginBottom: 4 }}>Mobile number (optional)</label>
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+        <input type="tel" value={value} onChange={(e) => { setValue(e.target.value); setNote(''); }} placeholder="None" aria-label="Mobile number"
+          style={{ flex: '1 1 150px', minWidth: 0, fontFamily: sansF, fontSize: 16, padding: '9px 10px', borderRadius: 8, border: '1px solid rgba(0,0,0,0.12)', background: '#fff', color: '#1A1A1A', boxSizing: 'border-box' }} />
+        <button disabled={busy || value.replace(/\s/g, '') === saved} onClick={() => save(value.trim())} style={{ fontFamily: sansF, fontSize: 14, fontWeight: 600, border: 'none', borderRadius: 8, padding: '9px 14px', background: '#1A1A1A', color: '#fff', cursor: 'pointer', opacity: busy || value.replace(/\s/g, '') === saved ? 0.4 : 1 }}>Save</button>
+        {saved && <button disabled={busy} onClick={() => save('')} style={{ fontFamily: sansF, fontSize: 14, border: 'none', background: 'none', color: '#555', textDecoration: 'underline', cursor: 'pointer' }}>Remove</button>}
+      </div>
+      {note && <div role="status" style={{ fontSize: 13, color: '#555', fontFamily: sansF, marginTop: 4 }}>{note}</div>}
     </div>
   );
 }

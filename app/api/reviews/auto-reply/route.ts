@@ -1,13 +1,37 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
-import { refreshAccessToken, replyToReview } from '@/lib/google';
-import { generateReviewHash } from '@/lib/cron';
+import { refreshAccessToken, isDeadGrant } from '@/lib/google';
+import { loggedReplyToReview } from '@/lib/change-log';
+import { generateReviewHash, linkHashMatches } from '@/lib/cron';
 import { getTenantBySlug } from '@/lib/tenant';
-import { resultPage } from '@/lib/result-page';
+import { resultPage, confirmPage } from '@/lib/result-page';
 import { decryptSecret, userTokenAad } from '@/lib/secrets';
 import { resolveAccess, MANAGER_EMBED } from '@/lib/managed-access';
 
+/**
+ * GET only shows a confirmation page. Approving publishes a reply to Google, and
+ * email security scanners open every link in a message, so acting on GET meant a
+ * scanner could publish a reply to a bad review that nobody had approved. The
+ * button POSTs back to this same URL, and POST does the work.
+ */
 export async function GET(request: NextRequest) {
+  const tenant = getTenantBySlug(request.headers.get('x-tenant-slug'));
+  const url = new URL(request.url);
+  const action = url.searchParams.get('action');
+  const reviewId = url.searchParams.get('review_id');
+  const hash = url.searchParams.get('hash');
+  if (!action || !reviewId || !['approve', 'reject'].includes(action) || !linkHashMatches(hash, generateReviewHash(reviewId))) {
+    return new NextResponse(resultPage(tenant, 'Invalid link', 'This link has expired or is invalid.'), {
+      headers: { 'Content-Type': 'text/html' },
+    });
+  }
+  const page = action === 'approve'
+    ? confirmPage(tenant, 'Publish this reply?', 'Your reply will be posted on your Google listing.', 'Yes, publish the reply', `${url.pathname}${url.search}`)
+    : confirmPage(tenant, 'Handle it yourself?', 'We will not post our suggested reply.', 'Yes, I will handle it', `${url.pathname}${url.search}`);
+  return new NextResponse(page, { headers: { 'Content-Type': 'text/html', 'Cache-Control': 'no-store' } });
+}
+
+export async function POST(request: NextRequest) {
   const { searchParams } = new URL(request.url);
 
   // The brand for every page this route renders. Host-derived, for the same
@@ -33,7 +57,7 @@ export async function GET(request: NextRequest) {
 
   // Verify HMAC hash
   const expectedHash = generateReviewHash(reviewId);
-  if (!hash || hash !== expectedHash) {
+  if (!linkHashMatches(hash, expectedHash)) {
     return new NextResponse(resultPage(tenant, 'Invalid link', 'This link has expired or is invalid.'), {
       headers: { 'Content-Type': 'text/html' },
     });
@@ -123,11 +147,21 @@ export async function GET(request: NextRequest) {
       `[auto-reply] token refresh failed for user ${user.id}, reply ${pendingReply.id}:`,
       String(err?.message).slice(0, 200),
     );
-    const { error: tokErr } = await supabaseAdmin
-      .from('users')
-      .update({ token_status: 'invalid', token_invalid_at: new Date().toISOString() })
-      .eq('id', access.aadUserId);
-    if (tokErr) console.error('[auto-reply] failed to record token_status=invalid:', tokErr);
+    // Only a dead grant marks the connection as lost (lib/google.ts isDeadGrant).
+    if (isDeadGrant(err)) {
+      const { error: tokErr } = await supabaseAdmin
+        .from('users')
+        .update({ token_status: 'invalid', token_invalid_at: new Date().toISOString() })
+        .eq('id', access.aadUserId);
+      if (tokErr) console.error('[auto-reply] failed to record token_status=invalid:', tokErr);
+    }
+
+    if (!isDeadGrant(err)) {
+      return new NextResponse(
+        resultPage(tenant, 'Google is busy', 'Google did not answer just now, so the reply has not been posted. Nothing is wrong with your account. Please try again in a few minutes. Your reply is saved.'),
+        { headers: { 'Content-Type': 'text/html' } },
+      );
+    }
 
     return new NextResponse(
       resultPage(
@@ -142,7 +176,12 @@ export async function GET(request: NextRequest) {
 
   const reviewName = `${profile.google_location_name}/reviews/${review.google_review_id}`;
   try {
-    await replyToReview(accessToken, reviewName, pendingReply.reply_content);
+    // Previous reply passed as undefined (not known): this page only has our
+    // stored copy, so the log says so rather than guessing.
+    await loggedReplyToReview(
+      { db: supabaseAdmin, source: 'auto-reply', userId: user.id, profileId: profile.id },
+      accessToken, reviewName, pendingReply.reply_content,
+    );
   } catch (err: any) {
     const status = err?.status;
     const googleStatus = err?.googleStatus;

@@ -1,12 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin as supaAdmin } from '@/lib/supabase';
-import { refreshAccessToken, getLocationFull, getGoogleUpdated, getAttributes, getMedia, getReviews, getLocalPosts, GbpError } from '@/lib/google';
-import { scoreProfile, predictedScore } from '@/lib/audit';
+import { refreshAccessToken, getLocationFull, getGoogleUpdated, getAttributes, getMedia, getReviews, getLocalPosts, GbpError, fetchDailyMetrics, isDeadGrant } from '@/lib/google';
+import { syncDailyMetrics } from '@/lib/metrics';
+import { scoreProfile, manualGaps } from '@/lib/audit';
+import { fromGooglePeriods } from '@/lib/opening-hours';
 import { decryptSecret, userTokenAad } from '@/lib/secrets';
 import { resolveAccess, MANAGER_EMBED } from '@/lib/managed-access';
+import { getSessionUserId } from '@/lib/session';
 
 export async function POST(request: NextRequest) {
-  const userId = request.cookies.get('chocka_user_id')?.value;
+  const userId = getSessionUserId(request);
   try {
     if (!userId) { console.error('Audit: no userId cookie'); return NextResponse.json({ error: 'Not authenticated', code: 'not_authenticated' }, { status: 401 }); }
 
@@ -32,10 +35,14 @@ export async function POST(request: NextRequest) {
       );
     } catch (e: any) {
       console.error('Audit: token refresh failed for user', userId, String(e?.message).slice(0, 200));
+      // Only a dead grant means the shop is disconnected. A "too many requests"
+      // or a bad moment at Google is not: the connection is fine, so nothing is
+      // recorded against it and the shop is offered a retry.
+      if (!isDeadGrant(e)) {
+        return NextResponse.json({ error: 'We couldn’t reach Google right now.', code: 'google_unreachable' }, { status: 502 });
+      }
       // Recorded against the row the credential lives on, which for a managed
-      // retailer is the operator, not this user. Marking the retailer would flag
-      // a shop as broken while the account that actually needs reconnecting
-      // still reads as healthy.
+      // retailer is the operator, not this user.
       const { error: tokErr } = await supaAdmin.from('users').update({ token_status: 'invalid', token_invalid_at: new Date().toISOString() }).eq('id', access.aadUserId);
       if (tokErr) console.error('Failed to record token_status=invalid:', tokErr);
       if (access.via === 'manager') console.error(`Audit: MANAGER TOKEN FAILED (${access.aadUserId}) — affects every retailer it manages, not just ${userId}.`);
@@ -65,6 +72,15 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'We couldn’t reach your Google listing right now.', code: 'google_unreachable' }, { status: 502 });
     }
 
+    // Connect-time history: the first time a listing is audited, pull Google's
+    // ~18 months of daily figures so the shop has a baseline from before it
+    // joined. Runs alongside the reads below, never fails the audit, and the
+    // hourly metrics-sync job retries it if it does not complete here.
+    const historyPull = profile.metrics_backfilled_at
+      ? Promise.resolve(null)
+      : syncDailyMetrics(supaAdmin, profile, (from, to) => fetchDailyMetrics(accessToken, locName, from, to))
+          .catch((e: any) => { console.warn('Audit: history pull failed, metrics-sync will retry:', String(e?.message).slice(0, 200)); return null; });
+
     // The rest are best-effort — a failure just lowers the score, never crashes.
     const [googleUpdated, attributes, media, reviews, posts] = await Promise.all([
       getGoogleUpdated(accessToken, locName).catch(() => null),
@@ -74,31 +90,34 @@ export async function POST(request: NextRequest) {
       getLocalPosts(accessToken, locName, acctId).catch(() => ({ localPosts: [] })),
     ]);
 
+    await historyPull;
     const audit = scoreProfile({ location, attributes, media, reviews, posts, googleUpdated });
-    const pred = predictedScore(audit);
-
     const city = location.storefrontAddress?.locality || '';
     const primaryCat = location.categories?.primaryCategory?.displayName || profile.category || '';
 
-    const defaultHours = audit.fixes.some(f => f.key === 'hours') ? {
-      periods: [
-        { openDay: 'MONDAY', closeDay: 'MONDAY', openTime: '08:00', closeTime: '18:00' },
-        { openDay: 'TUESDAY', closeDay: 'TUESDAY', openTime: '08:00', closeTime: '18:00' },
-        { openDay: 'WEDNESDAY', closeDay: 'WEDNESDAY', openTime: '08:00', closeTime: '18:00' },
-        { openDay: 'THURSDAY', closeDay: 'THURSDAY', openTime: '08:00', closeTime: '18:00' },
-        { openDay: 'FRIDAY', closeDay: 'FRIDAY', openTime: '08:00', closeTime: '18:00' },
-        { openDay: 'SATURDAY', closeDay: 'SATURDAY', openTime: '09:00', closeTime: '13:00' },
-      ],
-    } : null;
+    // The hours Google holds now, laid out as an editable week. There is no
+    // default: an empty week stays empty until the shop fills it in, and
+    // nothing is written unless the shop confirms it (lib/opening-hours.ts).
+    const hours = fromGooglePeriods(location.regularHours?.periods);
 
-    // Save scores to profile
-    const { error: updateErr } = await supaAdmin.from('profiles').update({ audit_score: audit.score, audit_score_after: pred }).eq('id', profile.id);
+    // THE SCORE AT ACTIVATION IS WRITTEN ONCE. It is what every later "up N
+    // points" is measured against, so it must be the listing as we found it.
+    // It used to be overwritten on every look, so checking the listing again
+    // after our own fixes replaced the baseline with the improved number.
+    // `audit_score_after` is the latest MEASURED score, never a prediction.
+    // (Choosing a different listing clears both: app/api/listings/select.)
+    const scores: Record<string, number> = { audit_score_after: audit.score };
+    if (profile.audit_score === null || profile.audit_score === undefined) scores.audit_score = audit.score;
+    const { error: updateErr } = await supaAdmin.from('profiles').update(scores).eq('id', profile.id);
     if (updateErr) console.error('Failed to save audit scores:', updateErr);
 
     return NextResponse.json({
-      audit, predicted: pred,
+      audit,
+      scoreAtActivation: scores.audit_score ?? profile.audit_score,
+      // What the score counts that we do not fix, and how the shop can.
+      manual: manualGaps(audit),
+      hours,
       locationData: { title: location.title, address: location.storefrontAddress, primaryCategory: primaryCat, city, mapsUri: location.metadata?.mapsUri || null, newReviewUri: location.metadata?.newReviewUri || null },
-      defaultHours,
     });
   } catch (error: any) {
     console.error('Audit error:', error);
@@ -113,7 +132,10 @@ export async function POST(request: NextRequest) {
     if (error instanceof GbpError || msg.includes('Failed to get')) {
       return NextResponse.json({ error: 'We couldn’t reach your Google listing right now.', code: 'google_unreachable' }, { status: 502 });
     }
-    if (msg.includes('invalid_grant') || msg.includes('Token refresh failed')) {
+    if (msg.includes('Token refresh failed') && !isDeadGrant(error)) {
+      return NextResponse.json({ error: 'We couldn’t reach Google right now.', code: 'google_unreachable' }, { status: 502 });
+    }
+    if (isDeadGrant(error)) {
       if (userId) { await supaAdmin.from('users').update({ token_status: 'invalid', token_invalid_at: new Date().toISOString() }).eq('id', userId).then(({ error: e }) => { if (e) console.error('Failed to record token_status=invalid:', e); }); }
       return NextResponse.json({ error: 'Google not connected', code: 'google_disconnected' }, { status: 400 });
     }

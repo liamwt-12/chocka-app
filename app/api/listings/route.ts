@@ -3,6 +3,8 @@ import { supabaseAdmin } from '@/lib/supabase';
 import { refreshAccessToken, getManageableListings } from '@/lib/google';
 import { decryptSecret, userTokenAad } from '@/lib/secrets';
 import { resolveAccess, MANAGER_EMBED } from '@/lib/managed-access';
+import { getSessionUserId } from '@/lib/session';
+import { SHOP_MESSAGES } from '@/lib/ownership';
 
 // Feed for the onboarding / settings listing picker. Re-enumerates live on
 // every call (no stored candidate list) and returns only what the picker
@@ -10,7 +12,7 @@ import { resolveAccess, MANAGER_EMBED } from '@/lib/managed-access';
 // select endpoint needs to re-validate the choice.
 export async function GET(request: NextRequest) {
   try {
-    const userId = request.cookies.get('chocka_user_id')?.value;
+    const userId = getSessionUserId(request);
     if (!userId) {
       return NextResponse.json({ error: 'Not authenticated', code: 'not_authenticated' }, { status: 401 });
     }
@@ -34,8 +36,16 @@ export async function GET(request: NextRequest) {
     );
     const listings = await getManageableListings(accessToken);
 
+    // Ownership detection: if this user is an invited shop, say which listing we
+    // expected, put it first, and mark it, so the picker can say "is it this one?".
+    const { data: retailer } = await supabaseAdmin
+      .from('retailers').select('id, name, town, place_id').eq('user_id', userId).maybeSingle();
+    const expectedPlaceId = retailer?.place_id ?? null;
+
     const items = listings
       .map((l) => ({
+        matchesExpected: !!expectedPlaceId && l.placeId === expectedPlaceId,
+        waitingOnGoogle: l.hasVoiceOfMerchant === false,
         accountName: l.accountName,
         locationName: l.locationName,
         title: l.title,
@@ -43,9 +53,21 @@ export async function GET(request: NextRequest) {
         accountDisplay: l.accountDisplay,
         accountType: l.accountType,
       }))
-      .sort((a, b) => a.title.localeCompare(b.title));
+      .sort((a, b) => Number(b.matchesExpected) - Number(a.matchesExpected) || a.title.localeCompare(b.title));
 
-    return NextResponse.json({ listings: items });
+    const anyMatch = items.some((i) => i.matchesExpected);
+
+    // "None of these is my shop": an invited shop can start again with a different
+    // Google account (POST /api/connection/reset).
+    const canStartAgain = !!retailer;
+
+    return NextResponse.json({
+      listings: items,
+      expected: retailer ? { name: retailer.name, town: retailer.town } : null,
+      canStartAgain,
+      // Shown above the picker when we expected a shop and cannot see it here.
+      help: retailer && expectedPlaceId && !anyMatch ? SHOP_MESSAGES.check_listing : null,
+    });
   } catch (error: any) {
     console.error('Listings fetch error:', error);
     const code =

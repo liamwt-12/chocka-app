@@ -1,11 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
 import { cancelSubscription } from '@/lib/stripe';
+import { getSessionUserId, clearSessionCookies } from '@/lib/session';
+import { deletePhotoFilesForShops } from '@/lib/shop-photos';
 
 // PATCH — update user settings
 export async function PATCH(request: NextRequest) {
   try {
-    const userId = request.cookies.get('chocka_user_id')?.value;
+    const userId = getSessionUserId(request);
     if (!userId) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
 
     const body = await request.json();
@@ -34,10 +36,16 @@ export async function PATCH(request: NextRequest) {
     // check is for the retailer's benefit, this one is the actual constraint.
     if ('phone_number' in body) {
       const raw = typeof body.phone_number === 'string' ? body.phone_number.replace(/\s/g, '') : '';
-      if (!/^(\+44|0)7\d{9}$/.test(raw)) {
-        return NextResponse.json({ error: 'Not a valid UK mobile number' }, { status: 400 });
+      // A mobile number is optional. An empty value removes it, and with it
+      // every text we would otherwise send.
+      if (raw === '') {
+        updates.phone_number = null;
+      } else {
+        if (!/^(\+44|0)7\d{9}$/.test(raw)) {
+          return NextResponse.json({ error: 'Not a valid UK mobile number' }, { status: 400 });
+        }
+        updates.phone_number = raw;
       }
-      updates.phone_number = raw;
     }
 
     const { error } = await supabaseAdmin
@@ -57,7 +65,7 @@ export async function PATCH(request: NextRequest) {
 // DELETE — delete account and all data
 export async function DELETE(request: NextRequest) {
   try {
-    const userId = request.cookies.get('chocka_user_id')?.value;
+    const userId = getSessionUserId(request);
     if (!userId) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
 
     // Get user for Stripe cancellation
@@ -77,6 +85,31 @@ export async function DELETE(request: NextRequest) {
       }
     }
 
+    // The shop's photos go with the account. The shop's record itself outlives
+    // the account by design (retailers.user_id is `on delete set null`), so
+    // nothing would otherwise remove photos the shop uploaded: both the files
+    // and their records are deleted here. Done BEFORE the user row goes, while
+    // the link from account to shop still exists.
+    //
+    // A failure does not stop the account being deleted: someone asking to
+    // leave must be able to leave. It is logged loudly, the photo records stay
+    // (so the files can still be found and removed by a rep), and the retention
+    // job removes them with the shop record later.
+    try {
+      const { data: shops, error: shopsError } = await supabaseAdmin.from('retailers').select('id').eq('user_id', userId);
+      if (shopsError) console.error(`[account/delete] COULD NOT LOOK UP THE SHOP for user ${userId}, so its photos and upload link were NOT cleared: ${shopsError.message}. Clear them by hand in /admin/pilot.`);
+      const shopIds = (shops || []).map((s: any) => s.id);
+      if (shopIds.length) {
+        // The upload link first, so nothing new can arrive while the files are being removed.
+        await supabaseAdmin.from('retailers').update({ photo_link_hash: null, photo_link_expires_at: null }).in('id', shopIds);
+        const photos = await deletePhotoFilesForShops(supabaseAdmin, supabaseAdmin.storage, shopIds, { alsoDeleteRecords: true });
+        for (const f of photos.failed) console.error(`[account/delete] PHOTOS NOT FULLY DELETED for shop ${f.id} (user ${userId}): ${f.reason}. Remove them by hand in /admin/pilot.`);
+        if (photos.filesRemoved) console.log(`[account/delete] removed ${photos.filesRemoved} photo file(s) for user ${userId}`);
+      }
+    } catch (err) {
+      console.error(`[account/delete] photo cleanup failed for user ${userId}:`, err);
+    }
+
     // Delete user — cascades to profiles, reviews, posts, etc. via FK constraints
     const { error } = await supabaseAdmin
       .from('users')
@@ -87,7 +120,7 @@ export async function DELETE(request: NextRequest) {
 
     // Clear session cookie
     const response = NextResponse.json({ success: true });
-    response.cookies.delete('chocka_user_id');
+    clearSessionCookies(response);
     return response;
   } catch (err) {
     console.error('Account deletion error:', err);

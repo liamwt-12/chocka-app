@@ -1,113 +1,112 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin as supaAdmin } from '@/lib/supabase';
-import { refreshAccessToken, updateLocation, replyToReview, getReviews, parseStarRating } from '@/lib/google';
-import { generateReviewReply } from '@/lib/ai';
+import { refreshAccessToken, isDeadGrant } from '@/lib/google';
 import { decryptSecret, userTokenAad } from '@/lib/secrets';
 import { resolveAccess, MANAGER_EMBED } from '@/lib/managed-access';
+import { getSessionUserId } from '@/lib/session';
+import {
+  applyDescription, applyServices, applyCategories, applyHours, applySpecialHours, applyWebsite, applyReply, applyReplies, queueLowStar, scheduleFirstPost,
+  measureListing, plainProblem, STEPS, type FixContext, type FixStep, type StepResult,
+} from '@/lib/listing-fixes';
+import { manualGaps } from '@/lib/audit';
 
+/**
+ * One change to the shop's listing per request, checked against Google before
+ * it is reported as done. See lib/listing-fixes.ts for why.
+ *
+ *   POST { step: 'description', text }
+ *   POST { step: 'services', names: string[] }
+ *   POST { step: 'categories', names: string[] }
+ *   POST { step: 'hours', hours: DayHours[7] }          the shop's own times, confirmed on screen
+ *   POST { step: 'holidayHours', days: SpecialDay[] }   dates closed or open different hours; [] clears
+ *   POST { step: 'website', url }                        the shop's own web address
+ *   POST { step: 'reply', reviewId, text }               one reply the shop has read
+ *   POST { step: 'replies', replies: [{ reviewId, text }] }  up to five of them; answers one result per reply
+ *   POST { step: 'lowStar' }                              queue holding replies for approval; posts nothing
+ *   POST { step: 'firstPost', text }
+ *   POST { step: 'finish' }                               re-score from Google; mark setup as done
+ *
+ * Every step is safe to send twice. Nothing is written that was not in the
+ * request: there are no defaults.
+ */
 export async function POST(request: NextRequest) {
+  const userId = getSessionUserId(request);
+  if (!userId) return NextResponse.json({ error: 'Not authenticated', code: 'not_authenticated' }, { status: 401 });
+
+  let body: any;
+  try { body = await request.json(); } catch { return NextResponse.json({ error: 'Bad request' }, { status: 400 }); }
+  const step = body?.step as FixStep | 'finish' | 'replies';
+  if (step !== 'finish' && step !== 'replies' && !STEPS.includes(step as FixStep)) {
+    return NextResponse.json({ error: 'Unknown step', code: 'unknown_step' }, { status: 400 });
+  }
+
   try {
-    const userId = request.cookies.get('chocka_user_id')?.value;
-    if (!userId) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
-
-    const body = await request.json();
-    const { description, services, categories, hours, replyToReviews, firstPost } = body;
-
     const { data: userData } = await supaAdmin.from('users').select(`id, google_refresh_token, token_status, managed_by_user_id, ${MANAGER_EMBED}`).eq('id', userId).single();
-    // A managed retailer (Route 1) legitimately has no token of their own — the
-    // credential belongs to the operator account managing their listing — so the
-    // question is "is there access", not "is there a token on this row".
     const access = resolveAccess(userData);
     if (!access.ok) {
       console.warn('[profile-fix] no Google access for user', userData?.id, '—', access.reason);
       return NextResponse.json({ error: 'Google not connected', code: 'google_disconnected' }, { status: 400 });
     }
-
     const { data: profile } = await supaAdmin.from('profiles').select('*').eq('user_id', userId).single();
-    if (!profile) return NextResponse.json({ error: 'No profile' }, { status: 400 });
+    if (!profile) return NextResponse.json({ error: 'No profile', code: 'no_profile' }, { status: 400 });
 
-    const accessToken = await refreshAccessToken(
-      decryptSecret(access.encryptedToken, userTokenAad(access.aadUserId)),
-    );
-    const locName = profile.google_location_name;
-    const acctId = profile.google_account_id;
-    console.log('[profile-fix] Token refreshed OK, location:', locName, 'account:', acctId);
-    console.log('[profile-fix] Fix request body:', JSON.stringify(body).slice(0, 300));
-    const results: Array<{ step: string; success: boolean; detail?: string }> = [];
-
-    // 1. Description
-    if (description) {
-      try {
-        await updateLocation(accessToken, locName, 'profile', { profile: { description } });
-        results.push({ step: 'description', success: true });
-      } catch (e: any) { results.push({ step: 'description', success: false, detail: e.message }); }
+    let accessToken: string;
+    try {
+      accessToken = await refreshAccessToken(decryptSecret(access.encryptedToken, userTokenAad(access.aadUserId)));
+    } catch (e) {
+      // Google being busy is not a lost connection (lib/google.ts isDeadGrant).
+      if (!isDeadGrant(e)) {
+        const p = plainProblem({ status: 503, message: String((e as any)?.message) });
+        return NextResponse.json({ result: { step, ok: false, message: p.message, nextStep: p.nextStep, retryable: true }, results: [] });
+      }
+      await supaAdmin.from('users').update({ token_status: 'invalid', token_invalid_at: new Date().toISOString() }).eq('id', access.aadUserId);
+      return NextResponse.json({ error: 'Google not connected', code: 'google_disconnected' }, { status: 400 });
     }
 
-    // 2. Services
-    if (services?.length) {
-      try {
-        const serviceItems = services.map((name: string) => ({
-          freeFormServiceItem: { category: profile.category || '', label: { displayName: name, languageCode: 'en' } },
-        }));
-        await updateLocation(accessToken, locName, 'serviceItems', { serviceItems });
-        results.push({ step: 'services', success: true });
-      } catch (e: any) { results.push({ step: 'services', success: false, detail: e.message }); }
+    const ctx: FixContext = { db: supaAdmin, accessToken, userId, profile };
+
+    if (step === 'finish') {
+      // Measured, not predicted. If Google cannot be read there is no number.
+      let measured: Awaited<ReturnType<typeof measureListing>> | null = null;
+      try { measured = await measureListing(ctx); } catch (e) { console.error('[profile-fix] could not re-score after changes:', String((e as any)?.message).slice(0, 200)); }
+      if (measured) {
+        const { error } = await supaAdmin.from('profiles').update({ audit_score_after: measured.audit.score }).eq('id', profile.id);
+        if (error) console.error('[profile-fix] could not save the measured score:', error.message);
+      }
+      await supaAdmin.from('users').update({ onboarding_step: 'complete' }).eq('id', userId);
+      return NextResponse.json({
+        finished: true,
+        scoreAtActivation: profile.audit_score ?? null,
+        measured: measured ? { score: measured.audit.score, band: measured.audit.band, items: measured.audit.items, manual: manualGaps(measured.audit) } : null,
+      });
     }
 
-    // 3. Categories
-    if (categories?.length) {
-      try {
-        await updateLocation(accessToken, locName, 'categories', {
-          categories: { primaryCategory: { displayName: profile.category || '' }, additionalCategories: categories.map((n: string) => ({ displayName: n })) },
-        });
-        results.push({ step: 'categories', success: true });
-      } catch (e: any) { results.push({ step: 'categories', success: false, detail: e.message }); }
+    if (step === 'replies') {
+      // A few replies in one request; each is still posted and reported on its own.
+      const results = await applyReplies(ctx, body.replies);
+      console.log(`[profile-fix] user ${userId} replies: ${results.filter((r) => r.ok).length} of ${results.length} done and checked`);
+      return NextResponse.json({ results });
     }
 
-    // 4. Hours
-    if (hours) {
-      try {
-        await updateLocation(accessToken, locName, 'regularHours', { regularHours: hours });
-        results.push({ step: 'hours', success: true });
-      } catch (e: any) { results.push({ step: 'hours', success: false, detail: e.message }); }
+    let result: StepResult;
+    switch (step) {
+      case 'description': result = await applyDescription(ctx, body.text); break;
+      case 'services': result = await applyServices(ctx, body.names); break;
+      case 'categories': result = await applyCategories(ctx, body.names); break;
+      case 'hours': result = await applyHours(ctx, body.hours); break;
+      case 'holidayHours': result = await applySpecialHours(ctx, body.days); break;
+      case 'website': result = await applyWebsite(ctx, body.url); break;
+      case 'reply': result = await applyReply(ctx, body.reviewId, body.text); break;
+      case 'lowStar': result = await queueLowStar(ctx); break;
+      case 'firstPost': result = await scheduleFirstPost(ctx, body.text); break;
+      default: return NextResponse.json({ error: 'Unknown step' }, { status: 400 });
     }
-
-    // 5. Review replies
-    if (replyToReviews) {
-      try {
-        const revData = await getReviews(accessToken, locName, acctId);
-        const unrep = (revData.reviews || []).filter((r: any) => !r.reviewReply);
-        let count = 0;
-        for (const rev of unrep) {
-          try {
-            const rating = parseStarRating(rev.starRating);
-            const rName = rev.reviewer?.displayName || 'Customer';
-            const reply = await generateReviewReply({ businessName: profile.business_name, category: profile.category || '', reviewerName: rName, rating, comment: rev.comment || '' });
-            await replyToReview(accessToken, rev.name, reply);
-            await supaAdmin.from('reviews').upsert({ profile_id: profile.id, google_review_id: rev.reviewId || rev.name, reviewer_name: rName, rating, comment: rev.comment || '', review_date: rev.createTime }, { onConflict: 'google_review_id' });
-            count++;
-          } catch { /* continue */ }
-        }
-        results.push({ step: 'reviews', success: true, detail: `${count}/${unrep.length} replied` });
-      } catch (e: any) { results.push({ step: 'reviews', success: false, detail: e.message }); }
-    }
-
-    // 6. First post
-    if (firstPost) {
-      try {
-        const tomorrow = new Date();
-        tomorrow.setDate(tomorrow.getDate() + 1);
-        tomorrow.setHours(10, 0, 0, 0);
-        await supaAdmin.from('scheduled_posts').insert({ profile_id: profile.id, content: firstPost, scheduled_for: tomorrow.toISOString(), status: 'pending_approval' });
-        results.push({ step: 'firstPost', success: true });
-      } catch (e: any) { results.push({ step: 'firstPost', success: false, detail: e.message }); }
-    }
-
-    await supaAdmin.from('users').update({ onboarding_step: 'complete' }).eq('id', userId);
-    console.log('[profile-fix] Results:', JSON.stringify(results));
-    return NextResponse.json({ results, totalFixes: results.length, successfulFixes: results.filter(r => r.success).length });
+    // Kept for support: what was tried and how it ended. No listing text.
+    console.log(`[profile-fix] user ${userId} ${result.step}: ${result.ok ? 'done and checked' : `NOT done (${result.detail || result.message})`}`);
+    return NextResponse.json({ result });
   } catch (error: any) {
     console.error('Fix error:', error);
-    return NextResponse.json({ error: error.message || 'Fix failed' }, { status: 500 });
+    const p = plainProblem(error);
+    return NextResponse.json({ result: { step, ok: false, message: p.message, nextStep: p.nextStep, retryable: true, detail: p.detail } });
   }
 }

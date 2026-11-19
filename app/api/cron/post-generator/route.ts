@@ -5,6 +5,10 @@ import { generatePost } from '@/lib/ai';
 import { sendEmail, postPreviewEmail } from '@/lib/email';
 import { getTenantForRow } from '@/lib/tenant';
 import { nextMondaySlot } from '@/lib/post-schedule';
+import { requiresPostApproval, AWAITING_APPROVAL, PUBLISHABLE } from '@/lib/safe-automation';
+import { loadVoiceForUser } from '@/lib/voice';
+import { reservePhotoForUser } from '@/lib/shop-photos';
+import { startBudget, selectAll, rotateForRun, runIndex } from '@/lib/cron-budget';
 
 export async function GET(request: NextRequest) {
   if (!verifyCronSecret(request)) return unauthorizedResponse();
@@ -16,8 +20,51 @@ export async function GET(request: NextRequest) {
     const season = getSeason(now.getMonth());
     let generated = 0;
 
-    for (const user of users) {
-      if (!user.auto_post_enabled) continue;
+    // This job now runs several times on a Friday morning (see
+    // netlify/functions/cron-post-generator.mts): each run writes as many posts
+    // as fit in its time budget, and the next run carries on. What makes that
+    // safe is knowing who already has this week's post, so that is read ONCE
+    // here, for everyone, instead of once per shop.
+    //
+    // WHO ALREADY HAS ONE: any post, in ANY state, scheduled on or after the
+    // Monday this run is writing for. Two things about that, both from review:
+    //
+    //  - ANY state, cancelled included. A shop that cancels its post has been
+    //    told "nothing will be published this week". With several runs a
+    //    morning, counting only live posts meant the next run, five minutes
+    //    later, wrote it a new one. A post awaiting approval counts too.
+    //
+    //  - The UPCOMING Monday, not "since last Sunday". The old test asked for a
+    //    post scheduled since the Sunday before this Friday, and last week's
+    //    post (scheduled for the Monday just gone) always matched. So every
+    //    other Friday every shop was skipped: posts went out fortnightly, not
+    //    weekly.
+    const budget = startBudget();
+    const slot = nextMondaySlot('', now);
+    const targetWeekStart = new Date(Date.UTC(slot.getUTCFullYear(), slot.getUTCMonth(), slot.getUTCDate()));
+    const thisWeek = await selectAll<{ profile_id: string }>((from, to) => supabaseAdmin
+      .from('scheduled_posts')
+      .select('profile_id')
+      .gte('scheduled_for', targetWeekStart.toISOString())
+      .order('id', { ascending: true })
+      .range(from, to));
+    const hasPost = new Set(thisWeek.map((p) => p.profile_id));
+    // A shop with a post still waiting for its approval is not written another.
+    // Until now a new post was added every Friday regardless, so a shop that
+    // had not approved its first was left with a growing pile.
+    const stillWaiting = await selectAll<{ profile_id: string }>((from, to) => supabaseAdmin
+      .from('scheduled_posts')
+      .select('profile_id')
+      .eq('status', 'awaiting_approval')
+      .order('id', { ascending: true })
+      .range(from, to));
+    for (const p of stillWaiting) hasPost.add(p.profile_id);
+    // Rotated each run, so one shop whose post keeps failing its checks is not at the front every time.
+    const todo = rotateForRun<any>(users.filter((u: any) => u.auto_post_enabled && u.profiles?.[0] && !hasPost.has(u.profiles[0].id)), runIndex(5), 3);
+    let remaining = todo.length;
+
+    for (const user of todo) {
+      if (budget.exhausted()) break;
       const profile = user.profiles?.[0];
       if (!profile) continue;
 
@@ -25,19 +72,6 @@ export async function GET(request: NextRequest) {
       const t = getTenantForRow(user);
 
       try {
-        // Check if a post already exists for this profile this week
-        const weekStart = new Date();
-        weekStart.setDate(weekStart.getDate() - weekStart.getDay());
-        weekStart.setHours(0, 0, 0, 0);
-        const { data: existingThisWeek } = await supabaseAdmin
-          .from('scheduled_posts')
-          .select('id')
-          .eq('profile_id', profile.id)
-          .gte('scheduled_for', weekStart.toISOString())
-          .in('status', ['pending_approval', 'published'])
-          .limit(1);
-        if (existingThisWeek?.length) continue;
-
         // Get last 4 posts to avoid repeating themes
         const { data: recentPosts } = await supabaseAdmin
           .from('scheduled_posts')
@@ -53,6 +87,10 @@ export async function GET(request: NextRequest) {
           month,
           season,
           recentPosts: (recentPosts || []).map((p: any) => p.content),
+          // The shop's own voice, if it has given one (lib/voice.ts). Null means
+          // the default wording. It changes how a post sounds and nothing else:
+          // the validator and the first-three-posts approval below are untouched.
+          voice: await loadVoiceForUser(supabaseAdmin, user.id),
         });
 
         // Monday morning, but on this profile's own minute inside the window
@@ -62,18 +100,34 @@ export async function GET(request: NextRequest) {
         // quota and then times out half-finished.
         const monday = nextMondaySlot(profile.id, now);
 
+        // A new shop approves its first three posts (lib/safe-automation.ts).
+        // Until then the post waits as awaiting_approval, which the publisher
+        // never picks up, and no "publishes unless you cancel" email is sent.
+        const { count: publishedCount } = await supabaseAdmin
+          .from('scheduled_posts')
+          .select('id', { count: 'exact', head: true })
+          .eq('profile_id', profile.id)
+          .eq('status', 'published');
+        const needsApproval = requiresPostApproval(publishedCount || 0);
+
+        // An approved photo of the shop's work, if SHOP_PHOTOS is on and there
+        // is one to use (lib/shop-photos.ts). Null otherwise, and then the row
+        // is inserted exactly as before, without the column.
+        const photoId = await reservePhotoForUser(supabaseAdmin, user.id, now);
+
         const { data: post } = await supabaseAdmin
           .from('scheduled_posts')
           .insert({
             profile_id: profile.id,
             content: postContent,
             scheduled_for: monday.toISOString(),
-            status: 'pending_approval',
+            status: needsApproval ? AWAITING_APPROVAL : PUBLISHABLE,
+            ...(photoId ? { photo_id: photoId } : {}),
           })
           .select()
           .single();
 
-        if (post && user.email) {
+        if (post && user.email && !needsApproval) {
           const hash = generateCancelHash(post.id);
           const cancelUrl = `${t.appUrl}/api/posts/cancel?id=${post.id}&hash=${hash}`;
 
@@ -86,12 +140,14 @@ export async function GET(request: NextRequest) {
         }
 
         generated++;
+        remaining--;
       } catch (err) {
         console.error(`Post generation failed for user ${user.id}:`, err);
       }
     }
 
-    return NextResponse.json({ success: true, generated });
+    if (remaining > 0) console.log(`[cron:post-generator] wrote ${generated}, ${remaining} still to do: the next run carries on`);
+    return NextResponse.json({ success: true, generated, remaining, partial: remaining > 0 });
   } catch (err) {
     console.error('Post generator cron failed:', err);
     return NextResponse.json({ error: 'Cron failed' }, { status: 500 });

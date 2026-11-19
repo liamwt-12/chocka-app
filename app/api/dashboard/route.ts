@@ -1,37 +1,26 @@
+import { retentionEnabled } from '@/lib/retention';
+import { markSeen } from '@/lib/retention-data';
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
 import { refreshAccessToken, getLocationFull, getReviews, getLocalPosts, getMedia, getPerformanceMetrics, parseStarRating, getPlaceReviews, findPlaceId } from '@/lib/google';
 import { decryptSecret, userTokenAad } from '@/lib/secrets';
 import { resolveAccess, MANAGER_EMBED } from '@/lib/managed-access';
-
-async function searchCompetitors(category: string, lat: number, lng: number) {
-  const apiKey = process.env.GOOGLE_PLACES_API_KEY;
-  if (!apiKey || !lat || !lng) return [];
-  try {
-    const res = await fetch('https://places.googleapis.com/v1/places:searchText', {
-      method: 'POST',
-      headers: { 'X-Goog-Api-Key': apiKey, 'X-Goog-FieldMask': 'places.id,places.displayName,places.rating,places.userRatingCount,places.formattedAddress', 'Content-Type': 'application/json' },
-      body: JSON.stringify({ textQuery: `${category} near me`, locationBias: { circle: { center: { latitude: lat, longitude: lng }, radius: 5000 } }, maxResultCount: 6, languageCode: 'en' }),
-    });
-    if (!res.ok) return [];
-    const data = await res.json();
-    return (data.places || []).map((p: any) => ({
-      name: p.displayName?.text || 'Unknown',
-      rating: p.rating || 0,
-      reviewCount: p.userRatingCount || 0,
-      address: p.formattedAddress || '',
-      placeId: p.id,
-    }));
-  } catch { return []; }
-}
+import { getSessionUserId } from '@/lib/session';
+import { shopConnectionMessage } from '@/lib/ownership';
+import { holidayPrompt, datesCovered } from '@/lib/bank-holidays';
+import { nextBestStep } from '@/lib/next-step';
+import { generateReviewHash } from '@/lib/cron';
+import { pendingRepliesForDashboard, type PendingReplyRow } from '@/lib/onboarding-reviews';
 
 export async function GET(request: NextRequest) {
   try {
-    const userId = request.cookies.get('chocka_user_id')?.value;
+    const userId = getSessionUserId(request);
     if (!userId) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
 
     const { data: user } = await supabaseAdmin.from('users').select(`*, ${MANAGER_EMBED}`).eq('id', userId).single();
     if (!user) return NextResponse.json({ error: 'User not found' }, { status: 404 });
+    // One "opened the dashboard" stamp, at most hourly, only while the retention view is on.
+    if (retentionEnabled()) await markSeen(supabaseAdmin, user);
 
     const { data: profile } = await supabaseAdmin.from('profiles').select('*').eq('user_id', userId).single();
 
@@ -43,7 +32,9 @@ export async function GET(request: NextRequest) {
     ]);
 
     let google: any = null;
-    let competitors: any[] = [];
+    // A nudge, on the shop's own dashboard only, when a bank holiday is coming
+    // and the listing says nothing about it. Sends nothing, writes nothing.
+    let holiday: ReturnType<typeof holidayPrompt> = null;
 
     // Access, not "is there a token on this row" — a managed retailer's
     // credential lives on the operator account, so the old truthiness check
@@ -65,9 +56,11 @@ export async function GET(request: NextRequest) {
           getPerformanceMetrics(accessToken, locName).catch((e) => { console.error('[dashboard] Metrics failed:', e.message); return null; }),
         ]);
 
+        if (location) holiday = holidayPrompt(new Date().toISOString().slice(0, 10), datesCovered(location.specialHours?.specialHourPeriods));
+
         let revList = gReviews?.reviews || [];
         let reviewsFull: Array<any> = [];
-        let totalReviews = 0, avgRating = 0, repliedCount = 0, unrepliedCount = 0, userRatingCount = 0;
+        let totalReviews = 0, avgRating = 0, repliedCount = 0, unrepliedCount = 0, userRatingCount = 0, unrepliedGood = 0, unrepliedLow = 0;
 
         if (revList.length === 0) {
           try {
@@ -91,10 +84,16 @@ export async function GET(request: NextRequest) {
             }
           } catch (e: any) { console.error('[dashboard] Places fallback failed:', e.message); }
         } else {
-          totalReviews = revList.length;
-          avgRating = totalReviews > 0 ? revList.reduce((s: number, r: any) => s + parseStarRating(r.starRating), 0) / totalReviews : 0;
+          // getReviews now returns every page. Google's own totals are preferred
+          // when present, since they stay exact even if the page cap was hit.
+          const fetched = revList.length;
+          const totals = gReviews as { totalReviewCount?: number; averageRating?: number };
+          totalReviews = totals?.totalReviewCount || fetched;
+          avgRating = totals?.averageRating || (fetched > 0 ? revList.reduce((s: number, r: any) => s + parseStarRating(r.starRating), 0) / fetched : 0);
           repliedCount = revList.filter((r: any) => r.reviewReply).length;
-          unrepliedCount = totalReviews - repliedCount;
+          unrepliedGood = revList.filter((r: any) => !r.reviewReply && parseStarRating(r.starRating) >= 4).length;
+          unrepliedLow = revList.filter((r: any) => !r.reviewReply && parseStarRating(r.starRating) < 4).length;
+          unrepliedCount = fetched - repliedCount;
           reviewsFull = revList.slice(0, 8).map((r: any) => ({
             name: r.reviewer?.displayName || 'Customer', rating: parseStarRating(r.starRating),
             comment: r.comment || '', date: r.createTime, hasReply: !!r.reviewReply, replyText: r.reviewReply?.comment || null,
@@ -112,8 +111,6 @@ export async function GET(request: NextRequest) {
         const phone = location?.phoneNumbers?.primaryPhone || null;
         const website = location?.websiteUri || null;
         const mapsUri = location?.metadata?.mapsUri || null;
-        const lat = location?.latlng?.latitude || profile?.latitude || 0;
-        const lng = location?.latlng?.longitude || profile?.longitude || 0;
         const serviceNames = svcs.map((s: any) => s.freeFormServiceItem?.label?.displayName || s.structuredServiceItem?.description || '').filter(Boolean);
 
         const views = gMetrics?.views || 0;
@@ -121,21 +118,8 @@ export async function GET(request: NextRequest) {
         const directions = gMetrics?.directions || 0;
         const websiteClicks = gMetrics?.websiteClicks || 0;
 
-        // Competitor search
-        if (primaryCat && lat && lng) {
-          const rawComps = await searchCompetitors(primaryCat, lat, lng);
-          // Filter out self and score them
-          competitors = rawComps.filter((c: any) => c.name !== profile.business_name).slice(0, 4).map((c: any) => {
-            const score = Math.min(100, Math.round((c.rating / 5) * 50 + Math.min(c.reviewCount, 50)));
-            return { ...c, score };
-          });
-        }
-
-        // Calculate own competitor score
-        const ownScore = profile?.audit_score_after || profile?.audit_score || Math.min(100, Math.round((avgRating / 5) * 50 + Math.min(totalReviews, 50)));
-
         google = {
-          reviews: { total: totalReviews, avgRating: Math.round(avgRating * 10) / 10, replied: repliedCount, unreplied: unrepliedCount, list: reviewsFull },
+          reviews: { total: totalReviews, avgRating: Math.round(avgRating * 10) / 10, replied: repliedCount, unreplied: unrepliedCount, unrepliedGood, unrepliedLow, list: reviewsFull },
           posts: { total: postList.length, lastPostDate: postList[0]?.createTime || null },
           photos: { total: photoCount },
           profile: {
@@ -146,7 +130,6 @@ export async function GET(request: NextRequest) {
             hasPhone: !!phone, hasWebsite: !!website, mapsUri,
           },
           metrics: { views, calls, directions, websiteClicks, totalActions: calls + directions + websiteClicks },
-          competitors: { own: { name: profile.business_name, score: ownScore }, list: competitors },
         };
       } catch (e: any) { console.error('Google fetch failed:', e.message); }
     }
@@ -156,6 +139,7 @@ export async function GET(request: NextRequest) {
     for (const post of (postsRes.data || [])) {
       if (post.status === 'published' && post.published_at) activity.push({ action: 'Post published to Google', date: post.published_at, type: 'post', detail: `"${(post.content || '').slice(0, 50)}..."` });
       else if (post.status === 'pending_approval' || post.status === 'pending') activity.push({ action: 'Post scheduled', date: post.scheduled_for, type: 'scheduled' });
+      else if (post.status === 'awaiting_approval') activity.push({ action: 'Post waiting for your approval', date: post.scheduled_for, type: 'scheduled' });
     }
     for (const r of (reviewsRes.data || [])) {
       if (r.reply_content) activity.push({ action: `${r.rating}★ review replied to`, date: r.review_date, type: 'reply', detail: `${r.reviewer_name} — "${(r.comment || '').slice(0, 40)}..."` });
@@ -192,12 +176,72 @@ export async function GET(request: NextRequest) {
     // rule in two places.
     const { data: retailer } = await supabaseAdmin
       .from('retailers')
-      .select('name, score, band, scored_at, match_confidence')
+      .select('name, place_id, score, band, scored_at, match_confidence, connection_status, listing_confirmed_at')
       .eq('user_id', userId)
       .maybeSingle();
 
+    // Review replies waiting for the shop's approval: holding replies for low-star
+    // reviews, from onboarding or from the daily check. Shown on the dashboard so
+    // approving never depends on an email arriving. A failure here just means
+    // the card is not shown.
+    let pendingReplies: ReturnType<typeof pendingRepliesForDashboard> = [];
+    if (profile?.id) {
+      const { data: pendingRows, error: pendingErr } = await supabaseAdmin
+        .from('review_replies')
+        .select('id, reply_content, reviews!inner ( id, profile_id, reviewer_name, rating, comment, review_date )')
+        .eq('status', 'pending')
+        .eq('reviews.profile_id', profile.id)
+        .limit(10);
+      if (pendingErr) console.error('[dashboard] pending replies failed:', pendingErr.message);
+      else pendingReplies = pendingRepliesForDashboard((pendingRows || []) as unknown as PendingReplyRow[], generateReviewHash);
+    }
+
+    // Posts the shop can act on from here: ones waiting for its approval, and
+    // ones booked that it can still cancel (app/api/posts/manage).
+    let postsToManage: Array<{ id: string; content: string; scheduled_for: string; waiting: boolean }> = [];
+    if (profile?.id) {
+      const { data: rows, error: postsErr } = await supabaseAdmin.from('scheduled_posts')
+        .select('id, content, scheduled_for, status')
+        .eq('profile_id', profile.id).in('status', ['awaiting_approval', 'pending_approval'])
+        .order('scheduled_for', { ascending: true }).limit(6);
+      if (postsErr) console.error('[dashboard] posts to manage failed:', postsErr.message);
+      else postsToManage = (rows || []).map((p: any) => ({ id: p.id, content: p.content, scheduled_for: p.scheduled_for, waiting: p.status === 'awaiting_approval' }));
+    }
+
+    // Lost Google access, said to the shop. Until now the dashboard carried on
+    // showing a green "Connected" whatever had happened, and a shop with
+    // posting off was never told. `access` was worked out above for the Google
+    // reads; this only turns it into words.
+    const accessLost = !access.ok && !!profile?.google_location_name;
+    const lostAccess = accessLost ? {
+      since: user.token_invalid_at ?? null,
+      title: 'We have lost the connection to your Google account',
+      message: 'Nothing is wrong with your listing. Google has stopped letting us in, which usually happens after a password change or if we were removed in Google. Until you reconnect, we cannot post, reply or show you up-to-date figures.',
+      nextStep: 'Press Reconnect and sign in with the same Google account as before. It takes a minute.',
+    } : null;
+
+    // The one most useful thing to do next (lib/next-step.ts), from what was
+    // read from Google above. Nothing when Google could not be read.
+    const nextStep = google ? nextBestStep({
+      hoursSet: google.profile.hoursSet, hasPhone: google.profile.hasPhone, descriptionLength: google.profile.descriptionLength,
+      servicesCount: google.profile.servicesCount, photos: google.photos.total, hasWebsite: google.profile.hasWebsite,
+      unrepliedGood: google.reviews.unrepliedGood ?? 0, unrepliedLow: google.reviews.unrepliedLow ?? 0,
+      waitingPosts: postsToManage.filter((p) => p.waiting).length, postsOn: !!user.auto_post_enabled,
+      lastPostDaysAgo: google.posts.lastPostDate ? Math.floor((Date.now() - Date.parse(google.posts.lastPostDate)) / 86_400_000) : null,
+    }) : null;
+
     return NextResponse.json({
+      nextStep,
+      lostAccess,
+      holiday,
+      postsToManage,
+      pendingReplies,
       retailer: retailer ?? null,
+      // Plain-English status for invited shops that are not fully connected yet.
+      // A "check listing" a person has since confirmed is no longer a question for the shop.
+      connection: retailer?.connection_status && ['check_listing', 'waiting_google'].includes(retailer.connection_status) && !(retailer.connection_status === 'check_listing' && retailer.listing_confirmed_at)
+        ? { status: retailer.connection_status, ...shopConnectionMessage(retailer.connection_status as 'check_listing' | 'waiting_google', !!retailer.place_id) }
+        : null,
       user: { name: user.name, email: user.email, phone: user.phone_number, referral_code: user.referral_code, subscription_status: user.subscription_status, auto_post_enabled: user.auto_post_enabled, auto_reply_enabled: user.auto_reply_enabled, sms_enabled: user.sms_enabled },
       profile: profile ? { business_name: profile.business_name, category: profile.category, city: profile.city, streak_weeks: profile.streak_weeks || 0, total_posts: postCountRes.count || 0, total_replies: replyCountRes.count || 0, audit_score: profile.audit_score || null, audit_score_after: profile.audit_score_after || null, latitude: profile.latitude, longitude: profile.longitude } : null,
       google, recentPosts: postsRes.data || [], recentReviews: reviewsRes.data || [],

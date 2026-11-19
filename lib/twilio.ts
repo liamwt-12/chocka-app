@@ -1,3 +1,5 @@
+import { redact } from './redact';
+
 const TWILIO_API = 'https://api.twilio.com/2010-04-01';
 
 interface SendSMSParams {
@@ -21,7 +23,8 @@ export async function sendSMS({ to, body }: SendSMSParams): Promise<string | nul
     });
 
     if (!res.ok) {
-      console.error('Twilio SMS failed:', await res.text());
+      // Twilio's error quotes the number it refused. Keep the reason, not the number.
+      console.error('Twilio SMS failed:', res.status, redact(await res.text()));
       return null;
     }
 

@@ -1,12 +1,50 @@
+import { automationHeld } from './shop-status';
+import { timingSafeEqual } from 'crypto';
 import { NextRequest, NextResponse } from 'next/server';
 import { getTenantForRow, type TenantEmbeddedRow } from './tenant';
 import { MANAGER_EMBED } from './managed-access';
 
-// Verify cron secret from query param
+function secretMatches(given: string | null | undefined, expected: string): boolean {
+  if (!given) return false;
+  const a = Buffer.from(given);
+  const b = Buffer.from(expected);
+  return a.length === b.length && timingSafeEqual(a, b);
+}
+
+/** True unless Liam has switched the old ?secret= URL form off. */
+export function querySecretAccepted(): boolean {
+  return (process.env.CRON_ACCEPT_QUERY_SECRET || '').trim().toLowerCase() !== 'false';
+}
+
+/**
+ * Verify the cron secret.
+ *
+ * Preferred: a header, `Authorization: Bearer <secret>` or `x-cron-secret`.
+ * A secret in the URL ends up in access logs, proxy logs and anywhere the URL is
+ * copied, which a header does not. netlify/shared/run-cron.mts sends the header.
+ *
+ * Still accepted, for the transition: `?secret=` in the URL, with a warning, so
+ * any other caller keeps working. Set CRON_ACCEPT_QUERY_SECRET=false once the
+ * warning stops appearing, and the URL form is refused.
+ *
+ * An unset CRON_SECRET refuses everything.
+ */
 export function verifyCronSecret(request: NextRequest): boolean {
-  const { searchParams } = new URL(request.url);
-  const secret = searchParams.get('secret');
-  return secret === process.env.CRON_SECRET;
+  const expected = process.env.CRON_SECRET;
+  if (!expected) return false;
+
+  const auth = request.headers.get('authorization') || '';
+  const bearer = auth.toLowerCase().startsWith('bearer ') ? auth.slice(7).trim() : null;
+  if (secretMatches(bearer, expected) || secretMatches(request.headers.get('x-cron-secret'), expected)) return true;
+
+  if (querySecretAccepted()) {
+    const fromUrl = new URL(request.url).searchParams.get('secret');
+    if (secretMatches(fromUrl, expected)) {
+      console.warn(`[cron] secret accepted from the URL for ${new URL(request.url).pathname}; switch the caller to the Authorization header, then set CRON_ACCEPT_QUERY_SECRET=false`);
+      return true;
+    }
+  }
+  return false;
 }
 
 // Standard unauthorized response
@@ -135,13 +173,20 @@ export function admitEntitled<T extends TenantEmbeddedRow & { subscription_statu
 // it infer here would narrow callers to just the two fields the gate reads,
 // breaking every route that goes on to use `profiles`, `phone_number` and the
 // rest. Typing these rows properly is a separate job to the whole of cron.
-export async function getActiveUsersWithProfiles(supabaseAdmin: any, routeLabel: string): Promise<any[]> {
+//
+// HELD SHOPS. A shop connected to a listing nobody has confirmed, or to one
+// Google has not verified, is left out (lib/shop-status.ts automationHeld), so
+// nothing is posted, replied to or reported for it while nobody is looking.
+// The one caller that must still see them is the daily figures and connection
+// check, which is what notices when the hold can lift: it passes includeHeld.
+export async function getActiveUsersWithProfiles(supabaseAdmin: any, routeLabel: string, opts: { includeHeld?: boolean } = {}): Promise<any[]> {
   const { data, error } = await supabaseAdmin
     .from('users')
     .select(`
       *,
       profiles (*),
       tenants ( slug ),
+      retailers ( connection_status, listing_confirmed_at ),
       ${MANAGER_EMBED}
     `)
     // Two shapes qualify, and the second one is new.
@@ -162,7 +207,15 @@ export async function getActiveUsersWithProfiles(supabaseAdmin: any, routeLabel:
     .or('pause_until.is.null,pause_until.lt.now()');
 
   if (error) throw error;
-  return admitEntitled(data || [], routeLabel);
+  const admitted = admitEntitled(data || [], routeLabel);
+  if (opts.includeHeld) return admitted;
+  const working: any[] = [];
+  let held = 0;
+  for (const u of admitted as any[]) {
+    if (automationHeld(u.retailers)) held++; else working.push(u);
+  }
+  if (held) console.log(`[cron:${routeLabel}] ${held} shop(s) held: listing not confirmed, or not verified by Google yet`);
+  return working;
 }
 
 // Generate a signed cancel URL hash
@@ -183,4 +236,25 @@ export function generateReviewHash(reviewId: string): string {
     .update(`review:${reviewId}`)
     .digest('hex')
     .substring(0, 16);
+}
+
+/** Constant-time comparison for the short hex link hashes above. */
+export function linkHashMatches(given: string | null | undefined, expected: string): boolean {
+  if (!given) return false;
+  // Compare BYTE lengths. Comparing string lengths let a hash containing a
+  // multi-byte character through to timingSafeEqual, which throws on unequal
+  // buffers: a 500 where "Invalid link" was meant.
+  const a = Buffer.from(given);
+  const b = Buffer.from(expected);
+  return a.length === b.length && timingSafeEqual(a, b);
+}
+
+/** Signed hash for the approve / skip links on a post awaiting approval: 128 bits, namespaced per action. */
+export function generatePostActionHash(postId: string, action: 'approve' | 'skip'): string {
+  const crypto = require('crypto');
+  return crypto
+    .createHmac('sha256', process.env.CANCEL_HASH_SECRET!)
+    .update(`post-${action}:${postId}`)
+    .digest('hex')
+    .substring(0, 32);
 }

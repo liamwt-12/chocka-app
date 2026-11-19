@@ -3,6 +3,8 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useTenant } from '@/lib/tenant-context';
+import ImproveListing from '@/components/ImproveListing';
+import VoiceFields, { draftFromVoice, draftIsEmpty, EMPTY_DRAFT, type VoiceDraft } from '@/components/VoiceFields';
 
 const V = { bg:'#F0EDE8',card:'#FAFAF8',card2:'#F5F3EF',orange:'var(--brand-strong)',orangeLight:'var(--brand-strong-light)',orangeDark:'var(--brand-strong-dark)',green:'#2D7A4F',greenLight:'#E8F5EE',amber:'#B8860B',amberLight:'#FFF8E6',red:'#D93025',text:'#1A1A1A',textMid:'#555',textSoft:'#999',border:'rgba(0,0,0,0.07)',shadow:'0 2px 12px rgba(0,0,0,0.06)',star:'#FBBC04' };
 const sans = "'DM Sans',sans-serif";
@@ -11,7 +13,7 @@ const barlow = "'Barlow Condensed',sans-serif";
 
 const STEPS = ['Connecting to your Google profile','Reading your business information','Checking your opening hours','Scanning your reviews','Counting your photos','Checking your services','Analysing your visibility','Comparing against top profiles','Building your report'];
 
-type Phase = 'select'|'analysing'|'score'|'preview'|'confirm'|'phone'|'fixing'|'done';
+type Phase = 'select'|'analysing'|'score'|'voice'|'phone'|'improve';
 
 export default function OnboardingPage() {
   const router = useRouter();
@@ -20,14 +22,17 @@ export default function OnboardingPage() {
   const [aIdx, setAIdx] = useState(0);
   const [doneSt, setDoneSt] = useState<Set<number>>(new Set());
   const [audit, setAudit] = useState<any>(null);
-  const [predicted, setPredicted] = useState(0);
-  const [previews, setPreviews] = useState<any>(null);
+  // What Google holds for hours now, and the gaps we do not fill (app/api/audit).
+  const [hoursInfo, setHoursInfo] = useState<any>(null);
+  const [manual, setManual] = useState<any[]>([]);
   const [locData, setLocData] = useState<any>(null);
-  const [desc, setDesc] = useState('');
-  const [svcs, setSvcs] = useState<string[]>([]);
-  const [post, setPost] = useState('');
-  const [hrs, setHrs] = useState<any>(null);
   const [phone, setPhone] = useState('');
+  // Voice: a few short optional questions about how the shop sounds (lib/voice.ts).
+  // Only offered when a shop is linked to this account, which /api/voice decides.
+  const [voiceAvailable, setVoiceAvailable] = useState(false);
+  const [voiceDraft, setVoiceDraft] = useState<VoiceDraft>(EMPTY_DRAFT);
+  const [voiceErr, setVoiceErr] = useState('');
+  const [voiceSaving, setVoiceSaving] = useState(false);
 
   // Automation opt-in, shown only on a free tenant (see the users insert in the
   // OAuth callback). Both start FALSE and match the row as created, so a
@@ -37,24 +42,24 @@ export default function OnboardingPage() {
   const [optPost, setOptPost] = useState(false);
   const [optReply, setOptReply] = useState(false);
   const [phoneErr, setPhoneErr] = useState('');
-  const [fixLines, setFixLines] = useState<string[]>([]);
   const [counter, setCounter] = useState(0);
-  const [finalCounter, setFinalCounter] = useState(0);
+  // Back from paying (paid brand only): go straight to the changes once the listing has been read.
+  const [resumeAtImprove, setResumeAtImprove] = useState(false);
   const [auditError, setAuditError] = useState<string|false>(false);
   const [auditCode, setAuditCode] = useState<string>('');
   const [auditReady, setAuditReady] = useState(false);
-  const [previewsLoading, setPreviewsLoading] = useState(false);
   const [listings, setListings] = useState<any[]|null>(null);
   const [listingsError, setListingsError] = useState<string>('');
+  // Ownership detection: which shop we expected (invited shops) and help if we can't see it.
+  const [listingsHelp, setListingsHelp] = useState<{title:string;message:string;nextStep:string}|null>(null);
+  const [expectedShop, setExpectedShop] = useState<{name:string;town:string|null}|null>(null);
   const [selecting, setSelecting] = useState<string>('');
+  const [canStartAgain, setCanStartAgain] = useState(false);
   const [returnTo, setReturnTo] = useState<string>('');
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
-    if (params.get('paid') === 'true') {
-      const stored = sessionStorage.getItem('chocka_fix_data');
-      if (stored) { try { const fd = JSON.parse(stored); setDesc(fd.desc||''); setSvcs(fd.svcs||[]); setPost(fd.post||''); setHrs(fd.hrs||null); setPreviews(fd); sessionStorage.removeItem('chocka_fix_data'); setPhase('fixing'); setTimeout(()=>runFixes(fd),100); return; } catch {} }
-    }
+    if (params.get('paid') === 'true') setResumeAtImprove(true);
     // Manager of several listings (or a settings-initiated "change listing") —
     // pick which one to set up before auditing anything.
     if (params.get('select') === '1') {
@@ -81,24 +86,18 @@ export default function OnboardingPage() {
     if (auditReady) {
       setDoneSt(new Set(STEPS.map((_, i) => i)));
       setAIdx(STEPS.length - 1);
-      const t = setTimeout(() => setPhase('score'), 600);
+      const t = setTimeout(() => setPhase(resumeAtImprove ? 'improve' : 'score'), 600);
       return () => clearTimeout(t);
     }
     const iv = setInterval(() => { setAIdx(p => { if (p < STEPS.length-1) { setDoneSt(d => { const n = new Set(Array.from(d)); n.add(p); return n; }); return p+1; } return p; }); }, 800);
     return () => clearInterval(iv);
-  }, [phase, auditReady]);
+  }, [phase, auditReady, resumeAtImprove]);
 
   useEffect(() => {
     if (phase !== 'score' || !audit) return;
     let n = 0; const iv = setInterval(() => { n++; setCounter(n); if (n >= audit.score) clearInterval(iv); }, 25);
     return () => clearInterval(iv);
   }, [phase, audit]);
-
-  useEffect(() => {
-    if (phase !== 'done' || !audit) return;
-    let n = audit.score; const iv = setInterval(() => { n++; setFinalCounter(n); if (n >= predicted) clearInterval(iv); }, 35);
-    return () => clearInterval(iv);
-  }, [phase, audit, predicted]);
 
   async function runAudit() {
     setAuditError(false);
@@ -108,9 +107,9 @@ export default function OnboardingPage() {
       const res = await fetch('/api/audit', { method: 'POST' });
       const d = await res.json();
       if (!res.ok || d.error) { setAuditCode(d.code || ''); throw new Error(d.error || 'Audit failed'); }
-      setAudit(d.audit); setPredicted(d.predicted); setLocData(d.locationData);
-      if (d.defaultHours) setHrs(d.defaultHours);
-      fetchPreviews();
+      setAudit(d.audit); setLocData(d.locationData); setHoursInfo(d.hours || null); setManual(d.manual || []);
+      // Whether to ask the voice questions. Any failure just means they are not asked.
+      fetch('/api/voice').then(r => r.ok ? r.json() : null).then(v => { if (v?.available) { setVoiceAvailable(true); setVoiceDraft(draftFromVoice(v.voice)); } }).catch(() => {});
       setAuditReady(true);
     } catch (e: any) {
       console.error('Audit failed:', e);
@@ -125,6 +124,9 @@ export default function OnboardingPage() {
       const d = await res.json();
       if (!res.ok) throw new Error(d.error || 'Failed to load listings');
       setListings(d.listings || []);
+      setListingsHelp(d.help || null);
+      setExpectedShop(d.expected || null);
+      setCanStartAgain(!!d.canStartAgain);
     } catch (e: any) {
       console.error('Load listings failed:', e);
       setListingsError(e.message || 'Failed to load listings');
@@ -139,6 +141,8 @@ export default function OnboardingPage() {
       const d = await res.json();
       if (!res.ok || !d.ok) throw new Error(d.error || 'Selection failed');
       // Re-pick from settings: repopulate the audit for the new listing, then return.
+      // Free brand, first time: choosing the listing completes the connection.
+      if (d.connectedPage && returnTo !== 'settings') { router.push('/connected'); return; }
       if (returnTo === 'settings') { await fetch('/api/audit', { method: 'POST' }).catch(()=>{}); router.push('/dashboard'); return; }
       // Onboarding: audit the listing they just chose.
       setAuditError(false); setAuditCode(''); setAIdx(0); setDoneSt(new Set());
@@ -151,21 +155,28 @@ export default function OnboardingPage() {
     }
   }
 
-  async function fetchPreviews() {
-    setPreviewsLoading(true);
+  // After the score: the optional voice questions if they are on offer, then
+  // the mobile number, then the changes. The changes come last so that the
+  // drafts are written after the shop has said how it wants to sound.
+  // A free brand is never asked for a mobile number here: texts are off, and it
+  // used to stop a shop with only a landline from finishing at all.
+  const afterVoice: Phase = freeTenant ? 'improve' : 'phone';
+  function afterScore() { setPhase(voiceAvailable ? 'voice' : afterVoice); }
+
+  async function submitVoice(skip: boolean) {
+    setVoiceErr('');
+    // Skipped, or nothing typed: nothing is saved and the default wording stays.
+    if (skip || draftIsEmpty(voiceDraft)) { setPhase(afterVoice); return; }
+    setVoiceSaving(true);
     try {
-      const res = await fetch('/api/audit/previews', { method: 'POST' });
-      if (!res.ok) throw new Error('Previews failed');
-      const d = await res.json();
-      setPreviews(d.previews);
-      if (d.previews?.description) setDesc(d.previews.description);
-      if (d.previews?.services) setSvcs(d.previews.services);
-      if (d.previews?.firstPost) setPost(d.previews.firstPost);
-    } catch (e) {
-      console.error('Preview generation failed:', e);
-      setPreviews({ description: null, services: null, firstPost: null, categories: null, reviewPreview: null });
+      const res = await fetch('/api/voice', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ voice: voiceDraft }) });
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok) { setVoiceErr(d.error || 'We could not save that. Please try again.'); return; }
+      setPhase(afterVoice);
+    } catch {
+      setVoiceErr('We could not save that. Please try again.');
     } finally {
-      setPreviewsLoading(false);
+      setVoiceSaving(false);
     }
   }
 
@@ -204,33 +215,16 @@ export default function OnboardingPage() {
         return;
       }
 
-      setPhase('fixing');
-      await runFixes();
+      setPhase('improve');
       return;
     }
 
     const res = await fetch('/api/checkout', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ phone: c, plan: 'monthly', referralCode: sessionStorage.getItem('chocka_ref') || '' }) });
     if (res.ok) {
       const data = await res.json();
-      if (data.url) { sessionStorage.setItem('chocka_fix_data', JSON.stringify({ desc, svcs, cats: previews?.categories, hrs, post, reviewPreview: previews?.reviewPreview })); window.location.href = data.url; return; }
+      if (data.url) { window.location.href = data.url; return; }
     }
-    setPhase('fixing'); await runFixes();
-  }
-
-  async function runFixes(overrides?: any) {
-    const _d = overrides?.desc ?? desc, _s = overrides?.svcs ?? svcs, _p = overrides?.post ?? post, _h = overrides?.hrs ?? hrs, _c = overrides?.cats ?? previews?.categories, _r = overrides?.reviewPreview ?? previews?.reviewPreview;
-    const body: any = {}; const lines: string[] = [];
-    if (_d) { body.description = _d; lines.push('Updating your business description'); }
-    if (_s?.length) { body.services = _s; lines.push(`Adding ${_s.length} services`); }
-    if (_c?.length) { body.categories = _c; lines.push(`Adding ${_c.length} categories`); }
-    if (_h) { body.hours = _h; lines.push('Setting your opening hours'); }
-    if (_r) { body.replyToReviews = true; lines.push(`Replying to ${_r.totalUnreplied} reviews`); }
-    if (_p) { body.firstPost = _p; lines.push('Scheduling your first post'); }
-    lines.push('Setting up weekly automation');
-    for (let i = 0; i < lines.length; i++) { setFixLines(p => [...p, lines[i]]); await new Promise(r => setTimeout(r, 1100)); }
-    await fetch('/api/profile-fix', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-    await new Promise(r => setTimeout(r, 400));
-    setPhase('done');
+    setPhase('improve');
   }
 
   // Shared styles
@@ -261,8 +255,16 @@ export default function OnboardingPage() {
               <button onClick={loadListings} style={btn}>Try Again</button>
             </div>
           ) : listings.length === 0 ? (
-            <div style={{...card,padding:20,textAlign:'center'}}><p style={{fontSize:14,color:V.textMid,margin:0}}>We couldn&apos;t find a Google Business Profile you manage.</p></div>
+            <div style={{...card,padding:20,textAlign:'center'}}><p style={{fontSize:14,color:V.textMid,margin:0}}>We couldn&apos;t find a Google Business Profile you manage.</p>{canStartAgain && returnTo !== 'settings' && <form action="/api/connection/reset" method="post"><button type="submit" style={{display:'block',width:'100%',marginTop:12,fontSize:15,color:V.text,textDecoration:'underline',background:'none',border:'none',cursor:'pointer',fontFamily:sans}}>Try a different Google account</button></form>}</div>
           ) : (
+            <>
+            {listingsHelp && (
+              <div style={{...card,padding:16,marginBottom:12,background:V.card}}>
+                <div style={{fontSize:14,fontWeight:600,color:V.text,marginBottom:4}}>{listingsHelp.title}</div>
+                <p style={{fontSize:13,color:V.textMid,margin:'0 0 6px',lineHeight:1.5}}>{expectedShop ? `We were expecting ${expectedShop.name}${expectedShop.town ? `, ${expectedShop.town}` : ''}. ` : ''}{listingsHelp.message}</p>
+                <p style={{fontSize:13,color:V.textMid,margin:0,lineHeight:1.5}}>{listingsHelp.nextStep}</p>
+              </div>
+            )}
             <div style={{...card,padding:8}}>
               {listings.map((l:any) => (
                 <button key={l.locationName} onClick={()=>selectListing(l.accountName, l.locationName)} disabled={!!selecting}
@@ -270,10 +272,14 @@ export default function OnboardingPage() {
                   <div style={{fontSize:15,fontWeight:600,color:V.text}}>{l.title || 'Untitled listing'}</div>
                   {l.address && <div style={{fontSize:13,color:V.textSoft,marginTop:2}}>{l.address}</div>}
                   <div style={{fontSize:11,color:V.textSoft,marginTop:4}}>{l.accountDisplay || (l.accountType === 'PERSONAL' ? 'Personal account' : 'Google account')}</div>
+                  {l.matchesExpected && <div style={{fontSize:12,color:V.green,marginTop:6,fontWeight:600}}>This looks like your shop</div>}
+                  {l.waitingOnGoogle && <div style={{fontSize:12,color:V.amber,marginTop:6}}>Google hasn&apos;t finished verifying this listing yet</div>}
                   {selecting===l.locationName && <div style={{fontSize:12,color:V.orange,marginTop:6}}>Setting up…</div>}
                 </button>
               ))}
             </div>
+            {canStartAgain && returnTo !== 'settings' && <form action="/api/connection/reset" method="post"><button type="submit" style={{display:'block',width:'100%',textAlign:'center',fontSize:15,color:V.textMid,padding:'14px 8px',textDecoration:'underline',background:'none',border:'none',cursor:'pointer',fontFamily:sans}}>None of these is my shop: use a different Google account</button></form>}
+            </>
           )}
         </div>
       </div>
@@ -353,8 +359,7 @@ export default function OnboardingPage() {
                   <button onClick={()=>{ window.location.href='/api/auth/callback/google'; }} style={{...btnGhost,marginTop:8}}>Reconnect Google</button>
                 </>
               )}
-              <button onClick={()=>setPhase('phone')} style={{...btnGhost,marginTop:8}}>Skip and continue to setup</button>
-              <p style={{fontSize:11,color:V.textSoft,marginTop:8}}>We&apos;ll run your full audit once you&apos;re set up.</p>
+              <button onClick={()=>router.push('/dashboard')} style={{...btnGhost,marginTop:8}}>Leave this for now</button>
             </div>
           </div>
         </div>
@@ -414,7 +419,6 @@ export default function OnboardingPage() {
             <div style={{width:`${audit.score}%`,height:'100%',background:sc(audit.score),borderRadius:3,transition:'width 1.5s ease'}}/>
           </div>
 
-          {locData?.city && <p style={{fontSize:13,color:V.textSoft,textAlign:'center',marginBottom:20}}>Most tradespeople in {locData.city} score 40–60. Top businesses score 80+.</p>}
 
           <div style={card}>
             {audit.items.map((it:any) => (
@@ -428,172 +432,30 @@ export default function OnboardingPage() {
             ))}
           </div>
 
-          {audit.fixes.length > 0 ? (
-            <button onClick={()=>setPhase('preview')} style={btn}>See What We Can Fix Right Now →</button>
-          ) : (
-            <>
-              <button onClick={()=>setPhase('phone')} style={btn}>Continue To Setup →</button>
-              {audit.score === 0 && <p style={{textAlign:'center',fontSize:12,color:V.textSoft,marginTop:8}}>We&apos;ll run your full audit once you&apos;re set up.</p>}
-            </>
-          )}
+          <button onClick={afterScore} style={btn}>{audit.fixes.length > 0 ? 'See what we could improve →' : 'Continue →'}</button>
+          <p style={{textAlign:'center',fontSize:12,color:V.textSoft,marginTop:8}}>Nothing has been changed on your listing.</p>
         </div>
       </div>
     );
   }
 
-  /* ── PREVIEW (editable) ── */
-  if (phase === 'preview' && audit) {
-    const pts = (n:number) => <span style={{fontFamily:mono,fontSize:11,fontWeight:500,color:V.orange}}>+{n} pts</span>;
-    const skel: React.CSSProperties = { background:V.border,borderRadius:6,height:14 };
-    const showSkel = previewsLoading || !previews;
+  /* ── VOICE (optional) ── */
+  if (phase === 'voice') {
     return (
       <div style={{...wrap,background:V.bg}}>
         <div style={box}>
           <div style={logoStyle}>{tenant.wordmark}</div>
-          <h2 style={{fontFamily:barlow,fontSize:28,fontWeight:800,textTransform:'uppercase',lineHeight:1,margin:'12px 0 4px',color:V.text}}>Here&apos;s what<br/>we&apos;ll fix.</h2>
-          <p style={{fontSize:13,color:V.textSoft,marginBottom:20}}>{showSkel ? 'Generating your previews...' : 'Tap any section to edit before we apply it.'}</p>
-
-          {audit.fixes.some((f:any) => f.key === 'description') && (
-            desc ? (
-              <div style={card}>
-                <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:8}}>
-                  <span style={{fontSize:15,fontWeight:600}}>Business description</span>
-                  {pts(audit.fixes.find((f:any)=>f.key==='description')?.pointsGain||15)}
-                </div>
-                <textarea value={desc} onChange={e=>setDesc(e.target.value)} rows={5} style={{width:'100%',background:V.card2,color:V.text,border:`1px solid ${V.border}`,borderRadius:12,padding:12,fontSize:14,lineHeight:'1.6',resize:'vertical',fontFamily:sans,outline:'none',boxSizing:'border-box'}}/>
-                <p style={{fontSize:11,color:V.textSoft,marginTop:4}}>Appears in your "From the business" section on Google.</p>
-              </div>
-            ) : showSkel ? (
-              <div style={card}>
-                <div style={{...skel,width:'50%',height:16,marginBottom:16}}/>
-                <div style={{...skel,width:'100%',marginBottom:8}}/>
-                <div style={{...skel,width:'100%',marginBottom:8}}/>
-                <div style={{...skel,width:'100%',marginBottom:8}}/>
-                <div style={{...skel,width:'70%'}}/>
-              </div>
-            ) : null
-          )}
-
-          {audit.fixes.some((f:any) => f.key === 'services') && (
-            svcs.length > 0 ? (
-              <div style={card}>
-                <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:8}}>
-                  <span style={{fontSize:15,fontWeight:600}}>Services ({svcs.length})</span>
-                  {pts(audit.fixes.find((f:any)=>f.key==='services')?.pointsGain||12)}
-                </div>
-                <div style={{display:'flex',flexWrap:'wrap',gap:6}}>
-                  {svcs.map((s,i) => <span key={i} style={{background:V.card2,borderRadius:20,padding:'6px 12px',fontSize:13}}>{s}</span>)}
-                </div>
-              </div>
-            ) : showSkel ? (
-              <div style={card}>
-                <div style={{...skel,width:'40%',height:16,marginBottom:16}}/>
-                <div style={{display:'flex',flexWrap:'wrap',gap:6}}>{[1,2,3,4,5].map(i=><div key={i} style={{...skel,width:80,height:28,borderRadius:20}}/>)}</div>
-              </div>
-            ) : null
-          )}
-
-          {audit.fixes.some((f:any) => f.key === 'firstPost') && (
-            post ? (
-              <div style={card}>
-                <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:8}}>
-                  <span style={{fontSize:15,fontWeight:600}}>Your first post</span>
-                  {pts(5)}
-                </div>
-                <textarea value={post} onChange={e=>setPost(e.target.value)} rows={3} style={{width:'100%',background:V.card2,color:V.text,border:`1px solid ${V.border}`,borderRadius:12,padding:12,fontSize:14,lineHeight:'1.6',resize:'vertical',fontFamily:sans,outline:'none',boxSizing:'border-box'}}/>
-                <p style={{fontSize:11,color:V.textSoft,marginTop:4}}>Goes live tomorrow at 10am.</p>
-              </div>
-            ) : showSkel ? (
-              <div style={card}>
-                <div style={{...skel,width:'45%',height:16,marginBottom:16}}/>
-                <div style={{...skel,width:'100%',marginBottom:8}}/>
-                <div style={{...skel,width:'90%',marginBottom:8}}/>
-                <div style={{...skel,width:'60%'}}/>
-              </div>
-            ) : null
-          )}
-
-          {audit.fixes.some((f:any) => f.key === 'reviews') && (
-            previews?.reviewPreview ? (
-              <div style={card}>
-                <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:8}}>
-                  <span style={{fontSize:15,fontWeight:600}}>Review replies ({previews.reviewPreview.totalUnreplied})</span>
-                  {pts(audit.fixes.find((f:any)=>f.key==='reviews')?.pointsGain||8)}
-                </div>
-                <div style={{background:V.card2,borderRadius:12,padding:12,marginBottom:8}}>
-                  <div style={{display:'flex',alignItems:'center',gap:4,marginBottom:4}}>
-                    <span style={{fontWeight:600,fontSize:13}}>{previews.reviewPreview.reviewerName}</span>
-                    <span style={{color:V.star,fontSize:11}}>{'\u2605'.repeat(previews.reviewPreview.rating)}<span style={{color:'#E0DDD8'}}>{'\u2605'.repeat(5-previews.reviewPreview.rating)}</span></span>
-                  </div>
-                  <p style={{fontSize:13,color:V.textMid,margin:0,lineHeight:1.4}}>{previews.reviewPreview.comment}</p>
-                </div>
-                <div style={{background:V.orangeLight,borderRadius:12,padding:12,borderLeft:`3px solid ${V.orange}`}}>
-                  <p style={{fontSize:11,color:V.orange,fontWeight:600,margin:'0 0 4px'}}>Our reply:</p>
-                  <p style={{fontSize:13,margin:0,lineHeight:1.4}}>{previews.reviewPreview.suggestedReply}</p>
-                </div>
-              </div>
-            ) : showSkel ? (
-              <div style={card}>
-                <div style={{...skel,width:'55%',height:16,marginBottom:16}}/>
-                <div style={{background:V.card2,borderRadius:12,padding:12,marginBottom:8}}><div style={{...skel,width:'40%',marginBottom:8}}/><div style={{...skel,width:'80%'}}/></div>
-                <div style={{background:V.orangeLight,borderRadius:12,padding:12}}><div style={{...skel,width:'30%',marginBottom:8}}/><div style={{...skel,width:'90%'}}/></div>
-              </div>
-            ) : null
-          )}
-
-          {audit.fixes.some((f:any) => f.key === 'categories') && (
-            previews?.categories?.length > 0 ? (
-              <div style={card}>
-                <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:8}}>
-                  <span style={{fontSize:15,fontWeight:600}}>Categories</span>
-                  {pts(audit.fixes.find((f:any)=>f.key==='categories')?.pointsGain||8)}
-                </div>
-                <div style={{display:'flex',flexWrap:'wrap',gap:6}}>
-                  {previews.categories.map((c:string,i:number) => <span key={i} style={{background:V.card2,borderRadius:20,padding:'6px 12px',fontSize:13}}>{c}</span>)}
-                </div>
-              </div>
-            ) : showSkel ? (
-              <div style={card}>
-                <div style={{...skel,width:'40%',height:16,marginBottom:16}}/>
-                <div style={{display:'flex',flexWrap:'wrap',gap:6}}>{[1,2,3].map(i=><div key={i} style={{...skel,width:90,height:28,borderRadius:20}}/>)}</div>
-              </div>
-            ) : null
-          )}
-
-          <div style={{textAlign:'center',padding:'16px 0 8px'}}>
-            <div style={{fontSize:11,color:V.textSoft,textTransform:'uppercase',letterSpacing:'.08em'}}>Predicted score after fixes</div>
-            <div style={{fontFamily:mono,fontSize:36,fontWeight:600,color:V.green,marginTop:4}}>{predicted}<span style={{fontSize:14,color:V.textSoft}}>/100</span></div>
-            <div style={{fontSize:12,color:V.textSoft}}>Up from {audit.score}</div>
-          </div>
-
-          <button onClick={()=>setPhase('confirm')} style={{...btn,opacity:showSkel?0.5:1,pointerEvents:showSkel?'none':'auto'}}>Continue →</button>
-        </div>
-      </div>
-    );
-  }
-
-  /* ── CONFIRM ── */
-  if (phase === 'confirm' && audit) {
-    const fixes = [desc&&'Update business description',svcs.length>0&&`Add ${svcs.length} services`,previews?.categories?.length&&`Add ${previews.categories.length} categories`,hrs&&'Set opening hours',previews?.reviewPreview&&`Reply to ${previews.reviewPreview.totalUnreplied} reviews`,post&&'Schedule first post'].filter(Boolean) as string[];
-    return (
-      <div style={{...wrap,background:V.bg}}>
-        <div style={box}>
-          <div style={logoStyle}>{tenant.wordmark}</div>
-          <h2 style={{fontFamily:barlow,fontSize:28,fontWeight:800,textTransform:'uppercase',lineHeight:1,margin:'12px 0 20px',color:V.text}}>Ready?</h2>
-
+          <h2 style={{fontFamily:barlow,fontSize:28,fontWeight:800,textTransform:'uppercase',lineHeight:1,margin:'12px 0 4px',color:V.text}}>Make it sound<br/>like you.</h2>
+          <p style={{fontSize:13,color:V.textSoft,marginBottom:20}}>A few quick questions so your posts and review replies sound like your shop. All optional, and you can skip this.</p>
           <div style={card}>
-            <p style={{fontSize:15,fontWeight:600,margin:'0 0 12px'}}>We&apos;re about to make {fixes.length} changes to your live Google profile</p>
-            {fixes.map((f,i) => (
-              <div key={i} style={{display:'flex',alignItems:'center',gap:10,padding:'6px 0'}}>
-                <span style={{width:6,height:6,borderRadius:'50%',background:V.orange,flexShrink:0}}/>
-                <span style={{fontSize:14,color:V.textMid}}>{f}</span>
-              </div>
-            ))}
-            <p style={{fontSize:12,color:V.textSoft,marginTop:12}}>Changes go live on Google. You can undo them from your Google Business dashboard.</p>
+            <VoiceFields value={voiceDraft} onChange={(d)=>{setVoiceDraft(d);setVoiceErr('');}} disabled={voiceSaving} accent={V.text}
+              inputStyle={{background:V.card2,color:V.text,border:`1px solid ${V.border}`,borderRadius:12,padding:'10px 12px',fontSize:14,fontFamily:sans,outline:'none'}}
+              labelStyle={{display:'block',fontSize:13,fontWeight:600,marginBottom:6,color:V.text}}
+              hintStyle={{fontSize:11,color:V.textSoft,marginTop:4}} />
           </div>
-
-          <button onClick={()=>setPhase('phone')} style={btn}>Apply These Changes →</button>
-          <button onClick={()=>setPhase('preview')} style={btnGhost}>Go Back And Edit</button>
+          {voiceErr && <p style={{color:V.red,fontSize:13,margin:'0 0 12px'}}>{voiceErr}</p>}
+          <button onClick={()=>submitVoice(false)} disabled={voiceSaving} style={{...btn,opacity:voiceSaving?0.6:1}}>{voiceSaving ? 'Saving…' : 'Continue →'}</button>
+          <button onClick={()=>submitVoice(true)} disabled={voiceSaving} style={btnGhost}>Skip for now</button>
         </div>
       </div>
     );
@@ -606,7 +468,7 @@ export default function OnboardingPage() {
         <div style={box}>
           <div style={logoStyle}>{tenant.wordmark}</div>
           <h2 style={{fontFamily:barlow,fontSize:28,fontWeight:800,textTransform:'uppercase',lineHeight:1,margin:'12px 0 4px',color:V.text}}>Nearly<br/>there.</h2>
-          <p style={{fontSize:13,color:V.textSoft,marginBottom:20}}>One last thing before we fix your profile.</p>
+          <p style={{fontSize:13,color:V.textSoft,marginBottom:20}}>One last thing. Nothing on your listing has changed yet.</p>
 
           <div style={card}>
             <span style={{fontSize:15,fontWeight:600}}>Your mobile number</span>
@@ -682,90 +544,19 @@ export default function OnboardingPage() {
     );
   }
 
-  /* ── FIXING ── */
-  if (phase === 'fixing') {
-    const fixTotal = [desc,svcs.length,previews?.categories?.length,hrs,previews?.reviewPreview,post].filter(Boolean).length+1;
-    const fixProg = Math.min((fixLines.length/fixTotal)*100,100);
+  /* ── WHAT WE COULD IMPROVE: tick, apply, checked results ── */
+  if (phase === 'improve' && audit) {
     return (
-      <div style={{minHeight:'100vh',fontFamily:sans,background:V.bg,color:V.text,display:'flex',justifyContent:'center'}}>
-        <div style={{width:'100%',maxWidth:460,padding:'80px 1.25rem 2rem'}}>
-          <div style={{marginBottom:32}}>
-            <div style={logoStyle}>{tenant.wordmark}</div>
-            <h2 style={{fontFamily:barlow,fontSize:28,fontWeight:800,textTransform:'uppercase',lineHeight:1,margin:'12px 0 4px',color:V.text}}>Fixing your<br/>profile</h2>
-            <p style={{fontSize:13,color:V.textSoft,marginTop:4}}>Applying changes to Google now.</p>
-          </div>
-          <div style={{width:'100%',height:4,background:V.border,borderRadius:2,marginBottom:32,overflow:'hidden'}}>
-            <div style={{width:`${fixProg}%`,height:'100%',background:V.green,borderRadius:2,transition:'width 1s ease'}}/>
-          </div>
-          <div style={{...card,padding:20}}>
-          {fixLines.map((t,i) => (
-            <div key={i} style={{display:'flex',alignItems:'center',gap:12,padding:'9px 0',borderBottom:i<fixLines.length-1?`1px solid ${V.border}`:'none'}}>
-              <span style={{width:20,textAlign:'center',fontSize:14,fontWeight:600,color:i<fixLines.length-1?V.green:V.orange}}>
-                {i<fixLines.length-1?'✓':'→'}
-              </span>
-              <span style={{fontSize:14,color:i<fixLines.length-1?V.textSoft:V.text}}>{t}</span>
-            </div>
-          ))}
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  /* ── DONE ── */
-  if (phase === 'done' && audit) {
-    return (
-      <div style={{...wrap,background:V.bg}}>
-        <div style={box}>
-          <div style={logoStyle}>{tenant.wordmark}</div>
-          <h2 style={{fontFamily:barlow,fontSize:32,fontWeight:800,textTransform:'uppercase',lineHeight:1,margin:'12px 0 24px',color:V.text}}>Sorted.</h2>
-
-          <div style={{textAlign:'center',marginBottom:24}}>
-            <div style={{fontFamily:mono,fontSize:56,fontWeight:600,lineHeight:1,color:sc(predicted)}}>
-              {finalCounter}<span style={{fontSize:18,color:V.textSoft}}>/100</span>
-            </div>
-            <p style={{fontSize:13,color:V.textSoft,marginTop:8}}>Up from {audit.score}. We&apos;ve made {fixLines.length} improvements.</p>
-          </div>
-
-          <div style={card}>
-            <div style={lbl}>What happens next</div>
-            <div style={{display:'flex',flexDirection:'column',gap:10}}>
-              {/* Only promise what was actually turned on. On a free tenant both
-                  start off, so an unconditional "your first post goes live
-                  tomorrow" would be a straight falsehood on the very screen that
-                  is meant to set expectations. */}
-              {(!freeTenant || optPost) && (
-                <div style={{display:'flex',gap:12,alignItems:'flex-start'}}>
-                  <span style={{width:30,height:30,borderRadius:'50%',display:'flex',alignItems:'center',justifyContent:'center',fontSize:13,flexShrink:0,background:V.orangeLight}}>📝</span>
-                  <div><div style={{fontSize:14,fontWeight:500}}>Tomorrow 10am</div><div style={{fontSize:12,color:V.textSoft}}>Your first post goes live on Google</div></div>
-                </div>
-              )}
-              <div style={{display:'flex',gap:12,alignItems:'flex-start'}}>
-                <span style={{width:30,height:30,borderRadius:'50%',display:'flex',alignItems:'center',justifyContent:'center',fontSize:13,flexShrink:0,background:V.greenLight}}>📊</span>
-                <div><div style={{fontSize:14,fontWeight:500}}>Monday 9am</div><div style={{fontSize:12,color:V.textSoft}}>Your first stats text arrives</div></div>
-              </div>
-              {(!freeTenant || optPost || optReply) && (
-                <div style={{display:'flex',gap:12,alignItems:'flex-start'}}>
-                  <span style={{width:30,height:30,borderRadius:'50%',display:'flex',alignItems:'center',justifyContent:'center',fontSize:13,flexShrink:0,background:'#EEF2FF'}}>🔄</span>
-                  <div><div style={{fontSize:14,fontWeight:500}}>Every week</div><div style={{fontSize:12,color:V.textSoft}}>{
-                    !freeTenant ? 'Posts, review replies, profile managed'
-                      : optPost && optReply ? 'Posts, review replies, profile managed'
-                      : optPost ? 'Posts written and published for you'
-                      : 'Review replies handled for you'
-                  }</div></div>
-                </div>
-              )}
-            </div>
-          </div>
-
-          <p style={{textAlign:'center',fontSize:13,color:V.textSoft,margin:'16px 0'}}>{
-            (!freeTenant || optPost || optReply)
-              ? 'You don’t need to do anything. Your profile is managed.'
-              : 'Nothing is automatic yet — we’ve only fixed what you saw above. Turn on posts or review replies whenever you like, in Settings.'
-          }</p>
-          <button onClick={()=>router.push('/dashboard')} style={btn}>Go To Dashboard →</button>
-        </div>
-      </div>
+      <ImproveListing
+        audit={audit}
+        hours={hoursInfo}
+        manual={manual}
+        // Offering to queue careful replies posts nothing: each waits on the dashboard for the shop to approve.
+        offerLowStar
+        wordmark={tenant.wordmark}
+        onFinished={() => router.push('/dashboard')}
+        onSkip={async () => { await fetch('/api/profile-fix', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ step: 'finish' }) }).catch(() => {}); router.push('/dashboard'); }}
+      />
     );
   }
 

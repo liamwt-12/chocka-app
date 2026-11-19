@@ -1,4 +1,5 @@
 'use client';
+import PostsToManage from '@/components/PostsToManage';
 
 import { useState, useEffect } from 'react';
 import { useTenant } from '@/lib/tenant-context';
@@ -52,7 +53,6 @@ export default function DashboardPage() {
   const roi=showRoi&&estValue>0?Math.round(estValue/tenant.priceMonthlyGbp):0;
   const totalActions=(p?.total_posts||0)+(p?.total_replies||0);
   const timeSaved=((p?.total_posts||0)*0.25+(p?.total_replies||0)*0.08+((p?.streak_weeks||0)*0.5)).toFixed(1);
-  const comps=g?.competitors;
   const referralCount = d.referralCount || 0;
   const referralEarned = referralCount; // months earned
 
@@ -81,7 +81,7 @@ export default function DashboardPage() {
               same connected profile, before and after the onboarding fixes.
               Subtracting them is valid — unlike batch vs live, which is the
               comparison the hard rule forbids. */}
-          {p.audit_score_after&&p.audit_score&&<div style={bdg(V.greenLight,V.green)}>↑ +{p.audit_score_after-p.audit_score} from setup</div>}
+          {p.audit_score_after&&p.audit_score&&p.audit_score_after>p.audit_score?<div style={bdg(V.greenLight,V.green)}>↑ +{p.audit_score_after-p.audit_score} since you joined</div>:null}
           {/* An 8-bar sparkline used to sit here, drawn from a hardcoded
               [20,30,35,45,55,65,72,score]. The first seven values were invented,
               so every retailer saw eight weeks of steady improvement that never
@@ -99,10 +99,52 @@ export default function DashboardPage() {
         <div style={{...card,padding:'14px 16px'}}>
           <div style={lbl}>Managed For</div>
           <div style={{fontSize:38,fontWeight:600,lineHeight:1,marginTop:6,fontFamily:mono,color:V.text}}>{p.streak_weeks||0}<span style={{fontSize:14,color:V.textSoft}}> wks</span></div>
-          <div style={bdg(V.greenLight,V.green)}>0 tasks missed</div>
+          {/* "0 tasks missed" was printed for everyone, whatever had happened. Nothing counted it. */}
+          {tenant.priceMonthlyGbp>0&&<div style={bdg(V.greenLight,V.green)}>0 tasks missed</div>}
           <div style={{marginTop:10}}><div style={{fontSize:11,color:V.textSoft}}>Actions taken</div><div style={{fontSize:18,fontWeight:600,fontFamily:mono,marginTop:2}}>{totalActions}</div></div>
         </div>
       </div>)}
+
+      {/* Lost Google access: said plainly, with the one thing to do about it. */}
+      {d.lostAccess && (
+        <div role="alert" style={{...card,borderLeft:`4px solid #D93025`,background:'#FDECEA'}}>
+          <div style={{fontSize:16,fontWeight:700,color:V.text,marginBottom:4,fontFamily:sans}}>{d.lostAccess.title}</div>
+          <p style={{fontSize:14,color:V.textMid,margin:'0 0 6px',lineHeight:1.5,fontFamily:sans}}>{d.lostAccess.message}</p>
+          <p style={{fontSize:14,color:V.textMid,margin:'0 0 12px',lineHeight:1.5,fontFamily:sans}}>{d.lostAccess.nextStep}</p>
+          <a href="/api/auth/callback/google?action=reconnect" style={{display:'inline-block',background:'var(--brand-strong)',color:'#fff',borderRadius:10,padding:'12px 18px',fontSize:15,fontWeight:600,textDecoration:'none',fontFamily:sans}}>Reconnect Google</a>
+        </div>
+      )}
+
+      {/* Posts waiting for the shop, with Approve, Change the wording, Skip. */}
+      {d.postsToManage?.length>0&&<PostsToManage posts={d.postsToManage} cardStyle={card} />}
+
+      {/* The one most useful thing to do next. Not shown while a more urgent card is up. */}
+      {d.nextStep && !d.lostAccess && d.nextStep.key !== 'approve_post' && (
+        <div style={{...card,borderLeft:'4px solid var(--brand-strong)'}}>
+          <div style={{fontSize:11,fontWeight:600,letterSpacing:'0.1em',textTransform:'uppercase',color:V.textSoft,marginBottom:4,fontFamily:sans}}>One thing worth doing next</div>
+          <div style={{fontSize:16,fontWeight:700,color:V.text,marginBottom:4,fontFamily:sans}}>{d.nextStep.title}</div>
+          <p style={{fontSize:14,color:V.textMid,margin:'0 0 12px',lineHeight:1.5,fontFamily:sans}}>{d.nextStep.why}</p>
+          <a href={d.nextStep.href} {...(d.nextStep.byUs?{}:{target:'_blank',rel:'noopener noreferrer'})} style={{display:'inline-block',background:d.nextStep.byUs?'var(--brand-strong)':V.card2,color:d.nextStep.byUs?'#fff':V.text,borderRadius:10,padding:'12px 18px',fontSize:15,fontWeight:600,textDecoration:'none',fontFamily:sans}}>{d.nextStep.button}</a>
+        </div>
+      )}
+
+      {/* A bank holiday is coming and the listing says nothing about it. */}
+      {d.holiday && (
+        <div style={{...card,borderLeft:`4px solid ${V.amber}`}}>
+          <div style={{fontSize:16,fontWeight:700,color:V.text,marginBottom:4,fontFamily:sans}}>{d.holiday.title}</div>
+          <p style={{fontSize:14,color:V.textMid,margin:'0 0 12px',lineHeight:1.5,fontFamily:sans}}>{d.holiday.message}</p>
+          <a href="/settings#holiday" style={{display:'inline-block',background:'var(--brand-strong)',color:'#fff',borderRadius:10,padding:'12px 18px',fontSize:15,fontWeight:600,textDecoration:'none',fontFamily:sans}}>Set holiday hours</a>
+        </div>
+      )}
+
+      {/* Ownership detection: tell an invited shop what is still needed. */}
+      {d.connection && (
+        <div style={{...card,animation:'fadeUp .5s .05s ease both',borderLeft:`3px solid ${V.amber}`}}>
+          <div style={{fontSize:14,fontWeight:600,color:V.text,marginBottom:4,fontFamily:sans}}>{d.connection.title}</div>
+          <p style={{fontSize:13,color:V.textMid,margin:'0 0 6px',lineHeight:1.5,fontFamily:sans}}>{d.connection.message}</p>
+          <p style={{fontSize:13,color:V.textMid,margin:0,lineHeight:1.5,fontFamily:sans}}>{d.connection.nextStep}</p>
+        </div>
+      )}
 
       {/* The pre-launch baseline, once a live score has displaced it.
           A SEPARATE statement in its own block — never a delta, never a second
@@ -140,7 +182,9 @@ export default function DashboardPage() {
       )}
 
       {/* Value banner */}
-      {estCalls>0&&(<div style={{background:V.text,color:'white',borderRadius:16,padding:'16px 18px',display:'flex',alignItems:'center',justifyContent:'space-between',animation:'fadeUp .5s .1s ease both'}}>
+      {/* A pound figure built from a fixed guess at the value of a job. Not shown
+          on a free brand: nobody measured it, and it reads as a promise. */}
+      {estCalls>0&&tenant.priceMonthlyGbp>0&&(<div style={{background:V.text,color:'white',borderRadius:16,padding:'16px 18px',display:'flex',alignItems:'center',justifyContent:'space-between',animation:'fadeUp .5s .1s ease both'}}>
         <div>
           <div style={{fontSize:11,opacity:.5,textTransform:'uppercase',letterSpacing:'0.08em',marginBottom:4,fontFamily:sans}}>Est. work generated</div>
           <div style={{fontSize:28,fontWeight:600,fontFamily:mono,color:'#fff'}}>£{estValue.toLocaleString()}</div>
@@ -163,38 +207,35 @@ export default function DashboardPage() {
             <SC num={String(g.metrics.totalActions)} label="Total actions" hl/>
             {g.reviews&&<SC num={String(g.reviews.avgRating)} label="Star rating" star/>}
           </div>
-          <div style={{background:V.greenLight,borderRadius:12,padding:'12px 14px',display:'flex',justifyContent:'space-between',alignItems:'center',marginTop:10}}>
+          {/* An estimate from fixed minutes per action, not a measurement: paid brand only. */}
+          <div style={{background:V.greenLight,borderRadius:12,padding:'12px 14px',display:tenant.priceMonthlyGbp>0?'flex':'none',justifyContent:'space-between',alignItems:'center',marginTop:10}}>
             <span style={{fontSize:12,color:V.green,fontWeight:500,fontFamily:sans}}>⏱ Time saved this month</span>
             <span style={{fontSize:16,fontWeight:600,fontFamily:mono,color:V.green}}>{timeSaved} hrs</span>
           </div>
         </div>
       )}
 
-      {/* Competitor Ranking */}
-      {comps&&comps.list?.length>0&&(
-        <div style={{...card,animation:'fadeUp .5s .2s ease both'}}>
-          <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:10}}>
-            <span style={{...lbl,marginBottom:0}}>Competitor Ranking · {p?.city||'Local'}</span>
-            <span style={{fontSize:11,color:V.orange,fontWeight:500,fontFamily:sans}}>{g?.profile?.primaryCategory||p?.category}</span>
-          </div>
-          <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:8}}>
-            <span style={{fontSize:12,fontWeight:600,color:V.text,width:110,flexShrink:0,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',fontFamily:sans}}>You ({p?.business_name?.split(' ')[0]})</span>
-            <div style={{flex:1,height:6,background:V.card2,borderRadius:3,overflow:'hidden'}}><div style={{height:'100%',borderRadius:3,background:V.orange,width:`${comps.own.score}%`}}/></div>
-            <span style={{fontSize:11,fontFamily:mono,color:V.orange,fontWeight:600,width:24,textAlign:'right'}}>{comps.own.score}</span>
-          </div>
-          {comps.list.map((c:any,i:number)=>(
-            <div key={i} style={{display:'flex',alignItems:'center',gap:10,marginBottom:6}}>
-              <span style={{fontSize:12,color:V.textMid,width:110,flexShrink:0,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',fontFamily:sans}}>{c.name}</span>
-              <div style={{flex:1,height:6,background:V.card2,borderRadius:3,overflow:'hidden'}}><div style={{height:'100%',borderRadius:3,background:'#ddd',width:`${c.score}%`}}/></div>
-              <span style={{fontSize:11,fontFamily:mono,color:V.textSoft,width:24,textAlign:'right'}}>{c.score}</span>
+      {/* This week */}
+      {/* What is switched on, and the way back to "what we could improve". On a
+          free brand this replaces the "This week" list, which ticked off jobs by
+          the day of the week whether or not they had been done. */}
+      {tenant.priceMonthlyGbp===0&&(
+        <div style={card}>
+          <div style={lbl}>What we do for you</div>
+          {[['Write a short post each week',d.user?.auto_post_enabled],['Reply to good reviews',d.user?.auto_reply_enabled]].map(([label,on]:any)=>(
+            <div key={label} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'8px 0',borderBottom:`1px solid ${V.border}`,fontFamily:sans}}>
+              <span style={{fontSize:15,color:V.text}}>{label}</span>
+              <span style={{fontSize:13,fontWeight:700,color:on?V.green:V.textSoft}}>{on?'On':'Off'}</span>
             </div>
           ))}
-          {comps.own.score>=Math.max(...comps.list.map((c:any)=>c.score))&&<div style={bdg(V.greenLight,V.green)}>🏆 You&apos;re leading your local area</div>}
+          <div style={{display:'flex',gap:10,flexWrap:'wrap',marginTop:12}}>
+            <a href="/onboarding" style={{flex:'1 1 160px',textAlign:'center',background:'var(--brand-strong)',color:'#fff',borderRadius:10,padding:'12px 14px',fontSize:15,fontWeight:600,textDecoration:'none',fontFamily:sans}}>See what we could improve</a>
+            <a href="/settings" style={{flex:'1 1 120px',textAlign:'center',background:V.card2,color:V.text,borderRadius:10,padding:'12px 14px',fontSize:15,fontWeight:600,textDecoration:'none',fontFamily:sans}}>Change these</a>
+          </div>
         </div>
       )}
 
-      {/* This week */}
-      {d.plan&&(<div style={{...card,animation:'fadeUp .5s .25s ease both'}}>
+      {d.plan&&tenant.priceMonthlyGbp>0&&(<div style={{...card,animation:'fadeUp .5s .25s ease both'}}>
         <div style={lbl}>This Week</div>
         <div style={{display:'flex',flexDirection:'column',gap:10}}>
           {d.plan.map((item:any,i:number)=>(
@@ -260,6 +301,28 @@ export default function DashboardPage() {
         </div>
       )}
 
+      {/* Review replies waiting for approval. Nothing here is on Google yet: each
+          button opens a confirmation page, and only that page's button posts. */}
+      {d.pendingReplies?.length>0&&(
+        <div style={{...card,animation:'fadeUp .5s .35s ease both'}}>
+          <div style={lbl}>Replies waiting for you</div>
+          <p style={{fontSize:12,color:V.textSoft,margin:'0 0 10px',lineHeight:1.4,fontFamily:sans}}>These replies are drafted and waiting for you. We never reply to a 1 to 3 star review without your say-so. Nothing here is posted until you approve it.</p>
+          <div style={{display:'flex',flexDirection:'column',gap:12}}>
+            {d.pendingReplies.map((p:any,i:number)=>(
+              <div key={i} style={{background:V.card2,borderRadius:12,padding:12}}>
+                <div style={{fontSize:13,fontWeight:600,fontFamily:sans}}>{p.reviewerName} <span style={{color:V.star,fontSize:11}}>{'\u2605'.repeat(Math.max(0,Math.min(5,p.rating)))}</span></div>
+                {p.comment&&<p style={{fontSize:13,color:V.textMid,margin:'4px 0 8px',lineHeight:1.4,fontFamily:sans}}>{p.comment}</p>}
+                <p style={{fontSize:13,margin:'0 0 10px',lineHeight:1.4,fontFamily:sans,borderLeft:`3px solid ${V.orange}`,paddingLeft:10}}>{p.reply}</p>
+                <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
+                  <a href={p.approveUrl} style={{background:V.orange,color:'#fff',borderRadius:8,padding:'8px 14px',fontSize:13,fontWeight:600,textDecoration:'none',fontFamily:sans}}>Approve this reply</a>
+                  <a href={p.rejectUrl} style={{color:V.textMid,borderRadius:8,padding:'8px 14px',fontSize:13,fontWeight:600,textDecoration:'none',fontFamily:sans,border:`1px solid ${V.border}`}}>I&apos;ll handle it myself</a>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Activity feed */}
       {d.activity?.length>0&&(
         <div style={{...card,animation:'fadeUp .5s .4s ease both'}}>
@@ -290,10 +353,11 @@ export default function DashboardPage() {
       </div>
 
       {/* Empty state */}
-      {!g&&d.recentPosts?.length===0&&(<div style={{...card,textAlign:'center',padding:'2rem'}}><p style={{fontWeight:600,fontSize:15,margin:'0 0 4px',fontFamily:sans}}>Your first post is on its way</p><p style={{fontSize:13,color:V.textSoft,margin:0,fontFamily:sans}}>We will write and publish to your Google profile this week.</p></div>)}
+      {!g&&d.recentPosts?.length===0&&tenant.priceMonthlyGbp>0&&(<div style={{...card,textAlign:'center',padding:'2rem'}}><p style={{fontWeight:600,fontSize:15,margin:'0 0 4px',fontFamily:sans}}>Your first post is on its way</p><p style={{fontSize:13,color:V.textSoft,margin:0,fontFamily:sans}}>We will write and publish to your Google profile this week.</p></div>)}
 
       {/* REFERRAL — prominent */}
-      <ReferralBlock code={d.user?.referral_code||''} count={referralCount} earned={referralEarned}/>
+      {/* "You get a free month" means nothing on a brand that is already free. */}
+      {tenant.priceMonthlyGbp>0&&<ReferralBlock code={d.user?.referral_code||''} count={referralCount} earned={referralEarned}/>}
 
       <div style={{height:50}}/>
     </>

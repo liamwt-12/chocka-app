@@ -1,14 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
-
-const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD;
+import { verifyAdminAuth } from '@/lib/pilot';
 
 export async function POST(request: NextRequest) {
-  if (!ADMIN_PASSWORD) return NextResponse.json({ error: 'Not configured' }, { status: 500 });
-
-  const auth = request.headers.get('authorization') || '';
-  const password = auth.replace('Bearer ', '');
-  if (password !== ADMIN_PASSWORD) {
+  // Read per request, not once when the module loads, and compared in constant
+  // time: the same check /api/admin/pilot and /api/admin/photos use. The old
+  // `!==` answered a fraction faster the earlier a guess went wrong, which is
+  // the kind of hint a password check should not give.
+  if (!process.env.ADMIN_PASSWORD) return NextResponse.json({ error: 'Not configured' }, { status: 500 });
+  if (!verifyAdminAuth(request.headers.get('authorization'), process.env.ADMIN_PASSWORD)) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
