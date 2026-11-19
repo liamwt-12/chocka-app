@@ -2,16 +2,27 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 
 // The public privacy page on stellarlocal.co.uk (stellar-site/privacy). It must
-// describe only what the service does. Review requests are not live, so the page
-// must not say customers' contact details are collected for them.
+// describe only what the service does. With review requests (release 3), it must
+// match what lib/review-requests.ts does: one email, no reminders, no SMS, no
+// incentives, addresses not kept, hashes for 30 days and 12 months, and a
+// do-not-email list kept for good. Change this test and the page together.
 const html = readFileSync(new URL('../stellar-site/privacy/index.html', import.meta.url), 'utf8');
 const text = html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ');
 
 describe('the public privacy page', () => {
-  it('says nothing about review requests, or collecting customers\' contact details for them', () => {
-    expect(text).not.toMatch(/review[- ]requests?/i);
-    expect(text).not.toMatch(/Customer data/);
-    expect(text).not.toMatch(/gentle reminder|STOP option|customer's contact details|customers whose details/i);
+  it('describes review requests as built, and nothing more', () => {
+    expect(text).toContain('Review requests');
+    expect(text).toMatch(/one request only, with no reminders/);
+    expect(text).toMatch(/via Stellar Local/);
+    expect(text).toMatch(/never offer anything in return for a review/);
+    expect(text).toMatch(/controller/);
+    expect(text).toMatch(/processor/);
+    expect(text).toMatch(/for 30 days/);
+    expect(text).toMatch(/for 12 months/);
+    expect(text).toMatch(/unsubscribe link/);
+    expect(text).toMatch(/no retailer that uses Stellar Local will send it a review request again/);
+    // Things v1 does not do, which an older version of the page promised.
+    expect(text).not.toMatch(/gentle reminder|STOP option|phone numbers? that the retailer|SMS messages, including review requests/i);
   });
 
   it('still covers what the service does do', () => {
