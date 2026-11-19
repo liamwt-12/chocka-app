@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
 import { verifyCronSecret, unauthorizedResponse, getActiveUsersWithProfiles, generateCancelHash } from '@/lib/cron';
-import { generatePost } from '@/lib/ai';
+import { generatePost, defaultCategory } from '@/lib/ai';
+import { townFromAddress } from '@/lib/address-town';
 import { sendEmail, postPreviewEmail } from '@/lib/email';
 import { getTenantForRow } from '@/lib/tenant';
 import { nextMondaySlot } from '@/lib/post-schedule';
@@ -84,8 +85,11 @@ export async function GET(request: NextRequest) {
 
         const postContent = await generatePost({
           businessName: profile.business_name,
-          category: profile.category || 'tradesperson',
-          city: profile.address?.split(',').pop()?.trim() || 'your area',
+          category: profile.category || defaultCategory(t.businessType),
+          // The town, not the postcode: the address ends "town, postcode" (lib/address-town.ts).
+          city: townFromAddress(profile.address, profile.city),
+          // Flooring retailer for Stellar, a neutral local business for Chocka.
+          businessType: t.businessType,
           month,
           season,
           recentPosts: (recentPosts || []).map((p: any) => p.content),

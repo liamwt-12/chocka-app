@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin as supaAdmin } from '@/lib/supabase';
 import { refreshAccessToken, getLocationFull, getGoogleUpdated, getAttributes, getMedia, getReviews, getLocalPosts, parseStarRating } from '@/lib/google';
 import { generateDescription, generateServices, generatePost, suggestCategories } from '@/lib/ai';
+import { townFromAddress } from '@/lib/address-town';
+import { getTenantForRow } from '@/lib/tenant';
 import { scoreProfile } from '@/lib/audit';
 import { decryptSecret, userTokenAad } from '@/lib/secrets';
 import { resolveAccess, MANAGER_EMBED } from '@/lib/managed-access';
@@ -24,7 +26,7 @@ export async function POST(request: NextRequest) {
     const userId = getSessionUserId(request);
     if (!userId) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
 
-    const { data: userData } = await supaAdmin.from('users').select(`id, google_refresh_token, token_status, managed_by_user_id, ${MANAGER_EMBED}`).eq('id', userId).single();
+    const { data: userData } = await supaAdmin.from('users').select(`id, google_refresh_token, token_status, managed_by_user_id, tenants ( slug ), ${MANAGER_EMBED}`).eq('id', userId).single();
     // A managed retailer (Route 1) legitimately has no token of their own — the
     // credential belongs to the operator account managing their listing — so the
     // question is "is there access", not "is there a token on this row".
@@ -55,7 +57,10 @@ export async function POST(request: NextRequest) {
 
     const audit = scoreProfile({ location, attributes, media, reviews, posts, googleUpdated });
 
-    const city = location.storefrontAddress?.locality || '';
+    // The town from Google, else read from the stored address (never the postcode).
+    const city = townFromAddress(profile.address, location.storefrontAddress?.locality || profile.city);
+    // Flooring retailer for Stellar, a neutral local business for Chocka.
+    const businessType = getTenantForRow(userData as any).businessType;
     const primaryCat = location.categories?.primaryCategory?.displayName || profile.category || '';
     const existDesc = location.profile?.description || '';
     const existSvcs = (location.serviceItems || []).map((s: any) => s.freeFormServiceItem?.label?.displayName || s.structuredServiceItem?.description || '').filter(Boolean);
@@ -71,13 +76,13 @@ export async function POST(request: NextRequest) {
     // Generate all applicable previews — each individually catch-wrapped
     const [description, servicesList, firstPost, catSuggestions] = await Promise.all([
       audit.fixes.some(f => f.key === 'description')
-        ? generateDescription({ businessName: profile.business_name, category: primaryCat, city, existingDescription: existDesc }).catch(() => null)
+        ? generateDescription({ businessName: profile.business_name, category: primaryCat, city, existingDescription: existDesc, businessType }).catch(() => null)
         : null,
       audit.fixes.some(f => f.key === 'services')
         ? generateServices({ businessName: profile.business_name, category: primaryCat, existingServices: existSvcs }).catch(() => null)
         : null,
       audit.fixes.some(f => f.key === 'firstPost') && !postInHand
-        ? generatePost({ businessName: profile.business_name, category: primaryCat, city, month: new Date().toLocaleString('en-GB', { month: 'long' }), season: getSeason(), recentPosts: [], voice }).catch(() => null)
+        ? generatePost({ businessName: profile.business_name, category: primaryCat, city, month: new Date().toLocaleString('en-GB', { month: 'long' }), season: getSeason(), recentPosts: [], voice, businessType }).catch(() => null)
         : null,
       audit.fixes.some(f => f.key === 'categories')
         ? suggestCategories({ primaryCategory: primaryCat, businessName: profile.business_name }).catch(() => null)
