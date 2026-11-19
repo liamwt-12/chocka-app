@@ -5,7 +5,7 @@
  * Nothing here sends anything: it returns the subject and the plain text,
  * exactly as a shop would get them. The links in a sample go nowhere.
  */
-import { postWaitingNotice, lowReviewNotice, newReviewNotice, holdingReplyPostedNotice, type Notice } from './shop-notices';
+import { postWaitingNotice, lowReviewNotice, newReviewNotice, holdingReplyPostedNotice, connectionLostNotice, type Notice } from './shop-notices';
 import { holdingReply } from './safe-automation';
 import type { Tenant } from './tenant';
 
@@ -15,6 +15,7 @@ export const EMAIL_PREVIEWS = [
   { key: 'good_review_not_replied', label: 'New good review, replies are off', setting: 'REVIEW_ALERT_EMAILS' },
   { key: 'low_review_needs_input', label: 'New low review, reply waiting for the shop', setting: 'REVIEW_ALERT_EMAILS (for shops with replies off; already sent to shops with replies on)' },
   { key: 'low_review_replied', label: 'New low review, holding reply posted', setting: 'HANDS_OFF_MODE' },
+  { key: 'connection_lost', label: 'Google connection lost (once, then weekly until reconnected)', setting: 'CONNECTION_LOST_EMAILS' },
 ] as const;
 export type EmailPreviewKey = (typeof EMAIL_PREVIEWS)[number]['key'];
 
@@ -35,6 +36,8 @@ export function emailPreview(key: string, tenant: Tenant, now: Date = new Date()
       return lowReviewNotice({ ...low, suggestedReply: holdingReply(low.reviewerName), approveUrl: NOWHERE, rejectUrl: NOWHERE, tenant });
     case 'low_review_replied':
       return holdingReplyPostedNotice({ ...low, reply: holdingReply(low.reviewerName), settingsUrl: NOWHERE, tenant });
+    case 'connection_lost':
+      return connectionLostNotice({ businessName: SHOP, settingsUrl: NOWHERE, tenant });
     default: return null;
   }
 }

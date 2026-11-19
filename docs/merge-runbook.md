@@ -152,6 +152,7 @@ Set these in Netlify (Site configuration, Environment variables) for the product
 | `SESSION_ACCEPT_LEGACY_COOKIE` | `false` | **About a week after stage 1** | Until this is `false`, the old forgeable cookie is still accepted, so **the cookie hole from #25 is not closed until you set it.** The wait lets signed-in shops pick up the new cookie. Watch the logs for "accepted a legacy unsigned session cookie"; when it stops appearing, set this. |
 | `CRON_ACCEPT_QUERY_SECRET` | `false` | A few days after stage 2 | Stops the cron secret being accepted in a web address. Set it once the logs no longer show "secret accepted from the URL". |
 | `EARLY_POST_PREVIEW_EMAILS` | Leave unset | Only when you decide | `on` sends real emails to shops about posts awaiting approval (#35). While unset, a new shop's first three posts wait for approval and no email goes out. |
+| `CONNECTION_LOST_EMAILS` | Leave unset | Only after migration `20261121090000_connection_lost_notice_marker` and your own test (see "The connection-lost email" below) | `on` emails a shop, in plain text and at its own address only, when Google stops letting us in: once, then at most once a week until it reconnects. Unset: the hourly figures job logs how many it would send, and sends nothing |
 | `TARKETT_CONSOLE_ENABLED` | Leave unset | Only after the privacy checklist | `on` opens the Tarkett console (#37). Work through `docs/console-privacy-checklist.md` first. |
 | `SHOP_PHOTOS` | Leave unset | Not until the privacy wording is reviewed | From #39. `on` turns on the upload link, approval and photos on posts |
 | `SHOP_PHOTOS_TO_LISTING` | Leave unset | Not until then either | From #39. Also needs the one migration this runbook says to leave alone |
@@ -740,6 +741,27 @@ Not until:
 
 Then `HANDS_OFF_MODE=on`. It changes nothing for a shop until that shop chooses. Switching it off again is safe: a shop that chose Hands-off is treated as "Ask me first", and a post booked for it among its first three goes back to waiting.
 
+### The connection-lost email (after stage 13)
+
+A plain-text email to a shop whose Google connection has stopped working (the shop shows **Connection lost**): what happened, that nothing is posted, replied to or changed until it reconnects, and how (sign in, Settings, Reconnect, same Google account). Sent once when access breaks, then at most once a week while it stays broken; it stops when the shop reconnects. Only to the shop's own address: never an account made through an operator account, never an operator account itself, never a shop taken off the list, offboarded or deleted.
+
+It runs inside the hourly figures job (`metrics-sync`, the job that notices lost access), before the shops, with at most 25 emails and a third of the job's time per run. No new scheduled function.
+
+**Off** until `CONNECTION_LOST_EMAILS=on`. While off, the job's log says `connection-lost email(s) due, NOT sent: CONNECTION_LOST_EMAILS is off` and nothing is written.
+
+**Migration first, NOT yet applied anywhere, not on staging either:** `20261121090000_connection_lost_notice_marker.sql` adds one empty column, `users.connection_lost_notice_at`. Staging first, as always:
+
+```bash
+/usr/local/bin/python3.14 scripts/apply-migration-to-staging.py 20261121090000_connection_lost_notice_marker.sql
+/usr/local/bin/python3.14 scripts/apply-migration-to-staging.py 20261121090000_connection_lost_notice_marker.sql --confirm
+/usr/local/bin/python3.14 scripts/apply-migration-to-production.py 20261121090000_connection_lost_notice_marker.sql
+/usr/local/bin/python3.14 scripts/apply-migration-to-production.py 20261121090000_connection_lost_notice_marker.sql --confirm
+```
+
+Until it is applied: with the switch off, the job still counts (and logs that the marker is missing); with it on, it sends **nothing** and logs `NOTHING SENT ... Apply migration 20261121090000_connection_lost_notice_marker`. "Ready to invite shops?" shows a cross on "Connection-lost email marker" until it is applied. The staging dummy run's connection-lost step needs it on staging.
+
+To switch on: read it in `/admin/pilot` → **Read the emails that are switched off** → **Connection lost**; on your own test listing, remove the app's access in your Google account, wait for the next daily check to show **Connection lost**, set `CONNECTION_LOST_EMAILS=on`, redeploy, and check you get **one** email within the hour, and no second one the hour after. Reconnect from Settings: no more reminders.
+
 ---
 
 ## All seventeen migrations, in order
@@ -763,6 +785,7 @@ Then `HANDS_OFF_MODE=on`. It changes nothing for a shop until that shop chooses.
 | 15 | `20261119090000_automation_mode.sql` | #64 | 13 |
 | 16 | `20261119100000_review_snapshot.sql` | #68 | 13 |
 | 17 | `20261120090000_operator_rows_start_off.sql` | #69 | 13 |
+| 18 | `20261121090000_connection_lost_notice_marker.sql` | the connection-lost email PR | after 13. **Not applied yet, not on staging.** See "The connection-lost email" above |
 
 The seventeenth adds one database rule: an account created through an operator account (a shop a rep sets up) starts with posts and replies **off**, whatever the insert says, until a mode is chosen. It changes no existing row.
 
