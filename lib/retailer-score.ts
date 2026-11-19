@@ -137,3 +137,41 @@ export function resolveRetailerScore(
     needsVerification: retailer?.match_confidence !== 'high',
   };
 }
+
+// ── The score that goes in an invitation ────────────────────────────────────
+
+/** Exactly what /admin/pilot shows next to a shop's link. docs/invite-wording.md tells Tarkett to look for these words. */
+export const JUNE_SCORE_LABEL = 'June public data';
+export const NO_INVITE_SCORE_LABEL = 'No score: use the no-score wording';
+
+export type InviteScore =
+  | { kind: 'june'; score: number; text: string }
+  | { kind: 'none'; score: null; text: string };
+
+/**
+ * Whether an invitation may quote a score, and the line that says which wording
+ * to use. Takes the resolver's answer rather than re-deciding anything.
+ *
+ * Quoted only when the resolver says it is a batch score (the June scrape of
+ * public Google data) and needsVerification is false: the same rule the invite
+ * page uses to show the number, so the email and the page always agree.
+ *
+ * Anything else gets the no-score wording, INCLUDING a live score. A live score
+ * is never labelled June, and is never put next to the June one, so nothing
+ * here can read as a trend between two different measurements (module header).
+ */
+export function inviteScore(resolved: ResolvedScore): InviteScore {
+  if (resolved.source === 'batch' && typeof resolved.score === 'number' && !resolved.needsVerification) {
+    return { kind: 'june', score: resolved.score, text: `${resolved.score} · ${JUNE_SCORE_LABEL}` };
+  }
+  return { kind: 'none', score: null, text: NO_INVITE_SCORE_LABEL };
+}
+
+/**
+ * The invite score for a retailers row, as /admin/pilot shows it. Deliberately
+ * passes NO live score: an invitation goes to a shop before it connects, and
+ * the only number it may quote is the June one.
+ */
+export function inviteScoreForRetailer(retailer: RetailerScoreInput | null | undefined): InviteScore {
+  return inviteScore(resolveRetailerScore(retailer));
+}

@@ -25,8 +25,18 @@ const STATE_LABEL: Record<string, [string, string, string]> = {
 
 type Help = { key: string; label: string; live: boolean; needsHelp: boolean; severity: number; why: string; action: string; since: string | null; buttons: string[] };
 type Change = { id: string; when: string; what: string; before: string; after: string; source: string; status: string; undone: boolean; canUndo: boolean; whyNot: string | null };
-type Row = { working: { mode: string; label: string; paused: boolean; permissionOn: string | null; wordingVersion: string | null; postsOn: boolean; repliesOn: boolean } | null; help: Help; note: string | null; adSpendPence: number | null; adEndDate: string | null; firstLiveOn: string | null; excludedFromCount: boolean; id: string; name: string; town: string | null; contactEmail: string | null; source: string; state: string; detail: string; joinedAt: string | null; delisted: boolean; adStartDate: string | null; connection: { status: string; label: string; detail: string | null; checkedAt: string | null; nextStep: string | null } | null; voice: Voice | null; voiceUpdatedAt: string | null; voiceUpdatedBy: string | null; photos: { pending: number; approved: number } | null; review: { link: string; cardPath: string; pdfPath: string; source: 'connected' | 'baseline' } | null };
+type Row = { working: { mode: string; label: string; paused: boolean; permissionOn: string | null; wordingVersion: string | null; postsOn: boolean; repliesOn: boolean } | null; help: Help; note: string | null; adSpendPence: number | null; adEndDate: string | null; firstLiveOn: string | null; excludedFromCount: boolean; id: string; name: string; town: string | null; contactEmail: string | null; source: string; state: string; detail: string; joinedAt: string | null; delisted: boolean; adStartDate: string | null; connection: { status: string; label: string; detail: string | null; checkedAt: string | null; nextStep: string | null } | null; voice: Voice | null; voiceUpdatedAt: string | null; voiceUpdatedBy: string | null; photos: { pending: number; approved: number } | null; inviteScore: InviteScore | null; review: { link: string; cardPath: string; pdfPath: string; source: 'connected' | 'baseline' } | null };
 type Voice = { tone: string | null; about: string | null; specialities: string[]; signOff: string | null; wordsToUse: string[]; wordsToAvoid: string[] };
+// The score that may go in the invitation email: "62 · June public data", or
+// "No score: use the no-score wording". Decided on the server by
+// lib/retailer-score.ts (inviteScore); this page only shows it.
+type InviteScore = { kind: 'june' | 'none'; score: number | null; text: string };
+const inviteScoreOf = (rows: Row[], id: string): InviteScore | null => rows.find((r) => r.id === id)?.inviteScore ?? null;
+function InviteScoreNote({ s }: { s: InviteScore | null }) {
+  if (!s) return null;
+  return <span title="For the invitation email: see docs/invite-wording.md. Only ever the June score from public Google data, before the shop connected." style={{ color: s.kind === 'june' ? C.text : C.amber, whiteSpace: 'nowrap' }}>{s.text}</span>;
+}
+
 type Minted = { retailerId: string; name?: string; ok: boolean; link?: string; expiresAt?: string; error?: string };
 
 export default function PilotAdminPage() {
@@ -255,7 +265,11 @@ export default function PilotAdminPage() {
 
   const downloadCsv = () => {
     const esc = (s: string) => `"${String(s ?? '').replace(/"/g, '""')}"`;
-    const lines = ['shop,link,expires', ...minted.filter((m) => m.ok).map((m) => [esc(m.name || ''), esc(m.link || ''), esc((m.expiresAt || '').slice(0, 10))].join(','))];
+    // The score columns say which paragraph of docs/invite-wording.md to use. A score only ever appears for the June public data.
+    const lines = ['shop,link,expires,june_public_data_score,wording', ...minted.filter((m) => m.ok).map((m) => {
+      const s = inviteScoreOf(rows, m.retailerId);
+      return [esc(m.name || ''), esc(m.link || ''), esc((m.expiresAt || '').slice(0, 10)), esc(s?.kind === 'june' ? String(s.score) : ''), esc(s?.kind === 'june' ? 'score' : 'no score')].join(',');
+    })];
     const url = URL.createObjectURL(new Blob([lines.join('\n')], { type: 'text/csv' }));
     const a = document.createElement('a'); a.href = url; a.download = `stellar-invite-links-${new Date().toISOString().slice(0, 10)}.csv`; a.click();
     URL.revokeObjectURL(url);
@@ -309,7 +323,7 @@ export default function PilotAdminPage() {
               <div key={m.retailerId} style={{ fontSize: 13, padding: '6px 0', borderTop: '1px solid #eee', wordBreak: 'break-all' }}>
                 <strong>{m.name || m.retailerId}</strong>{' '}
                 {m.ok
-                  ? <><span style={{ fontFamily: mono }}>{m.link}</span> <span style={{ color: C.soft }}>(until {m.expiresAt?.slice(0, 10)})</span></>
+                  ? <><span style={{ fontFamily: mono }}>{m.link}</span> <span style={{ color: C.soft }}>(until {m.expiresAt?.slice(0, 10)})</span> <InviteScoreNote s={inviteScoreOf(rows, m.retailerId)} /></>
                   : <span style={{ color: C.red }}>{m.error}</span>}
               </div>
             ))}
@@ -554,7 +568,9 @@ export default function PilotAdminPage() {
                       </td>
                       <td style={{ padding: 6 }}>{r.name}{r.source === 'admin' && <span style={{ color: C.soft }}> (added)</span>}{r.delisted && <span style={{ color: C.red }}> (delisted)</span>}</td>
                       <td style={{ padding: 6, color: C.mid }}>{r.town || ''}</td>
-                      <td style={{ padding: 6 }}><span style={{ background: bg, color: fg, borderRadius: 999, padding: '2px 8px', fontWeight: 600, whiteSpace: 'nowrap' }}>{label}</span></td>
+                      <td style={{ padding: 6 }}><span style={{ background: bg, color: fg, borderRadius: 999, padding: '2px 8px', fontWeight: 600, whiteSpace: 'nowrap' }}>{label}</span>
+                        {/* Only while the shop has not connected: the invitation is the only place this score is for. */}
+                        {(canInvite || r.state === 'invited') && <div style={{ fontSize: 12, marginTop: 4 }}><InviteScoreNote s={r.inviteScore} /></div>}</td>
                       <td style={{ padding: 6, color: C.mid }}>{r.help && !r.help.live ? r.help.label : r.detail}{r.joinedAt ? `, joined ${r.joinedAt.slice(0, 10)}` : ''}</td>
                       <td style={{ padding: 6, color: C.mid }} title={r.connection?.nextStep || ''}>
                         {r.connection ? <><strong style={{ color: ['no_access', 'check_listing', 'waiting_google'].includes(r.connection.status) ? C.amber : C.text }}>{r.connection.label}</strong>{r.connection.detail ? <div style={{ fontSize: 12 }}>{r.connection.detail}</div> : null}</> : <span style={{ color: C.soft }}>&ndash;</span>}

@@ -17,6 +17,7 @@ import { loadRetention } from '@/lib/retention-data';
 import { describeMode, handsOffEnabled } from '@/lib/automation-mode';
 import { emailPreview, EMAIL_PREVIEWS } from '@/lib/email-previews';
 import { loadBulkCards, cardsPdfFor } from '@/lib/review-card-data';
+import { inviteScoreForRetailer } from '@/lib/retailer-score';
 import {
   verifyAdminAuth, validateNewRetailer, pilotStatus, mintInvites, parseAdStartDate,
   PILOT_TENANT_SLUG, MANUAL_SOURCE, type PilotInvite, type PilotUser,
@@ -297,7 +298,7 @@ function safeCardPdfPath(retailerId: string): string {
 async function list(tenantId: string) {
   const { data: retailers, error } = await supabaseAdmin
     .from('retailers')
-    .select('id, source, source_ref, name, town, contact_email, user_id, place_id, score, band, delisted_at, created_at, ad_start_date, ad_end_date, ad_spend_pence, first_live_on, exclude_from_count, connection_status, connection_detail, connection_checked_at, connect_issue, connect_issue_at, invite_bounced_at, support_note, listing_confirmed_at, voice_profile, voice_updated_at, voice_updated_by')
+    .select('id, source, source_ref, name, town, contact_email, user_id, place_id, score, band, delisted_at, created_at, ad_start_date, ad_end_date, ad_spend_pence, first_live_on, exclude_from_count, scored_at, match_confidence, connection_status, connection_detail, connection_checked_at, connect_issue, connect_issue_at, invite_bounced_at, support_note, listing_confirmed_at, voice_profile, voice_updated_at, voice_updated_by')
     .eq('tenant_id', tenantId)
     .order('name');
   if (error) throw error;
@@ -355,6 +356,9 @@ async function list(tenantId: string) {
       sourceRef: r.source_ref,
       score: r.score,
       band: r.band,
+      // What may go in this shop's invitation: the June public-data score, or
+      // "use the no-score wording" (lib/retailer-score.ts). Never a live score.
+      inviteScore: inviteScoreForRetailer({ score: r.score, band: r.band, scored_at: r.scored_at ?? null, match_confidence: r.match_confidence ?? null }),
       delisted: !!r.delisted_at,
       adStartDate: r.ad_start_date ?? null,
       adEndDate: r.ad_end_date ?? null,
