@@ -37,6 +37,12 @@ const AD_START = iso(new Date(Date.now() - 35 * DAY));
 const PID = (k: string) => `ChIJdummyrun${k.toUpperCase().repeat(15)}`.slice(0, 27);
 const LOW_NEW = 'LOWSTAR-MARKER-NEW the fitter never turned up and nobody rang me';
 const LOW_ONBOARD = 'LOWSTAR-MARKER-ONBOARD arrived late and left a mess on the stairs';
+/**
+ * The review-request step's customers. All @invalid.example, like everyone
+ * else in the run. Fixed, so the clean-up (even after a killed run, with
+ * --clean) can find their do-not-email rows by hash.
+ */
+const RR_ADDRESSES = ['rr-1', 'rr-2', 'rr-3', 'rr-4', 'rr-5'].map((k) => EMAIL(k));
 const LOW_OLD = 'LOWSTAR-MARKER-OLD this was months ago and I am still cross';
 
 const world = newWorld();
@@ -199,6 +205,24 @@ describe('dummy run on staging', () => {
     }
     const locs = Object.values(world.personas).flatMap((p) => p.listings.map((l) => l.loc));
     await tryDo('change_log', () => db.from('change_log').delete().in('location_name', locs));
+    // Review requests. The two record tables would go with the shops (on delete
+    // cascade), but are cleared explicitly first.
+    // A table not there yet (its migration not applied) has nothing to clear.
+    const unlessMissing = (r: any) => (r?.error && /does not exist|could not find the table/i.test(String(r.error.message)) ? null : r);
+    const testShopIds = (testShops || []).map((r: any) => r.id);
+    if (testShopIds.length) {
+      await tryDo('review_requests', async () => unlessMissing(await db.from('review_requests').delete().in('retailer_id', testShopIds)));
+      await tryDo('review_request_history', async () => unlessMissing(await db.from('review_request_history').delete().in('retailer_id', testShopIds)));
+    }
+    // THE ONE PLACE ANYTHING DELETES FROM THE DO-NOT-EMAIL LIST. The app never
+    // does: an unsubscribe is permanent, and lib/review-requests-suppression.test.ts
+    // fails if app code ever deletes from it (this script is excluded by name).
+    // These rows are this run's own made-up @invalid.example addresses, removed
+    // so that staging is left exactly as found.
+    await tryDo('review_request_suppressions', async () => {
+      const { hashEmail } = await mod('lib/review-requests.ts');
+      return unlessMissing(await db.from('review_request_suppressions').delete().in('email_hash', RR_ADDRESSES.map((a) => hashEmail(a))));
+    });
     await tryDo('users', () => db.from('users').delete().like('email', 'dummy-run+%@invalid.example'));
     await tryDo('retailers', () => db.from('retailers').delete().like('name', `${TEST_PREFIX}%`));
     await tryDo('funder_users', () => db.from('funder_users').delete().eq('email', FUNDER_EMAIL));
@@ -1389,6 +1413,83 @@ describe('dummy run on staging', () => {
       // Nothing about a customer or a contact can be in it: the loader reads only the name, town and listing id.
       need(!/@|07700/.test(JSON.stringify({ ...bulk.data, pdfBase64: '' })), 'the bulk response carries a contact detail');
       return `one A6 page with trim and bleed for shop A, set in embedded Lato; refused without the signature; bulk file of ${connected} connected shops, one page each, G left out unless asked for; admin password needed`;
+    });
+
+    // ════════ 9a. Review requests: the do-not-email list, the dry run, the send ════════
+    await step('review requests', 'off: nothing can be sent. On: a "stop" added by hand and an unsubscribe by link are each left out of every later dry run and send, for every shop; each email has a working unsubscribe link and headers', async () => {
+      // Needs migration 20261121100000_review_requests on staging.
+      const rr = (body: any, auth = `Bearer ${process.env.ADMIN_PASSWORD}`) => call('admin/review-requests', 'POST', '/api/admin/review-requests', { body, headers: { authorization: auth } });
+      const { reviewRequestsEnabled, hashEmail } = await mod('lib/review-requests.ts');
+      const [D, F] = [shops.d, shops.f];
+      const toRR = (from: number) => world.emails.slice(from).filter((e) => RR_ADDRESSES.includes(e.to));
+      const csv1 = RR_ADDRESSES.slice(0, 4).join('\n');
+      const suppressions = async () => (await db.from('review_request_suppressions').select('email_hash, source, added_at').in('email_hash', RR_ADDRESSES.map(hashEmail))).data || [];
+
+      // Switched off (the launcher never sets it): a dry run works, a send is refused, nothing is captured.
+      need(!reviewRequestsEnabled(), 'REVIEW_REQUESTS is on at the start of the run');
+      let em0 = world.emails.length;
+      const offDry = await rr({ action: 'dry_run', retailerId: D.retailerId, csv: csv1 });
+      need(offDry.status === 200 && offDry.data.enabled === false && offDry.data.willSend === 4, `dry run with the switch off: ${offDry.status} ${offDry.text.slice(0, 200)}`);
+      const offSend = await rr({ action: 'send', retailerId: D.retailerId, csv: csv1, confirmCount: '4' });
+      need(offSend.status === 403 && world.emails.length === em0, `send with the switch off: ${offSend.status}, ${world.emails.length - em0} email(s)`);
+      need((await rr({ action: 'suppress', email: RR_ADDRESSES[0] }, 'Bearer wrong')).status === 401, 'the do-not-email list took an address without the admin password');
+      need((await rr({ action: 'suppress', email: 'not an address' })).status === 400, 'a malformed address was accepted');
+
+      process.env.REVIEW_REQUESTS = 'on';
+      try {
+        // An operator records a "stop" by hand, typed in mixed case with spaces.
+        const added = await rr({ action: 'suppress', email: `  ${RR_ADDRESSES[1].toUpperCase().replace('INVALID.EXAMPLE', 'Invalid.Example')} ` });
+        const again = await rr({ action: 'suppress', email: RR_ADDRESSES[1] });
+        need(added.status === 200 && /^Done\./.test(added.data.message) && again.text === added.text, `manual add: ${added.status} ${added.text.slice(0, 120)} / again: ${again.text.slice(0, 120)}`);
+        const s1 = await suppressions();
+        need(s1.length === 1 && s1[0].email_hash === hashEmail(RR_ADDRESSES[1]) && s1[0].source === 'operator' && s1[0].added_at, `the list after the manual add: ${JSON.stringify(s1)}`);
+
+        // Dry run for D: the one added by hand is left out, the other three would go.
+        const dry = await rr({ action: 'dry_run', retailerId: D.retailerId, csv: csv1 });
+        const out = dry.data.rows.filter((r: any) => !r.send);
+        need(dry.status === 200 && dry.data.enabled && dry.data.willSend === 3 && out.length === 1 && out[0].email === RR_ADDRESSES[1] && out[0].reason === 'unsubscribed from review requests', `dry run for D: ${dry.text.slice(0, 300)}`);
+
+        // Confirm and send: three emails, captured by the fake, never sent.
+        em0 = world.emails.length;
+        const sent = await rr({ action: 'send', retailerId: D.retailerId, csv: csv1, confirmCount: '3' });
+        const mail = toRR(em0);
+        need(sent.status === 200 && sent.data.result.sent === 3 && mail.length === 3 && world.emails.length === em0 + 3, `send for D: ${sent.status} ${sent.text.slice(0, 200)}; ${mail.length} captured`);
+        need(!mail.some((e) => e.to === RR_ADDRESSES[1]), 'the address added by hand was emailed');
+        for (const e of mail) {
+          const link = /^(https?:\/\/\S+\/api\/review-requests\/unsubscribe\?t=[0-9a-f]{64}\.[0-9a-f]{32})$/m.exec(e.text)?.[1];
+          need(link, `no unsubscribe link in the email to ${e.to}`);
+          need(e.headers['List-Unsubscribe'] === `<${link}>` && e.headers['List-Unsubscribe-Post'] === 'List-Unsubscribe=One-Click', `headers on the email to ${e.to}: ${JSON.stringify(e.headers)}`);
+          need(e.html === '' && e.replyTo === EMAIL('d') && / via Stellar Local" </.test(e.from), `from/reply-to on the email to ${e.to}: ${e.from} / ${e.replyTo}`);
+        }
+        const { data: rows } = await db.from('review_requests').select('email_hash, status').eq('retailer_id', D.retailerId);
+        need(rows.length === 3 && rows.every((r: any) => r.status === 'sent' && /^[0-9a-f]{64}$/.test(r.email_hash)), `review_requests rows for D: ${JSON.stringify(rows)}`);
+
+        // One of them unsubscribes: the page first (changes nothing), then the mail client's one-click POST.
+        const leaver = mail[0];
+        const link = new URL(/^(https?:\/\/\S+\/api\/review-requests\/unsubscribe\?t=\S+)$/m.exec(leaver.text)![1]);
+        const page = await call('review-requests/unsubscribe', 'GET', link.pathname + link.search);
+        need(page.status === 200 && /Stop review requests\?/.test(page.text) && (await suppressions()).length === 1, `opening the link: ${page.status}, list ${(await suppressions()).length}`);
+        const gone = await call('review-requests/unsubscribe', 'POST', link.pathname + link.search, { form: { 'List-Unsubscribe': 'One-Click' } });
+        const s2 = await suppressions();
+        need(gone.status === 200 && s2.length === 2 && s2.some((r: any) => r.email_hash === hashEmail(leaver.to) && r.source === 'link'), `one-click unsubscribe: ${gone.status}, list ${JSON.stringify(s2)}`);
+
+        // Another shop, F, with a file holding both: both left out, the rest sent.
+        const csv2 = [leaver.to.toUpperCase(), RR_ADDRESSES[1], RR_ADDRESSES[4]].join('\n');
+        const dry2 = await rr({ action: 'dry_run', retailerId: F.retailerId, csv: csv2 });
+        const reasons = dry2.data.rows.map((r: any) => r.reason);
+        need(dry2.status === 200 && dry2.data.willSend === 1 && reasons[0] === 'unsubscribed from review requests' && reasons[1] === 'unsubscribed from review requests' && reasons[2] === null, `dry run for F: ${dry2.text.slice(0, 300)}`);
+        em0 = world.emails.length;
+        const sent2 = await rr({ action: 'send', retailerId: F.retailerId, csv: csv2, confirmCount: '1' });
+        const mail2 = toRR(em0);
+        need(sent2.status === 200 && mail2.length === 1 && mail2[0].to === RR_ADDRESSES[4] && mail2[0].replyTo === EMAIL('f2'), `send for F: ${sent2.text.slice(0, 200)}; to ${mail2.map((e) => e.to)}`);
+
+        // Nothing about an address is stored as the address.
+        const stored = JSON.stringify([await suppressions(), (await db.from('review_request_history').select('*').in('retailer_id', [D.retailerId, F.retailerId])).data, (await db.from('review_requests').select('*').in('retailer_id', [D.retailerId, F.retailerId])).data]);
+        need(!stored.includes('@'), 'an address was stored in a review request table');
+        return 'off: dry run only, send refused, 0 captured; on: a "stop" added by hand in mixed case left out of D\'s dry run and send; 3 sent to D, each with its unsubscribe link and List-Unsubscribe headers (captured, not sent); one unsubscribed by one-click POST; F\'s file with both of them sent to the other address only; hashes only stored';
+      } finally {
+        delete process.env.REVIEW_REQUESTS;
+      }
     });
 
     // ════════ 9b. Google access lost; hours, holiday hours and website from Settings; undo ════════
