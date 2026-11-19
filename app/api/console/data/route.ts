@@ -3,6 +3,11 @@ import { supabaseAdmin } from '@/lib/supabase';
 import { consoleGate } from '@/lib/console-api';
 import { loadConsoleData } from '@/lib/console-data';
 
+// With the console flag off at build time this handler returns before reading
+// cookies, so Next would prerender its 404 and serve it forever, even after
+// the flag is turned on. Always run it per request.
+export const dynamic = 'force-dynamic';
+
 /** Console and league data. 404 while the flag is off; 401 without a funder session. */
 export async function GET(request: NextRequest) {
   const gate = consoleGate(request);
