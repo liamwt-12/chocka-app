@@ -139,7 +139,7 @@ def main():
         'DUMMY_RUN_OUT': out_path or '',
     })
     # The run turns these on and off itself, to prove both states.
-    for flag in ('SHOP_PHOTOS', 'SHOP_PHOTOS_TO_LISTING', 'TARKETT_CONSOLE_ENABLED', 'EARLY_POST_PREVIEW_EMAILS', 'ANTHROPIC_MODEL'):
+    for flag in ('SHOP_PHOTOS', 'SHOP_PHOTOS_TO_LISTING', 'TARKETT_CONSOLE_ENABLED', 'EARLY_POST_PREVIEW_EMAILS', 'REVIEW_REQUESTS', 'ANTHROPIC_MODEL'):
         env.pop(flag, None)
 
     print('running the dummy run …\n')

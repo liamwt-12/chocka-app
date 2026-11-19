@@ -4,9 +4,19 @@ import { verifyCronSecret, unauthorizedResponse, admitEntitled } from '@/lib/cro
 import { sendSMS, logSMS } from '@/lib/twilio';
 import { sendEmail } from '@/lib/email';
 import { getTenantForRow } from '@/lib/tenant';
+import { purgeReviewRequests } from '@/lib/review-requests-data';
 
 export async function GET(request: NextRequest) {
   if (!verifyCronSecret(request)) return unauthorizedResponse();
+
+  // Daily clear-out of review request records (lib/review-requests.ts):
+  // per-email rows after 30 days, "already asked" after 365. Two deletes, so
+  // well inside this job's time. First, so a slow onboarding run cannot crowd
+  // it out. It never throws: if it fails (for example, before its migration is
+  // applied) that is logged and the onboarding sequence runs as before.
+  const purge = await purgeReviewRequests(supabaseAdmin, new Date());
+  if (purge.ok) console.log(`[cron:onboarding-sequence] review requests cleared: ${purge.requestsDeleted} sent-email rows older than 30 days, ${purge.historyDeleted} "already asked" entries older than 365 days`);
+  else console.warn(`[cron:onboarding-sequence] review request clear-out did not run: ${purge.detail}`);
 
   try {
     // Get users in onboarding (steps 0-7)

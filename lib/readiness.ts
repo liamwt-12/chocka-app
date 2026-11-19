@@ -52,6 +52,7 @@ export function settingChecks(env: Env = process.env): Check[] {
   out.push({ key: 'REVIEW_ALERT_EMAILS', label: 'Email every shop about every new review', ok: null, detail: isOn(env, 'REVIEW_ALERT_EMAILS') ? 'ON. Every connected shop is emailed about a new review, whether or not replies are switched on.' : 'Off. Only shops with replies on hear about a review, and only a low one. Read the emails in this page first, then set REVIEW_ALERT_EMAILS=on.' });
   out.push({ key: 'HANDS_OFF_MODE', label: 'Hands-off mode (the shop chooses: we post and reply without asking each time)', ok: null, detail: isOn(env, 'HANDS_OFF_MODE') ? 'ON. A shop that connects is offered Hands-off or Ask me first, and for a shop that chose Hands-off posts and replies go out without further approval. Check the wording was reviewed first.' : 'Off. Every shop is asked first, as before. Set HANDS_OFF_MODE=on once the wording has been reviewed.' });
   out.push({ key: 'CONNECTION_LOST_EMAILS', label: 'Email a shop when its Google connection is lost', ok: null, detail: isOn(env, 'CONNECTION_LOST_EMAILS') ? 'ON. A shop whose Google connection stops working is emailed once, then once a week until it reconnects, at its own address only.' : 'Off. A lost connection shows on the shop\'s dashboard and here, and no email is sent. Read the email in this page first, apply migration 20261121090000_connection_lost_notice_marker, then set CONNECTION_LOST_EMAILS=on.' });
+  out.push({ key: 'REVIEW_REQUESTS', label: 'Review requests (emails to a shop\'s customers, from a list the shop gives)', ok: null, detail: isOn(env, 'REVIEW_REQUESTS') ? 'ON. An operator can send a shop\'s review request to its customers, after a dry run and typing the count. Check the solicitor has seen the notes and the shop terms cover it.' : 'Off. An operator can upload a list and see a dry run; nothing can be sent.' });
   out.push({ key: 'SHOP_PHOTOS', label: 'Photos', ok: null, detail: isOn(env, 'SHOP_PHOTOS') ? `ON${isOn(env, 'SHOP_PHOTOS_TO_LISTING') ? ', and photos can be added to the listing itself' : ''}.` : 'Off.' });
   out.push({ key: 'RETENTION_VIEW', label: 'Retention view (which shops are drifting)', ok: null, detail: isOn(env, 'RETENTION_VIEW') ? 'ON. Admin can see it, and the app records when each shop last opened its dashboard.' : 'Off. Set RETENTION_VIEW=on to use it.' });
   out.push({ key: 'MONTHLY_REPORT_PLAIN_SUMMARY', label: 'Monthly report: "what we did, what changed" in words', ok: null, detail: isOn(env, 'MONTHLY_REPORT_PLAIN_SUMMARY') ? 'ON. The monthly report opens with a plain summary.' : 'Off. The monthly report is as it was.' });
@@ -80,7 +81,7 @@ export function settingChecks(env: Env = process.env): Check[] {
  * One read per database change, to see that it has been applied. If a column
  * is missing the read fails, and that names the migration to apply.
  */
-export const SCHEMA_PROBES: Array<{ migration: string; label: string; table: string; columns: string }> = [
+export const SCHEMA_PROBES: Array<{ migration: string; label: string; table: string; columns: string; onlyWhenOn?: string }> = [
   { migration: '20261114120000_create_change_log', label: 'Change log (undo)', table: 'change_log', columns: 'id, before_value, reverted_at' },
   { migration: '20261115100000_daily_metrics', label: 'Daily figures', table: 'daily_metrics', columns: 'profile_id, date, metric' },
   { migration: '20261115110000_retailer_ad_start_date', label: 'Ad start date', table: 'retailers', columns: 'ad_start_date' },
@@ -97,6 +98,10 @@ export const SCHEMA_PROBES: Array<{ migration: string; label: string; table: str
   { migration: '20261119100000_review_snapshot', label: 'Review totals per listing (network rating)', table: 'profiles', columns: 'review_rating, review_count, reviews_read, reviews_answered, review_snapshot_at' },
   { migration: '20261119090000_automation_mode', label: 'Hands-off or ask me first, and Pause', table: 'users', columns: 'automation_mode, automation_mode_chosen_at, automation_consent_at, automation_consent_version, automation_paused_at' },
   { migration: '20261121090000_connection_lost_notice_marker', label: 'Connection-lost email marker', table: 'users', columns: 'connection_lost_notice_at' },
+  // Needed only once review requests are switched on: until then a missing table is a note, not a cross.
+  { migration: '20261121100000_review_requests', label: 'Review requests: emails sent', table: 'review_requests', columns: 'id, retailer_id, email_hash, batch_id, status, created_at', onlyWhenOn: 'REVIEW_REQUESTS' },
+  { migration: '20261121100000_review_requests', label: 'Review requests: who each shop has asked', table: 'review_request_history', columns: 'retailer_id, email_hash, first_asked_at', onlyWhenOn: 'REVIEW_REQUESTS' },
+  { migration: '20261121100000_review_requests', label: 'Review requests: do-not-email list', table: 'review_request_suppressions', columns: 'email_hash, added_at, source', onlyWhenOn: 'REVIEW_REQUESTS' },
 ];
 
 /**
@@ -110,12 +115,14 @@ export const NOT_PROBEABLE: Array<{ migration: string; label: string }> = [
 
 export interface ReadinessDb { from(table: string): any }
 
-export async function schemaChecks(db: ReadinessDb): Promise<Check[]> {
+export async function schemaChecks(db: ReadinessDb, env: Env = process.env): Promise<Check[]> {
   const out: Check[] = [];
   for (const p of SCHEMA_PROBES) {
     try {
       const { error } = await db.from(p.table).select(p.columns).limit(1);
-      out.push({ key: `${p.table}:${p.columns}`, label: p.label, ok: !error, detail: error ? `Not in the database. Apply migration ${p.migration}.` : 'In place.' });
+      // A table only a switched-off feature uses: missing is a note, not something to fix before inviting shops.
+      const optional = !!p.onlyWhenOn && !isOn(env, p.onlyWhenOn);
+      out.push({ key: `${p.table}:${p.columns}`, label: p.label, ok: !error ? true : optional ? null : false, detail: !error ? 'In place.' : optional ? `Not in the database yet. Needed only before ${p.onlyWhenOn}=on: apply migration ${p.migration} first.` : `Not in the database. Apply migration ${p.migration}.` });
     } catch (e) {
       out.push({ key: `${p.table}:${p.columns}`, label: p.label, ok: false, detail: `Could not check (${String((e as any)?.message).slice(0, 80)}).` });
     }

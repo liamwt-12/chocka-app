@@ -2,6 +2,8 @@
 
 import { useState, useMemo } from 'react';
 import PhotoPanel from '@/components/admin/PhotoPanel';
+import ReviewRequestPanel from '@/components/admin/ReviewRequestPanel';
+import { needsHelpCsv } from '@/lib/needs-help-csv';
 import VoiceFields, { draftFromVoice, EMPTY_DRAFT, type VoiceDraft } from '@/components/VoiceFields';
 
 // Pilot admin: add a retailer, generate invite links (never sends), see who is live.
@@ -57,6 +59,8 @@ export default function PilotAdminPage() {
   // Photos: only shown when the server says SHOP_PHOTOS is on.
   const [photosEnabled, setPhotosEnabled] = useState(false);
   const [photosFor, setPhotosFor] = useState<Row | null>(null);
+  // Review requests for one shop's customers (components/admin/ReviewRequestPanel.tsx). Dry run only unless REVIEW_REQUESTS=on.
+  const [requestsFor, setRequestsFor] = useState<Row | null>(null);
 
   const call = async (payload: object) => {
     const res = await fetch('/api/admin/pilot', {
@@ -234,11 +238,11 @@ export default function PilotAdminPage() {
   };
   const checkReady = async () => { setBusy(true); setMsg(''); try { setReady(await call({ action: 'readiness' })); } catch (e: any) { setMsg(e.message); } setBusy(false); };
 
-  // The needs-help list as a file, to hand to whoever is ringing round. No contact details in it.
+  // The needs-help list as a file, to hand to whoever is ringing round. No contact details in it (lib/needs-help-csv.ts):
+  // only the fields it needs are passed, never the row with its contact address.
   const downloadHelp = () => {
-    const esc = (v: string) => { const t = String(v ?? ''); const risky = /^[=+\-@]/.test(t); return `"${(risky ? `'${t}` : t).replace(/"/g, '""')}"`; };
-    const lines = ['shop,town,status,waiting since,what happened,what to do,note', ...helpRows.map((r) => [r.name, r.town || '', r.help.label, (r.help.since || '').slice(0, 10), r.help.why, r.help.action, r.note || ''].map(esc).join(','))];
-    const url = URL.createObjectURL(new Blob([lines.join('\n')], { type: 'text/csv' }));
+    const file = needsHelpCsv(helpRows.map((r) => ({ name: r.name, town: r.town, help: r.help, note: r.note })));
+    const url = URL.createObjectURL(new Blob([file], { type: 'text/csv' }));
     const a = document.createElement('a'); a.href = url; a.download = `stellar-needs-help-${new Date().toISOString().slice(0, 10)}.csv`; a.click();
     URL.revokeObjectURL(url);
   };
@@ -359,6 +363,12 @@ export default function PilotAdminPage() {
         {photosFor && photosEnabled && (
           <div style={{ ...card, border: `2px solid ${C.text}` }}>
             <PhotoPanel shop={{ id: photosFor.id, name: photosFor.name }} password={password} onClose={() => setPhotosFor(null)} onChanged={load} />
+          </div>
+        )}
+
+        {requestsFor && (
+          <div style={{ ...card, border: `2px solid ${C.text}` }}>
+            <ReviewRequestPanel shop={{ id: requestsFor.id, name: requestsFor.name }} password={password} onClose={() => setRequestsFor(null)} />
           </div>
         )}
 
@@ -598,6 +608,7 @@ export default function PilotAdminPage() {
                             {r.review.cardPath && <a href={r.review.cardPath} target="_blank" rel="noreferrer" style={{ color: C.text, fontSize: 13, fontWeight: 600, padding: '2px 6px' }}>Card</a>}
                             {r.review.pdfPath && <a href={r.review.pdfPath} title="Print-ready A6 PDF, with bleed, for a printer" style={{ color: C.text, fontSize: 13, fontWeight: 600, padding: '2px 6px' }}>PDF</a>}
                             {r.review.source === 'baseline' && <span title="This shop has not connected its listing yet, so the link uses the listing matched from Tarkett's store list. Scan the card and check it opens the right shop before printing." style={{ color: C.amber, fontSize: 12 }}> check first</span>}
+                            {r.review.source === 'connected' && <button onClick={() => setRequestsFor(r)} title="Email the shop's customers, from a list the shop gives you, asking for a review. Dry run first." style={{ ...btn, background: 'transparent', color: C.text, padding: '2px 6px', textDecoration: 'underline' }}>Ask customers</button>}
                           </>
                         ) : <span style={{ color: C.soft }} title="No Google place ID on record for this shop yet. It appears once the shop connects its listing.">No listing yet</span>}
                       </td>

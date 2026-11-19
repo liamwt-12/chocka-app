@@ -72,7 +72,7 @@ export function addReview(l: FakeListing, id: string, stars: 'ONE' | 'TWO' | 'TH
 export interface World {
   personas: Record<string, Persona>;
   modelCalls: Array<{ system: string; user: string; model: string }>;
-  emails: Array<{ to: string; subject: string; html: string; /** Set for a plain-text email, which has no HTML part. */ text: string }>;
+  emails: Array<{ to: string; subject: string; html: string; /** Set for a plain-text email, which has no HTML part. */ text: string; from: string; replyTo: string | null; headers: Record<string, string> }>;
   sms: Array<{ to: string; body: string }>;
   blocked: string[];
   unhandledGoogle: string[];
@@ -303,7 +303,7 @@ export function installFetchGuard(world: World, stagingHost: string): typeof fet
     if (host === 'api.anthropic.com') return fakeModel(world, init);
     if (host === 'api.resend.com') {
       const b = JSON.parse(bodyText(init) || '{}');
-      world.emails.push({ to: String(b.to), subject: String(b.subject), html: b.html === undefined ? '' : String(b.html), text: b.text === undefined ? '' : String(b.text) });
+      world.emails.push({ to: String(b.to), subject: String(b.subject), html: b.html === undefined ? '' : String(b.html), text: b.text === undefined ? '' : String(b.text), from: String(b.from ?? ''), replyTo: b.reply_to === undefined ? null : String(b.reply_to), headers: b.headers && typeof b.headers === 'object' ? b.headers : {} });
       return json({ id: `fake-email-${world.emails.length}` });
     }
     if (host === 'api.twilio.com') {
