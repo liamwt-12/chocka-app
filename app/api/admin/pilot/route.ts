@@ -9,7 +9,7 @@ import { parseVoiceProfile, readStoredVoice, isEmptyVoice } from '@/lib/voice';
 import { resetConnection } from '@/lib/connection-reset';
 import { shopStatus, liveRulesFromEnv, STATUS_USER_COLUMNS } from '@/lib/shop-status';
 import { parseSpendPounds, adDatesProblem } from '@/lib/ad-spend';
-import { loadStatement, statementCsv, billingSettingsFromEnv, termProblem } from '@/lib/billing';
+import { loadStatement, statementCsv, billingSettingsFromEnv, termProblem, StatementNotAvailable } from '@/lib/billing';
 import { describeChange, undoChange } from '@/lib/revert';
 import { settingChecks, schemaChecks, dataChecks, summary } from '@/lib/readiness';
 import { retentionEnabled, retentionCsv } from '@/lib/retention';
@@ -210,7 +210,12 @@ export async function POST(request: NextRequest) {
         // No statement until the term it belongs to is set. Said plainly, not as a failure.
         const notYet = termProblem(billingSettingsFromEnv());
         if (notYet) return NextResponse.json({ error: notYet, notAvailable: true }, { status: 409 });
-        const statement = await loadStatement(supabaseAdmin, tenantRow.id, month, billingSettingsFromEnv());
+        const statement = await loadStatement(supabaseAdmin, tenantRow.id, month, billingSettingsFromEnv()).catch((e) => {
+          // The total ceiling can also refuse, when an earlier month of the term cannot be worked out. Said plainly too.
+          if (e instanceof StatementNotAvailable) return e;
+          throw e;
+        });
+        if (statement instanceof StatementNotAvailable) return NextResponse.json({ error: statement.message, notAvailable: true }, { status: 409 });
         return NextResponse.json({ statement, csv: statementCsv(statement) });
       }
 

@@ -41,6 +41,23 @@ describe('settings', () => {
     expect(settingChecks({ ...FULL, BILLING_MONTHLY_CAP_PENCE: '2500', BILLING_TERM_START: '2030-01-01', BILLING_TERM_END: '2030-12-31' }).find((c) => c.key === 'BILLING')!.ok).toBeNull();
     expect(settingChecks(FULL).find((c) => c.key === 'WELCOME_EMAIL')!.detail).toMatch(/^Off/);
   });
+  it('the total ceiling: present or absent, never its value; wrong, or without the term, a cross', () => {
+    const line = (env: any) => settingChecks(env).find((c) => c.key === 'BILLING_TOTAL_CEILING')!;
+    expect(line(FULL)).toMatchObject({ ok: null, detail: expect.stringMatching(/^Not set\./) });
+    expect(summary(settingChecks(FULL)).ready).toBe(true);
+    const set = line({ ...FULL, BILLING_PRICE_PENCE_PER_SHOP: '777', BILLING_TOTAL_CEILING_PENCE: '12345' });
+    expect(set).toMatchObject({ ok: null, detail: expect.stringMatching(/^Set\. Fees across the term, after the monthly cap, stop at it/) });
+    expect(JSON.stringify(settingChecks({ ...FULL, BILLING_TOTAL_CEILING_PENCE: '12345' }))).not.toContain('12345');
+    expect(line({ ...FULL, BILLING_TOTAL_CEILING_PENCE: '12345' }).detail).toMatch(/No price is set/);
+    for (const bad of ['12.5', '0', 'abc']) {
+      expect(line({ ...FULL, BILLING_TOTAL_CEILING_PENCE: bad })).toMatchObject({ ok: false, detail: expect.stringMatching(/not a whole number of pence/) });
+      expect(JSON.stringify(settingChecks({ ...FULL, BILLING_TOTAL_CEILING_PENCE: bad }))).not.toContain(`"${bad}"`);
+      expect(settingChecks({ ...FULL, BILLING_TOTAL_CEILING_PENCE: bad }).find((c) => c.key === 'BILLING')!.ok).toBe(false);
+    }
+    const noTerm = { ...FULL, BILLING_TERM_START: '', BILLING_TERM_END: '', BILLING_TOTAL_CEILING_PENCE: '12345' };
+    expect(line(noTerm)).toMatchObject({ ok: false, detail: expect.stringMatching(/the term it belongs to is not/) });
+    expect(settingChecks(noTerm).find((c) => c.key === 'BILLING')!.detail).toMatch(/a total ceiling is set \(BILLING_TOTAL_CEILING_PENCE\) but the term it belongs to is not/);
+  });
 });
 
 describe('database', () => {

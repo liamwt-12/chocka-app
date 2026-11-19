@@ -33,16 +33,38 @@
  * applied, and the statement says so in words: a cap that quietly applied for
  * ever would become the price.
  *
+ * A TOTAL CEILING FOR THE TERM. If BILLING_TOTAL_CEILING_PENCE is set, the
+ * fees across the term (what each month inside the term charges, AFTER the
+ * monthly cap and its credit line) stop at it. The term then ends at
+ * whichever comes first: BILLING_TERM_END, or the month in which the fees
+ * reach the ceiling. In that month only what is left of the ceiling is
+ * charged, and the rest is one more credit line:
+ *
+ *     live shops x price
+ *     credit: above the monthly cap
+ *     credit: above the total ceiling for the term   (only in the month it is reached)
+ *     total
+ *
+ * Every later month inside the term charges nothing, and says the term ended
+ * in the month the ceiling was reached. What earlier months charged is worked
+ * out from the same daily record and the same rules as their own statements
+ * (totalCeilingForMonth); if an earlier month cannot be worked out (it has
+ * not ended, or no count was taken on its last day) there is no statement,
+ * rather than a guess. Months after BILLING_TERM_END are as before: no cap,
+ * no ceiling, and the statement says the term has ended.
+ *
  * NO STATEMENT WITHOUT THE TERM. Until both term dates are set, no statement
- * is produced at all (termProblem), and the launch check shows a cross. The
+ * is produced at all (termProblem), and the launch check shows a cross. A
+ * total ceiling that is not a whole number of pence also stops it. The
  * daily record of who is live is still kept, so nothing is lost meanwhile.
  *
- * NO PRICE, NO CAP AND NO DATE IS WRITTEN IN THIS CODE. The repository is
- * public. All four are settings, with no defaults:
+ * NO PRICE, NO CAP, NO CEILING AND NO DATE IS WRITTEN IN THIS CODE. The
+ * repository is public. All five are settings, with no defaults:
  *     BILLING_PRICE_PENCE_PER_SHOP   whole pence. Unset = counts only, no money shown
  *     BILLING_MONTHLY_CAP_PENCE      whole pence. Unset = no cap
  *     BILLING_TERM_START             a day, YYYY-MM-DD. The first day of the term
  *     BILLING_TERM_END               a day, YYYY-MM-DD. The last day of the term
+ *     BILLING_TOTAL_CEILING_PENCE    whole pence, above nought. Unset = no total ceiling
  *
  * It produces a statement for a person to check. It does not raise an invoice,
  * charge anything or send anything.
@@ -50,7 +72,11 @@
 import { shopStatus, liveRulesFromEnv, STATUS_USER_COLUMNS, type LiveRules, type StatusInvite, type StatusUser } from './shop-status';
 import { MANAGER_EMBED } from './managed-access';
 
-export interface BillingSettings { pricePence: number | null; capPence: number | null; /** First and last day of the term the cap belongs to. Optional so a caller with no cap need not name them. */ termStart?: string | null; termEnd?: string | null }
+export interface BillingSettings { pricePence: number | null; capPence: number | null; /** First and last day of the term the cap belongs to. Optional so a caller with no cap need not name them. */ termStart?: string | null; termEnd?: string | null;
+  /** The most the whole term can charge, after the monthly cap. Optional: unset means no total ceiling. */
+  totalCeilingPence?: number | null;
+  /** True when BILLING_TOTAL_CEILING_PENCE is there but is not a whole number of pence above nought. No statement then. */
+  totalCeilingInvalid?: boolean }
 
 const wholeNumber = (v: string | undefined, min: number): number | null => {
   if (v === undefined || v.trim() === '') return null;
@@ -74,6 +100,10 @@ export function billingSettingsFromEnv(env: Record<string, string | undefined> =
     capPence: wholeNumber(env.BILLING_MONTHLY_CAP_PENCE, 0),
     termStart: dayOrNull(env.BILLING_TERM_START),
     termEnd: dayOrNull(env.BILLING_TERM_END),
+    totalCeilingPence: wholeNumber(env.BILLING_TOTAL_CEILING_PENCE, 1),
+    // Unlike the price and the cap, a ceiling typed wrongly must not quietly
+    // become "no ceiling": that would charge past it. It stops the statement.
+    totalCeilingInvalid: (env.BILLING_TOTAL_CEILING_PENCE ?? '').trim() !== '' && wholeNumber(env.BILLING_TOTAL_CEILING_PENCE, 1) === null,
   };
 }
 
@@ -85,14 +115,17 @@ export function billingSettingsFromEnv(env: Record<string, string | undefined> =
  * about when the term runs.
  */
 export function termProblem(settings: BillingSettings): string | null {
+  if (settings.totalCeilingInvalid) return 'No statement can be produced: BILLING_TOTAL_CEILING_PENCE is set but is not a whole number of pence above nought. Correct it, or remove it.';
   const start = dayOrNull(settings.termStart), end = dayOrNull(settings.termEnd);
+  if (!start && !end && settings.totalCeilingPence != null) return 'No statement can be produced: a total ceiling is set (BILLING_TOTAL_CEILING_PENCE) but the term it belongs to is not. Set BILLING_TERM_START and BILLING_TERM_END, each a day written YYYY-MM-DD.';
   if (!start && !end) return 'No statement can be produced until the term is set: BILLING_TERM_START and BILLING_TERM_END, each a day written YYYY-MM-DD.';
   if (!start || !end) return `No statement can be produced until both ends of the term are set: ${!start ? 'BILLING_TERM_START' : 'BILLING_TERM_END'} is missing, or is not a real day written YYYY-MM-DD.`;
   if (end < start) return 'No statement can be produced: the term ends before it starts (BILLING_TERM_START and BILLING_TERM_END).';
   return null;
 }
 
-export type CapReason = 'no_cap' | 'in_term' | 'no_term' | 'bad_term' | 'before_term' | 'after_term';
+/** after_ceiling: the term ended early, when the total ceiling was reached, so nothing is charged and the cap has nothing to do. */
+export type CapReason = 'no_cap' | 'in_term' | 'no_term' | 'bad_term' | 'before_term' | 'after_term' | 'after_ceiling';
 export interface CapForMonth {
   /** Is the cap applied to this month? */
   applies: boolean;
@@ -244,12 +277,109 @@ export interface Statement {
   cap: CapForMonth;
   /** Shops whose charge falls wholly or partly above the cap. */
   shopsAboveCap: number;
-  /** Money, only when a price is set. */
-  money: { grossPence: number; creditPence: number; totalPence: number } | null;
+  /** Money, only when a price is set. creditPence is above the monthly cap; ceilingCreditPence above the total ceiling. */
+  money: { grossPence: number; creditPence: number; ceilingCreditPence: number; totalPence: number } | null;
+  /** Where this month stands against the total ceiling for the term (totalCeilingForMonth). */
+  ceiling: TotalCeiling;
 }
 
-/** Build the statement for one month from its rows. Pure. */
+export type CeilingState =
+  | 'none'          // no total ceiling is set
+  | 'no_price'      // set, but with no price there is nothing to limit
+  | 'outside_term'  // this month does not end inside the term
+  | 'under'         // inside the term, and the fees stay below the ceiling
+  | 'reached'       // the fees reach the ceiling this month: the term ends with it
+  | 'after';        // reached in an earlier month: the term has ended, nothing is charged
+export interface TotalCeiling {
+  state: CeilingState;
+  ceilingPence: number | null;
+  /** What the earlier months of the term charged, after the monthly cap. */
+  chargedBeforePence: number;
+  /** What is left of the ceiling once this month is charged; null when no ceiling applies. */
+  leftAfterPence: number | null;
+  /** The month in which the ceiling was (or is) reached, which is the month the term ends. */
+  reachedIn: string | null;
+  /** A sentence for the statement, or null. */
+  note: string | null;
+}
+
+type MonthStatement = Omit<Statement, 'money' | 'ceiling'> & { money: { grossPence: number; creditPence: number; totalPence: number } | null };
+
+/** "2031-03" as "March 2031". */
+export function monthName(month: string): string {
+  return new Intl.DateTimeFormat('en-GB', { month: 'long', year: 'numeric', timeZone: 'UTC' }).format(new Date(`${month}-01T00:00:00Z`));
+}
+const nextMonth = (month: string) => { const [y, m] = month.split('-').map(Number); return m === 12 ? `${y + 1}-01` : `${y}-${String(m + 1).padStart(2, '0')}`; };
+const poundsSign = (pence: number) => `£${pounds(pence)}`;
+
+/**
+ * THE rule for the total ceiling. One place.
+ *
+ * Walks the months of the term before this one, in order, working out what
+ * each charged with exactly the rules its own statement uses (monthly cap
+ * and all), from the rows given, which must therefore cover every month from
+ * the start of the term. If the ceiling was reached in one of them, the term
+ * ended there and this month charges nothing. If one of them cannot be
+ * worked out (it has not ended, or no count was taken on its last day), no
+ * statement: StatementNotAvailable, never a guess. Pure.
+ */
+export function totalCeilingForMonth(month: string, rows: LiveMonthRow[], settings: BillingSettings, today: string, thisMonthPence: number | null): TotalCeiling {
+  const ceilingPence = settings.totalCeilingPence ?? null;
+  const off = (state: CeilingState): TotalCeiling => ({ state, ceilingPence, chargedBeforePence: 0, leftAfterPence: null, reachedIn: null, note: null });
+  if (settings.totalCeilingInvalid) throw new StatementNotAvailable(termProblem(settings)!);
+  if (ceilingPence === null) return off('none');
+  const problem = termProblem(settings);
+  if (problem) throw new StatementNotAvailable(problem);
+  if (settings.pricePence === null || thisMonthPence === null) return off('no_price');
+  const start = settings.termStart!, end = settings.termEnd!;
+  const last = lastDayOfMonth(month);
+  if (last < start || last > end) return off('outside_term');
+
+  let before = 0;
+  // The first month of the term is the one holding its first day: that month's last day is inside the term.
+  for (let m = monthOf(start); m < month; m = nextMonth(m)) {
+    if (m >= monthOf(today)) throw new StatementNotAvailable(`No statement can be produced for ${monthName(month)} yet: the total ceiling for the term needs what every earlier month of the term charged, and ${monthName(m)} has not ended.`);
+    const earlier = monthStatement(m, rows, settings, today);
+    if (earlier.noCountOnLastDay) throw new StatementNotAvailable(`No statement can be produced for ${monthName(month)}: the total ceiling for the term needs what every earlier month of the term charged, and no count was taken on the last day of ${monthName(m)}, so what it charged is not known.`);
+    before += earlier.money!.totalPence;
+    if (before >= ceilingPence) {
+      return { state: 'after', ceilingPence, chargedBeforePence: before, leftAfterPence: 0, reachedIn: m,
+        note: `Nothing is charged for ${monthName(month)} under this term: the term ended in ${monthName(m)}, when the total ceiling for the term (${poundsSign(ceilingPence)}) was reached.` };
+    }
+  }
+  const left = ceilingPence - before;
+  if (thisMonthPence >= left) {
+    const name = monthName(month);
+    return { state: 'reached', ceilingPence, chargedBeforePence: before, leftAfterPence: 0, reachedIn: month,
+      note: thisMonthPence === left
+        ? `The total ceiling for the term (${poundsSign(ceilingPence)}) is reached exactly in ${name}. The term ends with ${name}.`
+        : `The total ceiling for the term (${poundsSign(ceilingPence)}) is reached in ${name}. Earlier months of the term charged ${poundsSign(before)}, so this month charges only the ${poundsSign(left)} that was left, and the rest is a credit. The term ends with ${name}.` };
+  }
+  return { state: 'under', ceilingPence, chargedBeforePence: before, leftAfterPence: left - thisMonthPence, reachedIn: null,
+    note: `Total ceiling for the term: ${poundsSign(ceilingPence)}. Charged in earlier months of the term: ${poundsSign(before)}. Left after this month: ${poundsSign(left - thisMonthPence)}.` };
+}
+
+/**
+ * Build the statement for one month. Pure. With a total ceiling set, `rows`
+ * must hold every month from the start of the term up to this one (as
+ * loadStatement reads them); without one, this month's rows are enough.
+ */
 export function buildStatement(month: string, rows: LiveMonthRow[], settings: BillingSettings, today: string = ukDay()): Statement {
+  const base = monthStatement(month, rows, settings, today);
+  const ceiling = totalCeilingForMonth(month, rows, settings, today, base.money ? base.money.totalPence : null);
+  if (!base.money) return { ...base, money: null, ceiling };
+  if (ceiling.state === 'after') {
+    // The term has ended: nothing is charged, nobody is above a cap, and the note says why.
+    return { ...base, lines: base.lines.map((l) => ({ ...l, aboveCap: false })), shopsAboveCap: 0,
+      cap: { applies: false, reason: 'after_ceiling', note: null },
+      money: { grossPence: 0, creditPence: 0, ceilingCreditPence: 0, totalPence: 0 }, ceiling };
+  }
+  const ceilingCreditPence = ceiling.state === 'reached' ? base.money.totalPence - (ceiling.ceilingPence! - ceiling.chargedBeforePence) : 0;
+  return { ...base, money: { ...base.money, ceilingCreditPence, totalPence: base.money.totalPence - ceilingCreditPence }, ceiling };
+}
+
+/** One month on its own: who counts, the price and the monthly cap. Every earlier month's charge is worked out with it too. Pure. */
+function monthStatement(month: string, rows: LiveMonthRow[], settings: BillingSettings, today: string): MonthStatement {
   const mine = rows.filter((r) => r.month === month);
   const line = (r: LiveMonthRow, aboveCap = false): StatementLine => ({ name: r.name, town: r.town, liveDays: r.live_days, firstLiveOn: r.first_live_on, lastLiveOn: r.last_live_on, aboveCap });
   // Earliest in the month first, then by name, so who falls above a cap is stable and explainable.
@@ -260,7 +390,7 @@ export function buildStatement(month: string, rows: LiveMonthRow[], settings: Bi
   // The cap only counts inside its term. Outside it, the month is priced as if there were none.
   const cap = capForMonth(settings, month);
   const capPence = cap.applies ? settings.capPence : null;
-  let money: Statement['money'] = null;
+  let money: MonthStatement['money'] = null;
   let withinCap = liveShops;
   if (pricePence !== null) {
     const grossPence = liveShops * pricePence;
@@ -295,13 +425,17 @@ export function statementCsv(s: Statement): string {
   const rows: unknown[][] = [...(s.noCountOnLastDay ? [['WARNING: no count was taken on the last day of this month, so nobody is shown as live. Do not use this statement as it stands.'], []] : []), ['Month', s.month], [s.provisional ? 'Provisional: shops live now' : 'Shops live on the last day of the month', s.decidedOn], ['Live means connected to a verified listing we can reach. It does not depend on what the shop has switched on.'], [], ['Shop', 'Town', 'Days live', 'First live', 'Last live', 'Above the cap']];
   for (const l of s.lines) rows.push([l.name, l.town ?? '', l.liveDays, l.firstLiveOn, l.lastLiveOn, l.aboveCap ? 'yes' : '']);
   rows.push([], ['Live shops', s.liveShops]);
-  if (s.money && s.settings.pricePence !== null) {
+  if (s.money && s.ceiling.state === 'after') {
+    rows.push([], [s.ceiling.note], ['Total', pounds(0)]);
+  } else if (s.money && s.settings.pricePence !== null) {
     rows.push([], [`Live shops x ${pounds(s.settings.pricePence)}`, pounds(s.money.grossPence)]);
     if (s.cap.applies && s.settings.capPence !== null) {
       rows.push(['Monthly cap', pounds(s.settings.capPence)]);
       rows.push(['The cap applies for the term', `${s.settings.termStart} to ${s.settings.termEnd}`]);
     } else if (s.cap.note) rows.push([s.cap.note]);
     if (s.money.creditPence) rows.push([`Credit: above the monthly cap (${s.shopsAboveCap} shop${s.shopsAboveCap === 1 ? '' : 's'})`, `-${pounds(s.money.creditPence)}`]);
+    if (s.ceiling.note) rows.push([s.ceiling.note]);
+    if (s.money.ceilingCreditPence) rows.push(['Credit: above the total ceiling for the term', `-${pounds(s.money.ceilingCreditPence)}`]);
     rows.push(['Total', pounds(s.money.totalPence)]);
   }
   if (s.notCounted.length) { rows.push([], [s.provisional ? 'Not counted: live earlier this month, not live now' : 'Not counted: live during the month, not on its last day']); for (const l of s.notCounted) rows.push([l.name, l.town ?? '', l.liveDays, l.firstLiveOn, l.lastLiveOn]); }
@@ -311,11 +445,29 @@ export function statementCsv(s: Statement): string {
 /** Thrown instead of a statement when the term has not been set. Not a fault: something to set. */
 export class StatementNotAvailable extends Error {}
 
-export async function loadStatement(db: BillingDb, tenantId: string, month: string, settings: BillingSettings = billingSettingsFromEnv()): Promise<Statement> {
+export async function loadStatement(db: BillingDb, tenantId: string, month: string, settings: BillingSettings = billingSettingsFromEnv(), today: string = ukDay()): Promise<Statement> {
   if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(month)) throw new Error('Use a month like 2026-12');
   const problem = termProblem(settings);
   if (problem) throw new StatementNotAvailable(problem);
+  // With a total ceiling, every month of the term up to this one is needed, to know what has been charged.
+  if (settings.totalCeilingPence != null && settings.pricePence !== null) {
+    const first = monthOf(settings.termStart!) < month ? monthOf(settings.termStart!) : month;
+    return buildStatement(month, await liveMonthsBetween(db, tenantId, first, month), settings, today);
+  }
   const { data, error } = await db.from('live_months').select('*').eq('tenant_id', tenantId).eq('month', month);
   if (error) throw new Error(error.message);
-  return buildStatement(month, data || [], settings, ukDay());
+  return buildStatement(month, data || [], settings, today);
+}
+
+/** Every row for a run of months, a page at a time: a term of rows can be more than one read returns. */
+export async function liveMonthsBetween(db: BillingDb, tenantId: string, first: string, last: string): Promise<LiveMonthRow[]> {
+  const PAGE = 1000;
+  const out: LiveMonthRow[] = [];
+  for (let from = 0; ; from += PAGE) {
+    const { data, error } = await db.from('live_months').select('*').eq('tenant_id', tenantId).gte('month', first).lte('month', last)
+      .order('month').order('retailer_id').range(from, from + PAGE - 1);
+    if (error) throw new Error(error.message);
+    out.push(...(data || []));
+    if (!data || data.length < PAGE) return out;
+  }
 }
